@@ -1,0 +1,149 @@
+<header class="it-header-wrapper mt-0">
+    <div class="it-nav-wrapper">
+        <div class="it-header-center-wrapper theme-light border-bottom it-small-header">
+            <div class="container">
+                <div class="row">
+                    <div class="col-12">
+                        <div class="it-header-center-content-wrapper ">
+                            <div class="it-brand-wrapper">
+                                <a href="/">
+                                    <figure class="figure mt-3">
+                                        <img class="figure-img img-fluid"
+                                             src="{{ logo_img_url or "/static/img/logo.png" }}"
+                                             style="width:70%;"/>
+                                    </figure>
+                                    <div class="it-brand-text ml-1">
+                                        <h2 class="no_toc">{{ app_name }}</h2>
+                                    </div>
+                                </a>
+                            </div>
+                            <div class="it-right-zone">
+                                {% if test_env %}
+                                    <div class="it-search-wrapper text-right">
+
+                                        <figure class="figure mt-1">
+
+                                            <img class="figure-img img-fluid"
+                                                 src="/static/img/staging.png"
+                                                 style="width:10%;"/>
+
+                                        </figure>
+                                        <span class="ml-2 d-none d-md-block">{{ env }}</span>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="it-header-navbar-wrapper bg-dark">
+        <div class="container">
+            <div class="row">
+                <div class="col-12">
+                    <!--start nav-->
+                    <nav class="navbar navbar-expand-lg">
+                        <button class="custom-navbar-toggler" type="button"
+                                aria-controls="nav1" aria-expanded="false"
+                                aria-label="Mostra/Nascondi la navigazione"
+                                data-bs-toggle="navbarcollapsible"
+                                data-bs-target="#nav1">
+                            <svg class="icon bg-override">
+                                <use href="/static/bootstrap-italia/svg/sprites.svg#it-burger"></use>
+                            </svg>
+                        </button>
+                        <div class="navbar-collapsable" id="nav2"
+                             style="display: none;">
+                            <div class="overlay" style="display: none;"></div>
+                            <div class="close-div">
+                                <span class="visually-hidden">Nascondi la navigazione</span>
+                                <svg class="icon">
+                                    <use href="/static/bootstrap-italia/svg/sprites.svg#it-close-big"></use>
+                                </svg>
+                            </div>
+                            <div class="menu-wrapper bg-dark">
+                                <ul class="navbar-nav">
+                                    <li class="bg-dark nav-item mt-2 mt-lg-0">
+                                        <a href="/" class="bg-dark btn-full">
+                                            <span class="rounded-icon">
+                                              <svg class="icon icon-light">
+                                                <use href="/static/bootstrap-italia/svg/sprites.svg#it-pa"></use>
+                                              </svg>
+                                            </span>
+                                        </a>
+                                    </li>
+                                    {% if menu_headers %}
+                                        {% for item in menu_headers %}
+                                            {{ item |safe }}
+                                        {% endfor %}
+                                    {% endif %}
+
+                                </ul>
+                                <div class=" it-right-zone mt-5 mt-sm-0">
+                                    <div class="nav-item dropdown bg-xs-light">
+                                        {% if login_user %}
+                                            <a class="nav-link btn dropdown-toggle text-white"
+                                               href="#"
+                                               data-bs-toggle="dropdown"
+                                               aria-expanded="false">
+                                                {% if avatar %}
+                                                    <div class="avatar mr-2"
+                                                         href="#">
+                                                        <img src="{{ avatar }}"
+                                                             alt="">
+                                                    </div>
+                                                {% else %}
+                                                    <div class="avatar mr-2">
+                                                        <svg class="icon size-sm">
+                                                            <use href="/static/bootstrap-italia/svg/sprites.svg#it-user"></use>
+                                                        </svg>
+                                                    </div>
+                                                {% endif %}
+                                                {{ login_user }}
+                                                <svg class="icon-expand icon icon-sm icon-primary">
+                                                    <use href="/static/bootstrap-italia/svg/sprites.svg#it-expand"></use>
+                                                </svg>
+                                            </a>
+                                            <div class="dropdown-menu">
+                                                <div class="row">
+                                                    <div class="col-12">
+                                                        <div class="link-list-wrapper">
+                                                            <ul class="link-list">
+                                                                {% for item in user_menu_items %}
+                                                                    <li>  {{ item |safe }}</li>
+                                                                {% endfor %}
+                                                                <li>
+                                                                    <a class="dropdown-item list-item"
+                                                                       href="{{ login_act }}">
+                                                                        <span class="">Logout</span>
+                                                                    </a>
+                                                                </li>
+                                                            </ul>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        {% else %}
+                                            <a href="/login"
+                                               class="btn-full no-line bg-dark">
+
+                                                <div class="avatar mr-2">
+                                                    <svg class="icon">
+                                                        <use href="/static/bootstrap-italia/svg/sprites.svg#it-user"></use>
+                                                    </svg>
+                                                </div>
+                                                <span class=" text-light">Accedi</span>
+                                            </a>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </nav>
+                </div>
+            </div>
+        </div>
+    </div>
+</header>

@@ -1,0 +1,6 @@
+
+<div id="{{ key }}" class="row border-top border-left border-right">
+    {% for component in items %}
+       {{ component.render(log=False)|safe }}
+    {% endfor %}
+</div>

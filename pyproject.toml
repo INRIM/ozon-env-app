@@ -1,0 +1,97 @@
+[tool.poetry]
+name = "ozon-env-app"
+version = "0.1.0"
+homepage = "https://github.com/archetipo/ozon-env-app"
+description = "Ozon Env App"
+readme = "README.md"
+authors = ["Alessio Gerace <alessio.gerace@gmail.com>"]
+license = "MIT"
+packages = [{ include = "ozonenv_app/**/*.py" }]
+exclude = ["tests/*"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Natural Language :: English",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: Implementation :: CPython"]
+
+[build-system]
+requires = ["poetry_core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.dependencies]
+python = ">=3.10,<4.0"
+ozon-env = { git = "https://github.com/archetipo/ozon-env" }
+pytz = ">=2023.3"
+python-dotenv = ">=1.0.0"
+fastapi = ">=0.100.0"
+python-multipart = ">=0.0.6"
+python-jose = { version = ">=3.3.0", extras = ["cryptography"] }
+passlib = { version = ">=1.7.4", extras = ["bcrypt"] }
+json_logic_qubit = ">=0.9.1"
+cbor2 = ">=5.4.6"
+jinja2 = ">=3.1.2"
+aiopath = ">=0.6.11"
+python-ldap = ">=3.4.3"
+
+
+[tool.poetry.dev-dependencies]
+pytest-asyncio = ">=0.19.0"
+pytest-mock = "*"
+pytest-mock-server = "*"
+pytest-cov = "2.12.0,<4.0.0"
+flake9 = ">=3.8.3"
+isort = ">=5.8.0"
+black = { version = "*", allow-prereleases = true }
+types-toml = "*"
+pytest-html = "*"
+
+[tool.flake8]
+max-complexity = 15
+max-line-length = 79
+extend-ignore = "E203,W293,W291,E211"
+
+[tool.black]
+line-length = 79
+skip-string-normalization = true
+exclude = '(tests/data|\.eggs|\.git|\.hg|\.mypy_cache|\.nox|\.tox|\.venv|_build|buck-out|build|dist|.*\/models\.py.*|.*\/models\/.*)'
+
+[tool.isort]
+line_length = 79
+include_trailing_comma = true
+use_parentheses = true
+force_single_line = true
+skip = "tests"
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "error",
+    "ignore::UserWarning",
+    "ignore::DeprecationWarning",
+    # note the use of single quote below to denote "raw" strings in TOML
+    'ignore:function ham\(\) is deprecated:DeprecationWarning'
+]
+asyncio_mode = "auto"
+
+[tool.coverage.report]
+ignore_errors = true
+exclude_lines = [
+    "if self.debug:",
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "if not TYPE_CHECKING:"]
+
+omit = [
+    "/tests/*"
+]
+
+[project]
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+

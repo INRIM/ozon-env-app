@@ -1,0 +1,12 @@
+.idea
+.pyc
+__pycache__
+env
+.pytest_cache
+tests/i18n
+poetry.lock
+#.coveralls.yml
+htmlcov
+.coverage
+tests/model/*.py
+models/

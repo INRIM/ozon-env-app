@@ -1,0 +1,10 @@
+pytest-asyncio>=0.19.0
+pytest-mock
+pytest-mock-server
+coverage>=7.2.7
+flake9>=3.8.3
+isort>=5.8.0
+black
+types-toml
+pytest-html
+pycamunda

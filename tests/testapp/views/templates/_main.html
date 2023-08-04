@@ -1,0 +1,307 @@
+<html>
+<head>
+    {% block head %}
+        <title>INRiM {{ app_name }}</title>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <meta http-equiv="Pragma" content="no-cache">
+        <meta name="viewport"
+              content="width=device-width, initial-scale=1, shrink-to-fit=no">
+        <link rel="icon" href="/static/favicon/favicon.ico">
+        <meta name="theme-color" content="#0066CC">
+    {% endblock %}
+    {% block styles %}
+
+        <link rel="stylesheet" type="text/css"
+              href="/static/bootstrap/css/bootstrap.min.css">
+        <!--    <link rel="stylesheet" type="text/css"-->
+        <!--          href="/static/bootstrap-icons/font/bootstrap-icons.css">-->
+
+        <!--    <link rel="stylesheet" type="text/css"-->
+        <!--          href="/static/bootstrap/dist/cosmo/bootstrap.min.css">-->
+
+        <link rel="stylesheet" type="text/css"
+              href="/static/formio/dist/formio.full.min.css">
+        <link rel="stylesheet" type="text/css"
+              href="/static/css/project.css">
+
+        <link rel="stylesheet" type="text/css"
+              href="/static/bootstrap-italia/css/bootstrap-italia.min.css">
+        <link rel='stylesheet' href='/static/ckEditor/editor.css'>
+
+
+        <!--    <link rel="stylesheet" type="text/css" -->
+        <!--           href="/static/css/flatpickr.min.css">-->
+        <!--  -->
+        <!--    -->
+        <!--    <link rel="stylesheet" type="text/css" -->
+        <!--           href="/static/css/material_blue.css">-->
+        <!--  -->
+
+        <!--    -->
+        <!--    <link rel="stylesheet" type="text/css" -->
+        <!--           href="/static/DataTables/datatables.min.css"/>-->
+        <!--  -->
+        <!--    -->
+        <!--    <link rel="stylesheet" -->
+        <!--          href="/static/jQuery-QueryBuilder/css/query-builder.default.css">-->
+        <!--  -->
+        <!--    -->
+        <!--    <link rel="stylesheet" type="text/css"-->
+        <!--          href="/static/qr/css/qrcode-reader.min.css"/>-->
+        <!--  -->
+        <!--    -->
+        <!--    <link rel="stylesheet" -->
+        <!--           href="/static/jsonEditor/jsoneditor.min.css"/>-->
+
+
+    {% endblock %}
+</head>
+<body>
+{% block script %}
+    <script type="text/javascript"
+            src="/static/bootstrap/js/bootstrap.min.js"></script>
+
+
+    <script type="text/javascript"
+            src="/static/bootstrap-italia/js/bootstrap-italia.bundle.min.js"></script>
+
+    <script src="/static/js/jquery-3.7.0.min.js"></script>
+
+    <!--<script type="text/javascript" src="/static/qr/js/qrcode-reader.min.js"-->
+    <!--        nonce="2726c7f26c"></script>-->
+
+    <script type="text/javascript"
+            src="/static/js/moment-with-locales.min.js"></script>
+
+    <!--<script type="text/javascript" src="/static/js/flatpickr.js"-->
+    <!--        nonce="2726c7f26c"></script>-->
+
+
+    <!--<script type="text/javascript" src="/static/js/flatpickr_it.js"-->
+    <!--        nonce="2726c7f26c"></script>-->
+
+
+    <!--<script type="text/javascript"-->
+    <!--        src="/static/jquery_plugin/jquery.validate.min.js"-->
+    <!--        nonce="2726c7f26c"></script>-->
+
+
+    <!--<script type="text/javascript"-->
+    <!--        src="/static/jQuery-QueryBuilder/js/query-builder.standalone.min.js"-->
+
+    <!--        nonce="2726c7f26c"></script>-->
+
+
+
+
+
+
+    <!--<script src="https://cdn.ckeditor.com/ckeditor5/38.1.1/classic/ckeditor.js"></script>-->
+
+    <!--<script src="-->
+    <!--    https://cdn.jsdelivr.net/npm/@ckeditor/ckeditor5-editor-decoupled@38.1.1/src/decouplededitor.min.js-->
+    <!--    "></script>-->
+
+    <!--<script type="text/javascript" src="/static/js/project.js"-->
+    <!--        nonce="2726c7f26c"></script>-->
+    <script type="text/javascript" src="/static/formio/dist/formio.full.min.js"
+            nonce="2726c7f26c"></script>
+    <script type="text/javascript" src="/static/DataTables/datatables.min.js"
+            nonce="2726c7f26c"></script>
+
+
+{% endblock %}
+
+{% block header %}{% endblock %}
+
+{% block loader %}
+    <style>
+        #global_progress_loader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 10001;
+            height: 100%;
+            width: 100%;
+            background: rgba(0, 0, 0, 0.3);
+            cursor: not-allowed;
+        }
+
+        #loader_progress {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            width: 100%;
+            cursor: not-allowed;
+        }
+
+        #automation_progress_loader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 10001;
+            height: 100%;
+            width: 100%;
+            background: rgba(0, 0, 0, 0.88);
+            cursor: not-allowed;
+        }
+
+        .ozon-progress-global {
+            height: 5px;
+            background-color: #ffffff;
+        }
+
+        .ozon-progress-global .progress-bar {
+            #background-color: #673AEC;
+        }
+
+        .error {
+            width: auto;
+            position: relative !important;
+            color: red;
+        }
+
+        .alert-danger {
+            background-position: 20px 7px;
+            margin-bottom: 2rem;
+        }
+
+        div.dropdown-menu {
+            width: max-content;
+        }
+
+        .ozon-process-loader img {
+            position: absolute;
+            margin: auto;
+            top: 25%;
+            left: 0;
+            right: 0;
+            width: 25%;
+        }
+
+        /* Chrome, Safari, Edge, Opera */
+        input::-webkit-outer-spin-button,
+        input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+
+        /* Firefox */
+        input[type=number] {
+            -moz-appearance: textfield;
+        }
+
+        .bootstrap-select > .btn {
+            background-color: #FFF !important;
+        }
+
+        .bootstrap-select > .btn.select_diabled {
+            background-color: rgb(231, 233, 242) !important;
+        }
+
+        .text_area_disabled {
+            background-color: rgb(231, 233, 242);
+        }
+
+    </style>
+    <div class=" d-none" id="global_progress_loader">
+        <div id="loader_progress">
+            <div class="progress progress-indeterminate ozon-progress-global">
+                <span class="sr-only">In elaborazione...</span>
+                <div class="progress-bar" role="progressbar"></div>
+            </div>
+        </div>
+    </div>
+    <div class=" d-none" id="automation_progress_loader">
+        <div class="ozon-process-loader">
+            <span class="sr-only">In elaborazione...</span>
+            <img src="/static/img/process_x.gif">
+        </div>
+    </div>
+    <script>
+        window.formJsonEditor = false;
+        window.formeditor = false;
+        window.fileManager = {
+            fields: []
+        };
+    </script>
+{% endblock %}
+<main class="mt-1">
+    {% block content %}{% endblock %}
+</main>
+{% block footer %}
+{% endblock %}
+
+<script type="text/javascript" nonce="{{ nonce or '2726c7f26c' }}">
+
+    let previousPageUrl = document.referrer;
+    let url = previousPageUrl;
+    if (previousPageUrl !== "") {
+        if (!previousPageUrl.includes("container_act=s")) {
+            url = `${previousPageUrl}?container_act=s`;
+        }
+    }
+
+    window.addEventListener("pageshow", function (event) {
+        const entries = performance.getEntriesByType("navigation");
+        entries.forEach((entry) => {
+            if (entry.type !== "realod" && event.persisted) {
+                window.location.reload();
+            }
+        });
+    });
+
+    function btn_back() {
+        if (url !== "") {
+
+            let local_loader = $("#global_progress_loader");
+            if (local_loader !== undefined) {
+                local_loader.removeClass("d-none");
+            }
+            gotolink(url);
+
+        } else {
+            window.close();
+        }
+    }
+
+
+    $(document).on('click', "a", function (e) {
+        let form = $(this).closest('form').get(0);
+        if (!form) {
+            if (
+                $(this).attr('href') !== undefined &&
+                $(this).attr('href') !== '#' &&
+                !$(this).attr('href').includes("blob")
+            ) {
+                $(document).unbind("click");
+                $("#global_progress_loader").removeClass("d-none");
+            }
+        }
+    });
+
+    function gotolink(link) {
+
+        window.location.href = link;
+        //window.location.replace(link)
+    }
+
+
+    moment.locale("it");
+
+
+    let client_id = Date.now();
+
+    // Formio.icons = 'fontawesome';
+    if (Formio) {
+        {#Formio.icons = 'fontawesome';#}
+        Formio.baseUrl = window.location.origin;
+        document.getElementById('renderer-version').innerHTML = Formio.version;
+
+    }
+    if (BOOTSTRAP_ITALIA_VERSION) {
+        document.getElementById('bi-version').innerHTML = BOOTSTRAP_ITALIA_VERSION;
+    }
+</script>
+</body>
+</html>

@@ -1,0 +1,1658 @@
+<html>
+<head>
+    <link rel="stylesheet" type="text/css"
+          href="/static/bootstrap/css/bootstrap.min.css">
+    <link rel="stylesheet" type="text/css"
+          href="/static/bootstrap-icons/font/bootstrap-icons.css">
+
+    <link rel="stylesheet" type="text/css"
+          href="/static/bootstrap/dist/spacelab/bootstrap.min.css">
+
+    <link rel="stylesheet" type="text/css"
+          href="/static/formio/dist/formio.full.min.css">
+
+    <link rel='stylesheet' href='/static/ckEditor/editor.css'>
+
+    <script src="https://cdn.form.io/ace/ace.js"></script>
+    <script type="text/javascript"
+            src="/static/bootstrap/js/bootstrap.min.js"></script>
+
+    <script type="text/javascript" src="/static/formio/dist/formio.full.min.js"
+            nonce="2726c7f26c"></script>
+    <script src="/static/js/jquery-3.7.0.min.js"></script>
+    <script src="/static/js/populate.js"></script>
+    <script src="/static/ckEditor/ckeditor.js"></script>
+    <style>
+        :root, [data-bs-theme=light] {
+            --bs-body-font-size: .9rem;
+            --bs-btn-font-size: .85rem;
+        }
+
+        .btn {
+            --bs-btn-font-size: .9rem;;
+        }
+
+        table {
+            font-family: inherit;
+            font-size: inherit;
+            line-height: inherit;
+        }
+
+        .formio-dialog .formio-dialog-content[ref="dialogContents"] {
+            width: 91%;
+        }
+
+        .choices__list--single {
+            padding: 17px 16px 4px 4px;
+        }
+
+        .choices__list--single:has(div) {
+            padding: 0 !important;
+        }
+
+        #progress_loader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 10001;
+            height: 100%;
+            width: 100%;
+            background: rgba(0, 0, 0, 0.3);
+            cursor: not-allowed;
+        }
+
+        #loader_progress {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            width: 100%;
+            cursor: not-allowed;
+        }
+
+        #automation_progress_loader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 10001;
+            height: 100%;
+            width: 100%;
+            background: rgba(0, 0, 0, 0.88);
+            cursor: not-allowed;
+        }
+
+        .ozon-progress-global {
+            height: 5px;
+            background-color: #ffffff;
+        }
+
+        .ozon-progress-global .progress-bar {
+            #background-color: #673AEC;
+        }
+
+        .error {
+            width: auto;
+            position: relative !important;
+            color: red;
+        }
+
+        .alert-danger {
+            background-position: 20px 7px;
+            margin-bottom: 2rem;
+        }
+
+        div.dropdown-menu {
+            width: max-content;
+        }
+
+
+    </style>
+</head>
+<body>
+<div class=" d-none" id="progress_loader">
+    <div id="loader_progress">
+        <div class="progress progress-indeterminate ozon-progress-global">
+            <span class="sr-only">In elaborazione...</span>
+            <div class="progress-bar" role="progressbar"></div>
+        </div>
+    </div>
+</div>
+<div class="col-12 bg-light mt-2 p-4">
+
+    <div id="builder_alert" class="col-md-12"></div>
+    <form role="form" class="p-1" id="fproject" novalidate>
+
+        <h6 id="t" class="text-center">Design</h6>
+        <div class="row">
+            <div class="col col-sm-2">
+                <div id="form-group-display"
+                     class="form-group">
+                    <label for="display" class="control-label">Display</label>
+                    <select id="display" name="display"
+                            class="form-control  ">
+                        <option label="Form" value="form">Form
+                        </option>
+                        <option label="Wizard" value="wizard">
+                            Wizard
+                        </option>
+                        <option label="Wizard" value="pdf">
+                            PDF
+                        </option>
+                    </select>
+                </div>
+            </div>
+            <div class="col col-sm-2">
+                <div id="form-group-display"
+                     class="form-group">
+                    <label for="type">Tipo</label>
+                    <input type="text" class="form-control  "
+                           id="type" name="type" placeholder="Form type"
+                           required
+                           value="" readonly>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col col-sm-4">
+                <div id="form-group-title" class="form-group">
+                    <label for="title" class="control-label">Titolo<span
+                            class="h5 text-danger">*</span></label>
+                    <input type="text" class="form-control"
+                           id="title" name="title"
+                           placeholder="Enter the form title" required
+                           value="">
+                    <div class="invalid-feedback">Please enter a name</div>
+                </div>
+            </div>
+            <div class="col col-sm-4">
+                <div id="form-group-name" class="form-group">
+                    <label for="rec_name" class="control-label">Name<span
+                            class="h5 text-danger">*</span></label>
+                    <input type="text" class="form-control  "
+                           id="rec_name" name="rec_name"
+                           placeholder="Enter the form machine name"
+                           required
+                           value="">
+                </div>
+            </div>
+            <div class="col col-sm-3">
+                <div id="form-group-data_model" class="form-group">
+                    <label for="data_model"
+                           class="control-label">Model</label>
+
+                    <select id="data_model" name="data_model"
+                            class="form-control  ">
+                        <option label="" value="" selected>Si
+                        </option>
+                        <option label="No Model" value="no_model">No Model
+                        </option>
+
+                    </select>
+                    <small class="form-text text-muted">Si: crea il model |
+                        |
+                        No: solo view senza storage dei dati | |
+                        ?Mdole_name: crea una view alternativa per il model
+                        selezionato</small>
+                </div>
+            </div>
+            <div class="col col-sm-1">
+                <div id="form-group-form_sys" class="form-group">
+                    <label for="sys" class="control-label">Sys</label>
+                    <select id="sys" name="sys" class="form-control  ">
+                        <option label="No" value="" {% if (not sys) %}
+                                selected {% endif %}>No
+                        </option>
+                        <option label="Si" value="1" {% if (sys) %}
+                                selected {% endif %}>Si
+                        </option>
+                    </select>
+                </div>
+            </div>
+            <div class=" d-none">
+                <div id="form-group-path" class="form-group">
+                    <label for="path" class="control-label">Path</label>
+                    <input type="text" class="form-control" id="path\"
+                           name="path" placeholder="example"
+                           style="text-transform: lowercase">
+                    <small>The path alias for this form.</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-xs-12 ">
+
+            <ul class="nav nav-tabs nav-fill" role="tablist">
+                <li class="nav-item">
+                    <a id="nav-builder-tab" class="nav-link active"
+                       data-bs-toggle="tab"
+                       href="#nav-builder"
+                       role="tab"
+                       aria-controls="nav-builder"
+                       aria-selected="true">Builder</a>
+                </li>
+                <li class="nav-item">
+                    <a id="nav-print-tab" class="nav-link" data-bs-toggle="tab"
+                       href="#nav-print"
+                       role="tab"
+                       aria-controls="nav-print" aria-selected="false">Layout
+                        Stampa</a>
+                </li>
+                <li class="nav-item">
+                    <a id="nav-config-tab" class="nav-link"
+                       data-bs-toggle="tab"
+                       href="#nav-config"
+                       role="tab"
+                       aria-controls="nav-config" aria-selected="false">Impostazioni</a>
+                </li>
+            </ul>
+            <div class="tab-content py-3 px-3 px-sm-0">
+                <div class="tab-pane active" id="nav-builder"
+                     role="tabpanel"
+                     aria-labelledby="nav-builder-tab">
+                    <input type="hidden" ng-model="form.type"
+                           autocomplete="off"
+                           class=" ng-untouched ng-valid ng-not-empty">
+
+                    <div class="col-lg-12">
+                        <div id="builder"></div>
+                    </div>
+                </div>
+                <div class="tab-pane " id="nav-print" role="tabpanel"
+                     aria-labelledby="nav-print-tab">
+                    <div class="row">
+                        <div class="col col-sm-4">
+                            <div id="form-group-rheader"
+                                 class="form-group">
+                                <label for="rheader" class="control-label">Stampa
+                                    Header</label>
+                                <select id="rheader" name="rheader"
+                                        class="form-control  ">
+
+
+                                    <option label="Si" value="1"
+                                            selected>Si
+                                    </option>
+                                    <option label="No" value="0">No
+                                    </option>
+
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col col-sm-4">
+                            <div id="form-group-form_rfooter"
+                                 class="form-group">
+                                <label for="rfooter" class="control-label">Stampa
+                                    Footer</label>
+                                <select id="rfooter" name="rfooter"
+                                        class="form-control  ">
+
+                                    <option label="Si" value="1"
+                                            selected>
+                                        Si
+                                    </option>
+                                    <option label="No" value="0">No
+                                    </option>
+
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="document-editor form-group">
+                        <div id="toolbar-container"
+                             class="document-editor__toolbar"></div>
+                        <div class="document-editor__editable-container">
+                            <div id="report" class="document-editor__editable">
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+                <div class="tab-pane" id="nav-config" role="tabpanel"
+                     aria-labelledby="nav-config-tab">
+
+                    <div class="row">
+                        <div class="col col-sm-4">
+                            <div id="form-group-title" class="form-group">
+                                <label for="projectId"
+                                       class="control-label">Progetto</label>
+                                <input type="text" class="form-control"
+                                       id="projectId" name="projectId"
+                                       placeholder="Enter the form project"
+                                       required
+                                       value="">
+                            </div>
+                        </div>
+                        <div class="col col-sm-2">
+                            <div id="form-group-form_no_cancel"
+                                 class="form-group">
+                                <label for="no_cancel"
+                                       class="control-label">Pulsante
+                                    'Abbandona'</label>
+                                <select id="no_cancel" name="no_cancel"
+                                        class="form-control">
+                                    <option label="Si" value=0>SI
+                                    </option>
+                                    <option label="No" value="1" selected>
+                                        NO
+                                    </option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col col-sm-2">
+                            <div id="form-group-form_no_submit"
+                                 class="form-group">
+                                <label for="no_submit"
+                                       class="control-label">Nascondi
+                                    'Submit'</label>
+                                <select id="no_submit" name="no_submit"
+                                        class="form-control  ">
+                                    <option label="No" value="0" selected>
+                                        No
+                                    </option>
+                                    <option label="Si" value="1">Si
+                                    </option>
+
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col col-sm-2">
+                            <div id="form-group-form_form_disabled"
+                                 class="form-group">
+                                <label for="form_disabled"
+                                       class="control-label">Form
+                                    Disabled</label>
+                                <select id="form_disabled"
+                                        name="form_disabled"
+                                        class="form-control  ">
+                                    <option label="No" value="0" selected>
+                                        No
+                                    </option>
+                                    <option label="Si" value="1">Si
+                                    </option>
+                                </select>
+                                <small class="form-text text-muted">Imposta
+                                    il form sola lettura</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col col-sm-4">
+                            <div id="form-group-send_mail_create"
+                                 class="form-group">
+                                <label for="send_mail_create"
+                                       class="control-label">Invia Mail
+                                    alla creazione</label>
+                                <select id="send_mail_create"
+                                        name="send_mail_create"
+                                        class="form-control  ">
+                                    <option label="Si" value="1">Si
+                                    </option>
+                                    <option label="No" value="0" selected>
+                                        No
+                                    </option>
+                                </select>
+                                <small>Invia una mail usanto il template
+                                    defaut, se esiste</small>
+                            </div>
+                        </div>
+                        <div class="col col-sm-4">
+                            <div id="form-group-send_mail_update"
+                                 class="form-group">
+                                <label for="send_mail_update"
+                                       class="control-label">Invia Mail
+                                    all'
+                                    Aggiornamento</label>
+                                <select id="send_mail_update"
+                                        name="send_mail_update"
+                                        class="form-control  ">
+
+                                    <option label="Si" value="1">Si
+                                    </option>
+                                    <option label="No" value="0"
+                                            selected>No
+                                    </option>
+
+                                </select>
+                                <small>Invia una mail usanto il template
+                                    defaut, se esiste</small>
+                            </div>
+                        </div>
+                        <div class="col col-sm-4">
+                            <div id="form-group-title" class="form-group">
+                                <label for="deleted" class="control-label">Eliminato</label>
+                                <input type="number" class="form-control"
+                                       id="deleted" name="deleted" required
+                                       value="0">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col col-sm-4">
+                            <div id="form-group-query-form-editable"
+                                 class="form-group">
+                                <label for="query-form-editable"
+                                       class="control-label">Query</label>
+                                <textarea id="query-form-editable"
+                                          type="textarea"
+                                          class="form-control"
+                                          name="query-form-editable"
+                                          autocomplete="off"
+                                ></textarea>
+                                <small>Form Readonly se la query e' valida,
+                                    la regola e' ignorata se ce' un model
+                                    access attivo</small>
+                            </div>
+                        </div>
+                        <div class="col col-sm-4">
+                            <div id="form-group-title" class="form-group">
+                                <label for="sort" class="control-label">Order
+                                    by</label>
+                                <input type="text" class="form-control"
+                                       id="sort" name="sort" required
+                                       value="rec_name:asc,create_datetime:desc">
+                                <small>campi divisi da vrsola: nome:asc|des
+                                    es:
+                                    rec_name:asc,create_datetime:desc</small>
+
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row container-fluid text-center">
+            <div class="  col-lg-2 ">
+                <button type="button" id="delete_item" name="delete"
+                        class="btn btn-warning btn-md builder_action_button">
+
+                    <svg class="icon" width="32" height="32">
+                        <use href="/static/bootstrap-italia/svg/sprites.svg#it-delete"></use>
+                    </svg>
+                    <span>Delete</span>
+
+                </button>
+            </div>
+            <div class="  col-lg-2">
+                <button type="button" id="copy_item" name="copy"
+                        class="btn btn-warning btn-md builder_action_button">
+
+
+                    <svg class="icon" width="32" height="32">
+                        <use href="/static/bootstrap-italia/svg/sprites.svg#it-copy"></use>
+                    </svg>
+                    <span>Copy</span>
+
+                </button>
+            </div>
+
+            <div class="  col-lg-2 ">
+                <button type="button" id="update_item" name="update"
+                        class="btn btn-warning btn-md builder_action_button">
+
+                    <svg class="icon" width="32" height="32">
+                        <use href="/static/bootstrap-italia/svg/sprites.svg#it-refresh"></use>
+                    </svg>
+                    <span>Update</span>
+
+                </button>
+            </div>
+
+
+            <div class="  col-lg-2 ">
+                <button type="button" id="preview_item" name="preview"
+                        class="btn btn-warning btn-md builder_action_button"
+                        data-actions="">
+
+
+                    <svg class="icon" width="32" height="32">
+                        <use href="/static/bootstrap-italia/svg/sprites.svg#it-piattaforme"></use>
+                    </svg>
+                    <span>Preview</span>
+
+                </button>
+            </div>
+
+            <textarea type="textarea" id="json" name="components" disabled
+                      autocomplete="off" class=" d-none"></textarea>
+        </div>
+    </form>
+
+
+</div>
+<div class="modal fade" tabindex="-1" role="dialog"
+     aria-labelledby="mySmallModalLabel" aria-hidden="true" id="mi-modal">
+    <div class="modal-dialog modal-sm" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="mySmallModalLabel">Confermare
+                    Eliminazione del Form?</h5>
+                <button type="button" class="close" data-dismiss="modal"
+                        aria-label="Close"><span
+                        aria-hidden="true">&times;</span></button>
+
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default"
+                        id="modal-btn-si">Si
+                </button>
+                <button type="button" class="btn btn-primary"
+                        id="modal-btn-no">No
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<script type="text/javascript">
+    document.addEventListener("DOMContentLoaded", function () {
+        let mimodal = $("#mi-modal");
+        let formp = $("#fproject");
+        let loader = $("#progress_loader");
+        let editor;
+        let rec_name = $("#rec_name");
+        let title = $("#title");
+        let action_url = ""
+        let custom_builder_components = {}
+
+        let baseurl = window.location.origin;
+        let selectFieldEdit = Formio.Components.components.select.editForm;
+        let subJSON = document.getElementById('subjson');
+        let jsonElement = document.getElementById('json');
+        let builder;
+        let dataForm;
+
+        String.prototype.underscorize = function () {
+            return this.replace(/ /g, "_").toLowerCase();
+        };
+
+        function array_bool(arr, key) {
+            let rec = arr[arr.findIndex(x => x.name === key)];
+            arr[arr.findIndex(x => x.name === key)].value = (rec.value === "1")
+            return arr
+        }
+
+
+        function post_builder() {
+
+            let datax = formp.serializeArray();
+            let data = datax.filter(function (dat) {
+                return !dat.name.startsWith("data[");
+            });
+            let formObj = {};
+            $.each(data, function (i, input) {
+                formObj[input.name] = input.value;
+            });
+            let sck = builder.instance.schema
+
+            //console.log(editor.getData());
+            let report_data = editor.getData();
+
+
+            // jsonElement.value = JSON.stringify(sck);
+            formObj['components'] = sck.components;
+            formObj['report'] = report_data;
+            formObj['sys'] = formObj.sys === "1";
+
+            $.ajax({
+                type: "POST",
+                url: action_url,
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                data: JSON.stringify(formObj),
+                beforeSend: function () {
+                    loader.removeClass("d-none");
+                },
+                error: function (e) {
+                    loader.addClass("d-none");
+                    alert("Errore Interno contattare Helpdesk" + e.toString());
+                },
+                success: function (result) {
+                    if ((result.hasOwnProperty('link')) && result.reload) {
+                        if (result.link === "#") {
+                            window.location.reload();
+                            return
+                        } else {
+                            parent.gotolink(result.link);
+                            return
+                        }
+                    }
+                    for (let item in result) {
+                        $(result[item].selector).replaceWith(result[item].value);
+                    }
+                    for (let item in result) {
+                        if ($(result[item].selector).includes('alert')) {
+                            let yc = $(result[item].selector).offset().top;
+                            $("html, body").animate({scrollTop: yc}, "slow");
+                            break;
+                        }
+                    }
+                    loader.addClass("d-none");
+                },
+            });
+
+        }
+
+
+        let modalConfirm = function (callback) {
+
+
+            $("#modal-btn-si").on("click", function () {
+                callback(true);
+            });
+
+            $("#modal-btn-no").on("click", function () {
+                callback(false);
+            });
+        };
+
+        formp[0].addEventListener('submit', function (event) {
+            let isValid = formp[0].checkValidity();
+            if (!isValid) {
+                event.preventDefault();
+                event.stopPropagation();
+                let yc = $('#builder_alert').offset().top;
+                formp[0].classList.add('was-validated');
+
+                window.parent.$("body").animate({scrollTop: yc});
+            } else {
+                post_builder();
+            }
+
+        }, false);
+
+        $(".builder_action_button").on("click", function (e) {
+            e.preventDefault();
+            let elm = $(this);
+            let sub = new Event('submit');
+
+            if (elm.attr("id") === "delete_item") {
+                mimodal.modal('show');
+                modalConfirm(function (confirm) {
+                    if (confirm) {
+                        //Acciones si el usuario confirma
+                        action_url = "/action/builder/" + elm.attr("name") + "/{{ form_schema }}";
+                        formp[0].dispatchEvent(sub);
+
+                    }
+                    mimodal.modal('hide');
+                });
+            } else {
+                action_url = "/action/builder/" + elm.attr("name") + "/{{ form_schema }}";
+                formp[0].dispatchEvent(sub);
+            }
+
+        });
+
+        function initBuilder() {
+
+            builder = new Formio.FormBuilder(document.getElementById("builder"),
+                {},
+                {
+                    baseUrl: baseurl,
+                    projectId: "",
+                    builder: {
+                        basic: {
+                            components: {
+                                selectboxes: false,
+                                rec_name: {
+                                    "title": "Field Name",
+                                    "icon": "external-link",
+                                    "schema": {
+                                        "label": "Name",
+                                        "key": "rec_name",
+                                        "type": "textfield",
+                                        "input": true,
+                                        "hidden": false,
+                                        "tableView": true
+                                    }
+                                },
+                                button: {
+                                    title: 'Button',
+                                    icon: 'stop',
+                                    group: 'basic',
+                                    weight: 6,
+                                    schema: {
+                                        label: 'Button',
+                                        showValidations: false,
+                                        theme: 'warning',
+                                        block: true,
+                                        customClass: 'btn-outline-primary',
+                                        tableView: false,
+                                        key: 'action1',
+                                        properties: {
+                                            btn_action_type: 'post',
+                                            url_action: 'url_action'
+                                        },
+                                        type: 'button',
+                                        input: true,
+                                        hideOnChildrenHidden: false
+                                    }
+                                },
+                                buttonalert: {
+                                    title: 'Button Alert',
+                                    icon: 'window-maximize',
+                                    group: 'basic',
+                                    weight: 10,
+                                    schema: {
+                                        label: 'Button Alert',
+                                        showValidations: false,
+                                        theme: 'warning',
+                                        rightIcon: 'it-external-link',
+                                        customClass: 'btn-outline-primary',
+                                        tableView: false,
+                                        modalEdit: true,
+                                        key: 'buttonAlert',
+                                        properties: {
+                                            modal_title: 'Alert Title',
+                                            modal_message: 'Alert Message',
+                                            btn_modal_label: 'Yes',
+                                            btn_action_type: 'post',
+                                            url_action: 'url_action'
+                                        },
+                                        type: 'button',
+                                        input: true,
+                                        hideOnChildrenHidden: false
+                                    }
+                                },
+                                buttondelete: {
+                                    title: 'Button Delete Record',
+                                    icon: 'trash',
+                                    group: 'basic',
+                                    weight: 10,
+                                    schema: {
+                                        label: 'Elimina',
+                                        showValidations: false,
+                                        theme: 'danger',
+                                        leftIcon: 'it-delete',
+                                        rightIcon: 'it-delete',
+                                        customClass: 'btn-danger',
+                                        tableView: false,
+                                        modalEdit: true,
+                                        key: 'elimina',
+                                        properties: {
+                                            modal_title: 'Attenzione',
+                                            modal_message: 'Vuoi veramente eliminare il record?',
+                                            btn_modal_label: 'Si',
+                                            btn_action_type: 'post',
+                                            url_action: 'url_action'
+                                        },
+                                        logic: [
+                                            {
+                                                name: 'delete active',
+                                                trigger: {
+                                                    type: 'json',
+                                                    json: {
+                                                        "!": [
+                                                            {
+                                                                "and": [
+                                                                    {
+                                                                        "var": [
+                                                                            "form.rec_name",
+                                                                            false
+                                                                        ]
+                                                                    },
+                                                                    {
+                                                                        "in": [
+                                                                            {
+                                                                                "var": "user.uid"
+                                                                            },
+                                                                            {
+                                                                                "var": "user.allowed_users"
+                                                                            }
+                                                                        ]
+                                                                    },
+                                                                    {
+                                                                        "==": [
+                                                                            {
+                                                                                "var": "form.deleted"
+                                                                            },
+                                                                            0
+                                                                        ]
+                                                                    }
+                                                                ]
+                                                            }
+                                                        ]
+                                                    }
+                                                },
+                                                actions: [
+                                                    {
+                                                        name: 'activate button',
+                                                        type: 'property',
+                                                        property: {
+                                                            label: 'Hidden',
+                                                            value: 'hidden',
+                                                            type: 'boolean'
+                                                        },
+                                                        state: true
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                name: 'compute delete url',
+                                                trigger: {
+                                                    type: 'json',
+                                                    json: {
+                                                        "cat": [
+                                                            "/action/delete_",
+                                                            {
+                                                                "var": "form.data_model"
+                                                            },
+                                                            "/",
+                                                            {
+                                                                "var": "form.rec_name"
+                                                            }
+                                                        ]
+                                                    }
+                                                },
+                                                actions: [
+                                                    {
+                                                        name: 'update value',
+                                                        type: 'value',
+                                                        value: 'url_action'
+                                                    }
+                                                ]
+                                            }
+                                        ],
+                                        type: 'button',
+                                        input: true,
+                                        hideOnChildrenHidden: false
+                                    }
+                                },
+                            }
+                        },
+                        advanced: {
+                            components: {
+                                model_list: {
+                                    title: 'Model list',
+                                    group: 'advanced',
+                                    icon: 'list',
+                                    schema: {
+                                        "label": "Model",
+                                        "widget": "choicesjs",
+                                        "tableView": true,
+                                        "dataSrc": "url",
+                                        "data": {
+                                            "url": "/models/distinct",
+                                            "headers": [
+                                                {
+                                                    "key": "",
+                                                    "value": ""
+                                                }
+                                            ]
+                                        },
+                                        "validate": {
+                                            "required": true
+                                        },
+                                        "key": "model",
+                                        "properties": {
+                                            "id": "rec_name",
+                                            "label": "title",
+                                            "domain": "{}",
+                                            "model": "component"
+                                        },
+                                        "type": "select",
+                                        "input": true,
+                                        "hideOnChildrenHidden": false,
+                                        "disableLimit": false
+                                    },
+                                },
+                                tags: false,
+                                url: false,
+                                address: false,
+                                day: false,
+                                time: false,
+                                currency: false,
+                                signature: false,
+                                datetime: {
+                                    title: 'Date / Time',
+                                    group: 'advanced',
+                                    icon: 'calendar',
+                                    weight: 40,
+                                    schema: {
+                                        type: 'datetime',
+                                        label: 'Date / Time',
+                                        key: 'dateTime',
+                                        format: 'd/m/Y H:i:S',
+                                        useLocaleSettings: false,
+                                        customClass: "",
+                                        tableView: true,
+                                        allowInput: true,
+                                        enableDate: true,
+                                        enableTime: true,
+                                        defaultValue: '',
+                                        defaultDate: '',
+                                        displayInTimezone: 'viewer',
+                                        datepickerMode: 'day',
+                                        datePicker: {
+                                            showWeeks: true,
+                                            startingDay: 0,
+                                            initDate: '',
+                                            minMode: 'day',
+                                            maxMode: 'year',
+                                            yearRows: 4,
+                                            yearColumns: 5,
+                                            minDate: null,
+                                            maxDate: null
+                                        },
+                                        timePicker: {
+                                            hourStep: 1,
+                                            minuteStep: 1,
+                                            showMeridian: true,
+                                            readonlyInput: false,
+                                            mousewheel: true,
+                                            arrowkeys: true
+                                        },
+
+                                    }
+                                },
+                                printdata: {
+                                    title: "Pulsante Stampa",
+                                    gorup: 'advanced',
+                                    icon: 'print',
+                                    weight: 50,
+                                    schema: {
+                                        label: 'Stampa',
+                                        tag: 'a',
+                                        attrs: [
+                                            {
+                                                attr: 'target',
+                                                value: '_blank'
+                                            },
+                                            {
+                                                attr: 'icon',
+                                                value: 'it-print'
+                                            }
+                                        ],
+                                        content: 'stampa',
+                                        refreshOnChange: false,
+                                        customClass: 'mx-auto col-md-8 mt-1 mb-1 btn',
+                                        key: 'ilink',
+                                        logic: [
+                                            {
+                                                name: 'url maker',
+                                                trigger: {
+                                                    type: 'json',
+                                                    json: {
+                                                        cat: [
+                                                            '/client/print/form/',
+                                                            {
+                                                                'var': 'form.data_model'
+                                                            },
+                                                            '/',
+                                                            {
+                                                                'var': 'form.rec_name'
+                                                            }
+                                                        ]
+                                                    }
+                                                },
+                                                actions: [
+                                                    {
+                                                        name: 'make content',
+                                                        type: 'value',
+                                                        value: 'content'
+                                                    }
+                                                ]
+                                            }
+                                        ],
+                                        type: 'htmlelement',
+                                        input: false,
+                                        tableView: false
+                                    }
+                                },
+                                editor: {
+                                    title: "Editor",
+                                    group: "advanced",
+                                    icon: 'paragraph',
+                                    schema: {
+                                        "html": "<p>Testo</p>",
+                                        "label": "Editor",
+                                        "refreshOnChange": false,
+                                        "key": "editor",
+                                        "properties": {
+                                            "editor": "active"
+                                        },
+                                        "type": "content",
+                                        "input": false,
+                                        "tableView": false
+                                    }
+                                },
+                                jsoneditor: {
+                                    title: "JsonEditor",
+                                    group: "advanced",
+                                    icon: 'align-left',
+                                    schema: {
+                                        "label": "Text Area",
+                                        "autoExpand": false,
+                                        "tableView": false,
+                                        "inputFormat": "plain",
+                                        "dfaultValue": "{}",
+                                        "key": "textArea",
+                                        "properties": {
+                                            "type": "json"
+                                        },
+                                        "type": "textarea",
+                                        "input": true
+                                    }
+                                },
+                                admin_todo: {
+                                    title: "Todo Supervised",
+                                    group: "advanced",
+                                    icon: 'list-ul',
+                                    schema: {
+                                        "legend": "Supervised Todo",
+                                        "key": "supervised_todo",
+                                        "properties": {
+                                            "rec_name": "supervised_todo",
+                                            "action_type": "task",
+                                            "type": "data",
+                                            "mode": "form",
+                                            "admin": "true"
+                                        },
+                                        "type": "fieldset",
+                                        "label": "Supervised Todo",
+                                        "input": false,
+                                        "tableView": false,
+                                        "components": [
+                                            {
+                                                "label": "Fatto",
+                                                "showValidations": false,
+                                                "theme": "warning",
+                                                "block": true,
+                                                "customClass": "btn-outline-primary",
+                                                "tableView": false,
+                                                "key": "btn_admin_todo",
+                                                "properties": {
+                                                    "btn_action_type": "post",
+                                                    "url_action": "/action/_model/supervised_todo",
+                                                    "leftIcon": "it-check-circle"
+                                                },
+                                                "logic": [
+                                                    {
+                                                        "name": "check",
+                                                        "trigger": {
+                                                            "type": "json",
+                                                            "json": {
+                                                                "==": [1, 1]
+                                                            }
+                                                        },
+                                                        "actions": [
+                                                            {
+                                                                "name": "set visible",
+                                                                "type": "value",
+                                                                "value": 'hidden={"!":[{"and":[{"var":["form.todo", false]},{"var":["is_admin", false]}]}]}'
+                                                            }
+                                                        ]
+                                                    },
+                                                    {
+                                                        "name": "eval url",
+                                                        "trigger": {
+                                                            "type": "json",
+                                                            "json": {
+                                                                "cat": [
+                                                                    "/action/",
+                                                                    {
+                                                                        "var": "app.curr_model"
+                                                                    },
+                                                                    "_supervised_todo",
+                                                                    "/",
+                                                                    {
+                                                                        "var": "form.rec_name"
+                                                                    }
+                                                                ]
+                                                            }
+                                                        },
+                                                        "actions": [
+                                                            {
+                                                                "name": "set value",
+                                                                "type": "value",
+                                                                "value": "url_action"
+                                                            }
+                                                        ]
+                                                    }
+                                                ],
+                                                "type": "button",
+                                                "input": true,
+                                                "hideOnChildrenHidden": false,
+                                                "saveOnEnter": false
+                                            },
+                                            {
+                                                "label": "Todo",
+                                                "hidden": true,
+                                                "tableView": false,
+                                                "defaultValue": false,
+                                                "calculateValue": "eval_data",
+                                                "calculateServer": true,
+                                                "key": "todo",
+                                                "type": "checkbox",
+                                                "input": true
+                                            }
+                                        ]
+                                    }
+                                },
+                                user_todo: {
+                                    title: "Todo User",
+                                    group: "advanced",
+                                    icon: 'list-ul',
+                                    schema: {
+                                        "legend": "User Todo",
+                                        "key": "user_todo",
+                                        "properties": {
+                                            "rec_name": "user_todo",
+                                            "action_type": "task",
+                                            "type": "data",
+                                            "mode": "form"
+                                        },
+                                        "type": "fieldset",
+                                        "label": "User Todo",
+                                        "input": false,
+                                        "tableView": false,
+                                        "components": [
+                                            {
+                                                "label": "Fatto",
+                                                "showValidations": false,
+                                                "theme": "warning",
+                                                "block": true,
+                                                "customClass": "btn-outline-primary",
+                                                "tableView": false,
+                                                "key": "btn_user_todo",
+                                                "properties": {
+                                                    "btn_action_type": "post",
+                                                    "url_action": "/action/model/submit_test_todo",
+                                                    "leftIcon": "it-check-circle"
+                                                },
+                                                "logic": [
+                                                    {
+                                                        "name": "check",
+                                                        "trigger": {
+                                                            "type": "json",
+                                                            "json": {
+                                                                "==": [1, 1]
+                                                            }
+                                                        },
+                                                        "actions": [
+                                                            {
+                                                                "name": "set visible",
+                                                                "type": "value",
+                                                                "value": 'hidden={"!":{"var":["form.todo", false]}}'
+                                                            }
+                                                        ]
+                                                    },
+                                                    {
+                                                        "name": "eval url",
+                                                        "trigger": {
+                                                            "type": "json",
+                                                            "json": {
+                                                                "cat": [
+                                                                    "/action/",
+                                                                    {
+                                                                        "var": "app.curr_model"
+                                                                    },
+                                                                    "_user_todo",
+                                                                    "/",
+                                                                    {
+                                                                        "var": "form.rec_name"
+                                                                    }
+                                                                ]
+                                                            }
+                                                        },
+                                                        "actions": [
+                                                            {
+                                                                "name": "set value",
+                                                                "type": "value",
+                                                                "value": "url_action"
+                                                            }
+                                                        ]
+                                                    }
+                                                ],
+                                                "type": "button",
+                                                "input": true,
+                                                "hideOnChildrenHidden": false,
+                                                "saveOnEnter": false
+                                            },
+                                            {
+                                                "label": "Todo",
+                                                "hidden": true,
+                                                "tableView": false,
+                                                "defaultValue": false,
+                                                "calculateValue": "eval_user_todo",
+                                                "calculateServer": true,
+                                                "key": "todo",
+                                                "type": "checkbox",
+                                                "input": true
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+
+                        },
+                        layout: {
+                            components: {
+                                well: false,
+                                table: false,
+                                fieldset: false,
+                                app_link: {
+                                    "title": "Link",
+                                    "key": "app_link",
+                                    "icon": "link",
+                                    "schema": {
+                                        "label": "New Link",
+                                        "type": "htmlelement",
+                                        "key": "ilink",
+                                        "tag": "a",
+                                        "content": "https://...",
+                                        "customClass": "mx-auto col-md-8 mt-1 mb-1",
+                                        "attrs": [
+                                            {
+                                                "attr": "target",
+                                                "value": "_blank"
+                                            },
+                                            {
+                                                "attr": "icon",
+                                                "value": ""
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        },
+                        data: {
+                            components: {
+                                hidden: false,
+                                search: {
+                                    title: 'Search Area',
+                                    key: 'custom_search',
+                                    icon: 'search',
+                                    schema: {
+                                        "label": "Search Area",
+                                        "customClass": "col-12",
+                                        "key": "search_area",
+                                        "properties": {
+                                            "type": "search_area",
+                                            "query": "{}",
+                                            "model": "_model_",
+                                            "object": "table",
+                                            "object_id": "_table_id_"
+                                        },
+                                        "logic": [
+                                            {
+                                                "name": "all",
+                                                "trigger": {
+                                                    "type": "json",
+                                                    "json": {
+                                                        "==": [
+                                                            1,
+                                                            1
+                                                        ]
+                                                    }
+                                                },
+                                                "actions": [
+                                                    {
+                                                        "name": "eval query",
+                                                        "type": "value",
+                                                        "value": "query={\"cat\":[\"{'parent':'\", {\"var\":\"form.rec_name\"}, \"'}\"]}"
+                                                    }
+                                                ]
+                                            }
+                                        ],
+                                        "type": "well",
+                                        "input": false,
+                                        "tableView": false,
+                                        "components": []
+                                    },
+                                },
+                                export: {
+                                    title: "Export Area",
+                                    key: "export_area",
+                                    icon: "pdf",
+                                    schema: {
+                                        "label": "Export Area",
+                                        "customClass": "col-12",
+                                        "key": "export_area",
+                                        "properties": {
+                                            "type": "export_area",
+                                            "search_id": "search_area",
+                                            "model": "_model_",
+                                            "query": "{}",
+                                            "hide_all": "si",
+                                            "csv_f": "CSV",
+                                            "xls_f": "XLS",
+                                            "json_f": "JSON"
+                                        },
+                                        "logic": [
+                                            {
+                                                "name": "check",
+                                                "trigger": {
+                                                    "type": "json",
+                                                    "json": {
+                                                        "var": "form.rec_name"
+                                                    }
+                                                },
+                                                "actions": [
+                                                    {
+                                                        "name": "make query",
+                                                        "type": "value",
+                                                        "value": "query={\"cat\":[\"{'parent':'\", {\"var\":\"form.rec_name\"}, \"'}\"]}"
+                                                    }
+                                                ]
+                                            }
+                                        ],
+                                        "type": "well",
+                                        "input": false,
+                                        "tableView": false,
+                                        "components": []
+                                    },
+                                },
+                                table: {
+                                    title: 'Table',
+                                    key: 'table',
+                                    icon: 'table',
+                                    schema: {
+                                        label: "Table",
+                                        key: "table",
+                                        properties: {
+                                            action_url: "action url",
+                                            model: "model",
+                                            show_owner: 'no',
+                                            hide_select_chk: 'no',
+                                            list_metadata_show: "list_order,",
+                                            dom: "iptilp"
+                                        },
+                                        type: "table",
+                                        customClass: "table table-borderless p-2",
+                                        input: false,
+                                        tableView: false,
+                                        components: []
+                                    }
+                                },
+                                datamap: false,
+                                editgrid: false,
+                                tree: false,
+                                container: false,
+                            }
+                        },
+                        premium: {
+                            components: {
+                                form: false,
+                                resource: false,
+                                recaptcha: false,
+                                unknown: false
+                            }
+                        },
+                        custom: custom_builder_components,
+                    }
+                }
+            );
+
+            if (dataForm.hasOwnProperty("title")) {
+                builder.instance.setForm(dataForm);
+                var formElement = document.getElementById('fproject');
+                populate(formElement, dataForm)
+            }
+        }
+        {% if form_schema %}
+            $.ajax({
+                type: "get",
+                url: "/schema/{{ form_schema }}",
+                headers: {
+                    'content-type': 'application/json'
+                },
+                async: true,
+                cache: false,
+                beforeSend: function () {
+                    loader.removeClass("d-none");
+                },
+                error: function (e) {
+                    loader.addClass("d-none");
+                    alert("Errore Interno contattare Helpdesk \n" + e);
+                },
+                success: function (result) {
+                    loader.addClass("d-none");
+                    dataForm = result.schema;
+                    initBuilder();
+                    builder.instance.ready.then(onReady);
+                },
+            });
+        {% else %}
+            initBuilder();
+            builder.instance.ready.then(onReady);
+        {% endif %}
+
+        let onForm = function (form) {
+            form.on('change', function () {
+                subJSON.innerHTML = '';
+                subJSON.appendChild(
+                    document.createTextNode(
+                        JSON.stringify(form.submission, null, 0)
+                    )
+                );
+            });
+        };
+
+        let onBuild = function (build) {
+            let sck = builder.instance.schema
+            if (sck.hasOwnProperty("display")) {
+                delete sck.display
+            }
+            jsonElement.value = JSON.stringify(sck);
+            // jsonElement.appendChild(document.createTextNode(JSON.stringify(builder.instance.schema, null, 4)));
+            // Formio.createForm(formElement, builder.instance.form).then(onForm);
+        };
+
+        let onReady = function () {
+
+            let jsonElement = document.getElementById('json');
+            builder.instance.on('change', onBuild);
+        };
+
+
+        let serialize = function (x) {
+            return JSON.stringify(x, function (k, v) {
+                if (!k.startsWith("data"))
+                    return v;
+            });
+        };
+
+        title.blur(function () {
+            if (rec_name.val() === "") {
+                rec_name.val(
+                    $(this).val().replace(/[^\w\s]/gi, '').underscorize()
+                );
+            }
+        });
+        // Ckeditor
+        window.CKEDITOR_VERSION = false
+        CKEDITOR.DecoupledEditor.defaultConfig = {
+            // https://ckeditor.com/docs/ckeditor5/latest/features/toolbar/toolbar.html#extended-toolbar-configuration-format
+            toolbar: {
+                items: [
+                    'exportPDF', 'exportWord', '|',
+                    'findAndReplace', 'selectAll', '|',
+                    'heading', '|',
+                    'bold', 'italic', 'strikethrough', 'underline', 'code', 'subscript', 'superscript', 'removeFormat', '|',
+                    'bulletedList', 'numberedList', 'todoList', '|',
+                    'outdent', 'indent', '|',
+                    'undo', 'redo',
+                    '-',
+                    'fontSize', 'fontFamily', 'fontColor', 'fontBackgroundColor', 'highlight', '|',
+                    'alignment', '|',
+                    'link', 'insertImage', 'blockQuote', 'insertTable', 'mediaEmbed', 'codeBlock', 'htmlEmbed', '|',
+                    'specialCharacters', 'horizontalLine', 'pageBreak', '|',
+                    'textPartLanguage', '|'
+                ],
+                shouldNotGroupWhenFull: true
+            },
+            // Changing the language of the interface requires loading the language file using the <script> tag.
+            // language: 'es',
+            list: {
+                properties: {
+                    styles: true,
+                    startIndex: true,
+                    reversed: true
+                }
+            },
+            // https://ckeditor.com/docs/ckeditor5/latest/features/headings.html#configuration
+            heading: {
+                options: [
+                    {
+                        model: 'paragraph',
+                        title: 'Paragraph',
+                        class: 'ck-heading_paragraph'
+                    },
+                    {
+                        model: 'heading1',
+                        view: 'h1',
+                        title: 'Heading 1',
+                        class: 'ck-heading_heading1'
+                    },
+                    {
+                        model: 'heading2',
+                        view: 'h2',
+                        title: 'Heading 2',
+                        class: 'ck-heading_heading2'
+                    },
+                    {
+                        model: 'heading3',
+                        view: 'h3',
+                        title: 'Heading 3',
+                        class: 'ck-heading_heading3'
+                    },
+                    {
+                        model: 'heading4',
+                        view: 'h4',
+                        title: 'Heading 4',
+                        class: 'ck-heading_heading4'
+                    },
+                    {
+                        model: 'heading5',
+                        view: 'h5',
+                        title: 'Heading 5',
+                        class: 'ck-heading_heading5'
+                    },
+                    {
+                        model: 'heading6',
+                        view: 'h6',
+                        title: 'Heading 6',
+                        class: 'ck-heading_heading6'
+                    }
+                ]
+            },
+            // https://ckeditor.com/docs/ckeditor5/latest/features/editor-placeholder.html#using-the-editor-configuration
+            placeholder: 'Welcome to CKEditor 5!',
+            // https://ckeditor.com/docs/ckeditor5/latest/features/font.html#configuring-the-font-family-feature
+            fontFamily: {
+                options: [
+                    'default',
+                    'Arial, Helvetica, sans-serif',
+                    'Courier New, Courier, monospace',
+                    'Georgia, serif',
+                    'Lucida Sans Unicode, Lucida Grande, sans-serif',
+                    'Tahoma, Geneva, sans-serif',
+                    'Times New Roman, Times, serif',
+                    'Trebuchet MS, Helvetica, sans-serif',
+                    'Verdana, Geneva, sans-serif'
+                ],
+                supportAllValues: true
+            },
+            // https://ckeditor.com/docs/ckeditor5/latest/features/font.html#configuring-the-font-size-feature
+            fontSize: {
+                options: [10, 12, 14, 'default', 18, 20, 22],
+                supportAllValues: true
+            },
+            // Be careful with the setting below. It instructs CKEditor to accept ALL HTML markup.
+            // https://ckeditor.com/docs/ckeditor5/latest/features/general-html-support.html#enabling-all-html-features
+            htmlSupport: {
+                allow: [
+                    {
+                        name: /.*/,
+                        attributes: true,
+                        classes: true,
+                        styles: true
+                    }
+                ]
+            },
+            // Be careful with enabling previews
+            // https://ckeditor.com/docs/ckeditor5/latest/features/html-embed.html#content-previews
+            htmlEmbed: {
+                showPreviews: true
+            },
+            // https://ckeditor.com/docs/ckeditor5/latest/features/link.html#custom-link-attributes-decorators
+            link: {
+                decorators: {
+                    addTargetToExternalLinks: true,
+                    defaultProtocol: 'https://',
+                    toggleDownloadable: {
+                        mode: 'manual',
+                        label: 'Downloadable',
+                        attributes: {
+                            download: 'file'
+                        }
+                    }
+                }
+            },
+            // https://ckeditor.com/docs/ckeditor5/latest/features/mentions.html#configuration
+            mention: {
+                feeds: [
+                    {
+                        marker: '@',
+                        feed: [
+                            '@apple', '@bears', '@brownie', '@cake', '@cake', '@candy', '@canes', '@chocolate', '@cookie', '@cotton', '@cream',
+                            '@cupcake', '@danish', '@donut', '@dragée', '@fruitcake', '@gingerbread', '@gummi', '@ice', '@jelly-o',
+                            '@liquorice', '@macaroon', '@marzipan', '@oat', '@pie', '@plum', '@pudding', '@sesame', '@snaps', '@soufflé',
+                            '@sugar', '@sweet', '@topping', '@wafer'
+                        ],
+                        minimumCharacters: 1
+                    }
+                ]
+            },
+            // The "super-build" contains more premium features that require additional configuration, disable them below.
+            // Do not turn them on unless you read the documentation and know how to configure them and setup the editor.
+            removePlugins: [
+                // These two are commercial, but you can try them out without registering to a trial.
+                'ExportPdf',
+                'ExportWord',
+                'CKBox',
+                'CKFinder',
+                'EasyImage',
+                // This sample uses the Base64UploadAdapter to handle image uploads as it requires no configuration.
+                // https://ckeditor.com/docs/ckeditor5/latest/features/images/image-upload/base64-upload-adapter.html
+                // Storing images as Base64 is usually a very bad idea.
+                // Replace it on production website with other solutions:
+                // https://ckeditor.com/docs/ckeditor5/latest/features/images/image-upload/image-upload.html
+                'Base64UploadAdapter',
+                'RealTimeCollaborativeComments',
+                'RealTimeCollaborativeTrackChanges',
+                'RealTimeCollaborativeRevisionHistory',
+                'PresenceList',
+                'Comments',
+                'TrackChanges',
+                'TrackChangesData',
+                'RevisionHistory',
+                'Pagination',
+                'WProofreader',
+                // Careful, with the Mathtype plugin CKEditor will not load when loading this sample
+                // from a local file system (file://) - load this site via HTTP server if you enable MathType.
+                'MathType',
+                // The following features are part of the Productivity Pack and require additional license.
+                'SlashCommand',
+                'Template',
+                'DocumentOutline',
+                'FormatPainter',
+                'TableOfContents'
+            ]
+        };
+        CKEDITOR.DecoupledEditor.create(document.querySelector('#report'))
+            .then(edit => {
+                const toolbarContainer = document.querySelector('#toolbar-container');
+
+                toolbarContainer.appendChild(edit.ui.view.toolbar.element);
+                editor = edit;
+            })
+            .catch(error => {
+                console.error(error);
+            });
+    });
+</script>
+</body>
+</html>
+

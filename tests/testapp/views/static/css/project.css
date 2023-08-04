@@ -1,0 +1,270 @@
+/* Absolute Center Spinner */
+body, html, table, button {
+    font-size: 0.97rem !important;
+    line-height: 1.2 !important;
+}
+
+.loading {
+    position: fixed;
+    z-index: 999;
+    height: 2em;
+    width: 2em;
+    overflow: show;
+    margin: auto;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+}
+
+/* Transparent Overlay */
+.loading:before {
+    content: '';
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(rgba(20, 20, 20, .8), rgba(0, 0, 0, .8));
+
+    background: -webkit-radial-gradient(rgba(20, 20, 20, .8), rgba(0, 0, 0, .8));
+}
+
+/* :not(:required) hides these rules from IE9 and below */
+.loading:not(:required) {
+    /* hide "loading..." text */
+    font: 0/0 a;
+    color: transparent;
+    text-shadow: none;
+    background-color: transparent;
+    border: 0;
+}
+
+.loading:not(:required):after {
+    content: '';
+    display: block;
+    font-size: 10px;
+    width: 1em;
+    height: 1em;
+    margin-top: -0.5em;
+    -webkit-animation: spinner 150ms infinite linear;
+    -moz-animation: spinner 150ms infinite linear;
+    -ms-animation: spinner 150ms infinite linear;
+    -o-animation: spinner 150ms infinite linear;
+    animation: spinner 150ms infinite linear;
+    border-radius: 0.5em;
+    -webkit-box-shadow: rgba(255, 255, 255, 0.75) 1.5em 0 0 0, rgba(255, 255, 255, 0.75) 1.1em 1.1em 0 0, rgba(255, 255, 255, 0.75) 0 1.5em 0 0, rgba(255, 255, 255, 0.75) -1.1em 1.1em 0 0, rgba(255, 255, 255, 0.75) -1.5em 0 0 0, rgba(255, 255, 255, 0.75) -1.1em -1.1em 0 0, rgba(255, 255, 255, 0.75) 0 -1.5em 0 0, rgba(255, 255, 255, 0.75) 1.1em -1.1em 0 0;
+    box-shadow: rgba(255, 255, 255, 0.75) 1.5em 0 0 0, rgba(255, 255, 255, 0.75) 1.1em 1.1em 0 0, rgba(255, 255, 255, 0.75) 0 1.5em 0 0, rgba(255, 255, 255, 0.75) -1.1em 1.1em 0 0, rgba(255, 255, 255, 0.75) -1.5em 0 0 0, rgba(255, 255, 255, 0.75) -1.1em -1.1em 0 0, rgba(255, 255, 255, 0.75) 0 -1.5em 0 0, rgba(255, 255, 255, 0.75) 1.1em -1.1em 0 0;
+}
+
+/* Animation */
+
+@-webkit-keyframes spinner {
+    0% {
+        -webkit-transform: rotate(0deg);
+        -moz-transform: rotate(0deg);
+        -ms-transform: rotate(0deg);
+        -o-transform: rotate(0deg);
+        transform: rotate(0deg);
+    }
+    100% {
+        -webkit-transform: rotate(360deg);
+        -moz-transform: rotate(360deg);
+        -ms-transform: rotate(360deg);
+        -o-transform: rotate(360deg);
+        transform: rotate(360deg);
+    }
+}
+
+@-moz-keyframes spinner {
+    0% {
+        -webkit-transform: rotate(0deg);
+        -moz-transform: rotate(0deg);
+        -ms-transform: rotate(0deg);
+        -o-transform: rotate(0deg);
+        transform: rotate(0deg);
+    }
+    100% {
+        -webkit-transform: rotate(360deg);
+        -moz-transform: rotate(360deg);
+        -ms-transform: rotate(360deg);
+        -o-transform: rotate(360deg);
+        transform: rotate(360deg);
+    }
+}
+
+@-o-keyframes spinner {
+    0% {
+        -webkit-transform: rotate(0deg);
+        -moz-transform: rotate(0deg);
+        -ms-transform: rotate(0deg);
+        -o-transform: rotate(0deg);
+        transform: rotate(0deg);
+    }
+    100% {
+        -webkit-transform: rotate(360deg);
+        -moz-transform: rotate(360deg);
+        -ms-transform: rotate(360deg);
+        -o-transform: rotate(360deg);
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes spinner {
+    0% {
+        -webkit-transform: rotate(0deg);
+        -moz-transform: rotate(0deg);
+        -ms-transform: rotate(0deg);
+        -o-transform: rotate(0deg);
+        transform: rotate(0deg);
+    }
+    100% {
+        -webkit-transform: rotate(360deg);
+        -moz-transform: rotate(360deg);
+        -ms-transform: rotate(360deg);
+        -o-transform: rotate(360deg);
+        transform: rotate(360deg);
+    }
+}
+
+
+.navbar .navbar-collapsable {
+    z-index: 20 !important;
+    width: 100% !important;
+}
+
+.ozon-col-auto {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    max-width: 100% !important;
+}
+
+
+element.style {
+}
+
+.formio-choices.form-group, .formio-choices.formio-form-group {
+    margin-bottom: 0;
+}
+
+.choices[data-type*=select-one] {
+    cursor: pointer;
+}
+
+.form-group {
+    position: relative;
+    margin-bottom: 3rem;
+    margin-top: 0;
+}
+
+.choices {
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 24px;
+    font-size: 16px;
+    min-height: 2.3em;
+    border-bottom: 1px solid;
+}
+
+.choices__list--single {
+    display: inline-block;
+    padding: 2px 2px 2px 0 !important;
+    width: 100%;
+    border-bottom: 0 !important;
+    /* appearance: none; */
+    border-radius: 0;
+}
+
+
+.form-control {
+    box-shadow: inset 0 0 !important;
+    transition: none !important;
+}
+
+
+.input-group .input-group-text {
+    padding: 0.375rem 0.5rem;
+    border-bottom: 0 solid #5d7083 !important;
+    height: 100%;
+}
+
+
+.choices[data-type*=select-multiple]::after {
+    content: "";
+    height: 0;
+    width: 0;
+    border-style: solid;
+    border-color: #333 transparent transparent;
+    border-width: 5px;
+    position: absolute;
+    right: 11.5px;
+    top: 50%;
+    margin-top: -2.5px;
+    pointer-events: none;
+}
+
+.formio-component-multiple :not(.is-invalid) {
+    border-color: inherit;
+}
+
+input.choices__input.choices__input--cloned {
+    display: none;
+}
+
+input.formio-select-autocomplete-input {
+    display: none;
+}
+
+.row > * {
+    display: inline-grid;
+}
+
+div[ref=element] {
+    /*border: 1px solid #C6C6C6;*/
+}
+
+.formio-choices.form-group, .formio-choices.formio-form-group {
+    /*border: 1px solid #C6C6C6;*/
+}
+
+textarea.form-control {
+    min-height: 2.5rem;
+    /*border: 1px solid #C6C6C6;*/
+}
+
+.col-form-label {
+
+    font-weight: 500;
+    font-size: .777rem;
+    color: #1a1a1a;
+}
+
+
+element.style {
+}
+
+.has-feedback .form-control {
+    padding-right: 10px;
+}
+
+input[type=date], input[type=datetime-local], input[type=email], input[type=number], input[type=password], input[type=search], input[type=tel], input[type=text], input[type=time], input[type=url], textarea {
+    font-weight: 700 !important;
+    color: #5d7083;
+    font-size: 1.1rem;
+}
+
+
+.choices__item.choices__item--selectable {
+    font-weight: 700 !important;
+    color: #2A2A2A;
+    /*font-size: .788rem;*/
+}
+
+.choices[data-type*=select-multiple] .choices__item.choices__item--selectable {
+    font-size: .788rem;
+}
+
+textarea {
+    border: 1px solid #C6C6C6!important;
+}
