@@ -13,8 +13,8 @@
 
         <link rel="stylesheet" type="text/css"
               href="/static/bootstrap/css/bootstrap.min.css">
-        <!--    <link rel="stylesheet" type="text/css"-->
-        <!--          href="/static/bootstrap-icons/font/bootstrap-icons.css">-->
+        <link rel="stylesheet" type="text/css"
+              href="/static/bootstrap-icons/font/bootstrap-icons.css">
 
         <!--    <link rel="stylesheet" type="text/css"-->
         <!--          href="/static/bootstrap/dist/cosmo/bootstrap.min.css">-->
@@ -23,6 +23,10 @@
               href="/static/formio/dist/formio.full.min.css">
         <link rel="stylesheet" type="text/css"
               href="/static/css/project.css">
+        <link rel="stylesheet" type="text/css"
+              href="/static/css/flatpickr.min.css">
+        <link rel="stylesheet" type="text/css"
+              href="/static/css/choices.min.css">
 
         <link rel="stylesheet" type="text/css"
               href="/static/bootstrap-italia/css/bootstrap-italia.min.css">
@@ -38,8 +42,8 @@
         <!--  -->
 
         <!--    -->
-        <!--    <link rel="stylesheet" type="text/css" -->
-        <!--           href="/static/DataTables/datatables.min.css"/>-->
+        <link rel="stylesheet" type="text/css"
+              href="/static/DataTables/datatables.min.css"/>
         <!--  -->
         <!--    -->
         <!--    <link rel="stylesheet" -->
@@ -66,10 +70,12 @@
             src="/static/bootstrap-italia/js/bootstrap-italia.bundle.min.js"></script>
 
     <script src="/static/js/jquery-3.7.0.min.js"></script>
+    <script src="/static/js/flatpickr"></script>
+    <script src="/static/js/choices.min.js"></script>
 
     <!--<script type="text/javascript" src="/static/qr/js/qrcode-reader.min.js"-->
     <!--        nonce="2726c7f26c"></script>-->
-
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.1/moment.min.js"></script>
     <script type="text/javascript"
             src="/static/js/moment-with-locales.min.js"></script>
 
@@ -104,8 +110,12 @@
 
     <!--<script type="text/javascript" src="/static/js/project.js"-->
     <!--        nonce="2726c7f26c"></script>-->
-    <script type="text/javascript" src="/static/formio/dist/formio.full.min.js"
-            nonce="2726c7f26c"></script>
+    {#    #}
+    {#    <script type="text/javascript" src="/static/formio/dist/formio.full.min.js"#}
+    {#            nonce="2726c7f26c"></script>#}
+    <script src="/static/js/flatpickr" inline></script>
+    <script src="/static/formio/dist/formio.form.min.js" inline></script>
+    <script src="/static/js/seamless.child.min.js" inline></script>
     <script type="text/javascript" src="/static/DataTables/datatables.min.js"
             nonce="2726c7f26c"></script>
 
@@ -267,7 +277,7 @@
 
 
     $(document).on('click', "a", function (e) {
-        let form = $(this).closest('form').get(0);
+        let form = $(this).closest('.form_container').get(0);
         if (!form) {
             if (
                 $(this).attr('href') !== undefined &&
@@ -286,15 +296,13 @@
         //window.location.replace(link)
     }
 
-
     moment.locale("it");
-
-
     let client_id = Date.now();
 
     // Formio.icons = 'fontawesome';
     if (Formio) {
-        {#Formio.icons = 'fontawesome';#}
+        Formio.icons = 'fontawesome';
+        Formio.timeZone = "Europe/Rome";
         Formio.baseUrl = window.location.origin;
         document.getElementById('renderer-version').innerHTML = Formio.version;
 

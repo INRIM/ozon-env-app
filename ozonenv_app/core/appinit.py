@@ -9,6 +9,7 @@ import sys
 
 from fastapi import FastAPI
 from fastapi import Request, Header, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
@@ -55,6 +56,20 @@ app.add_middleware(
     AuthenticationMiddleware, backend=OzonAuthenticationBackend()
 )
 
+# angular testing
+origins = [
+    "http://localhost:4200",
+    "http://localhost:63343",
+]
+# angular testing
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 def check_response_data(res_data: dict) -> dict:
     if res_data.get("status") and res_data.get("status") == "error":
@@ -67,6 +82,7 @@ def check_response_data(res_data: dict) -> dict:
 async def add_interceptor(request: Request, call_next):
     interceptor = InterceptorBase()
     request = await interceptor.before_request(request)
+    logger.info(f" URL: {request.url}")
     logger.info(f" rrrrr {request.scope.get('ozon')}")
     response = await call_next(request)
     response = await interceptor.before_response(request, response)
@@ -136,6 +152,41 @@ async def dashboardmnu(request: Request, menu_group: str):
     return await render.render_layout(form_schema="", page="dashboard")
 
 
+@app.get("/formschema/{model}", tags=["Viewer Form"])
+async def formschemamodel(request: Request, model: str):
+    logger.info(" User --> needed ")
+    ozon = request.scope['ozon']
+    return await ozon.component_schema(model)
+
+
+@app.post("/formschema/{model}/submission", tags=["Viewer Form"])
+async def formschmamodelpost(request: Request, model: str):
+    data = await request.json()
+    ozon = request.scope['ozon']
+    _model = ozon.env.get(model)
+    await _model.upsert(data['data'])
+    return await ozon.component_schema(model)
+
+
+@app.put("/formschema/{model}/submission/{name}", tags=["Viewer Form"])
+async def formschmamodelput(request: Request, model: str, name: str):
+    data = await request.json()
+    ozon = request.scope['ozon']
+    _model = ozon.env.get(model)
+    todo = await _model.upsert(data['data'])
+    return await ozon.component_schema(model)
+
+
+@app.get("/formschema/{model}/submission/{name}", tags=["Form"])
+async def schmamodelsubname(request: Request, model: str, name: str):
+    logger.info(" User --> needed ")
+    ozon = request.scope['ozon']
+    compo, data = await ozon.component_schema_data(model, name)
+    sck = compo.get_dict()
+    sck['version'] = "5.0.0"
+    return {"schema": sck, "data": data.get_dict()}
+
+
 @app.get("/schema/{model}", tags=["Form"])
 async def schmamodel(request: Request, model: str):
     logger.info(" User --> needed ")
@@ -144,11 +195,11 @@ async def schmamodel(request: Request, model: str):
 
 
 @app.get("/schema/{model}/{name}", tags=["Form"])
-async def schmamodel(request: Request, model: str, name: str):
+async def schmamodelname(request: Request, model: str, name: str):
     logger.info(" User --> needed ")
     ozon = request.scope['ozon']
     compo, data = await ozon.component_schema_data(model, name)
-    return {"schema": compo, "data": data}
+    return {"schema": compo.get_dict(), "data": data.get_dict()}
 
 
 @app.get("/module/{model}", tags=["View Form"])
@@ -161,7 +212,7 @@ async def viewmodeltype(request: Request, model: str):
 
 
 @app.get("/module/{model}/{name}", tags=["View Form"])
-async def viewmodeltype(request: Request, model: str, name: str):
+async def viewmodeltypename(request: Request, model: str, name: str):
     logger.info(" --> m ")
     render = ServiceRenderer(request)
     return await render.render_module(
@@ -253,7 +304,7 @@ async def model_submissions(request: Request, model: str):
 
 
 @app.get("/form/{model}/submission/{name}", tags=["Form Data"])
-async def model_submissions(request: Request, model: str, name: str):
+async def model_submission_name(request: Request, model: str, name: str):
     ozon = request.scope['ozon']
     _model: OzonModelApp = ozon.env.get(model)
     return await _model.by_name(name)
@@ -322,7 +373,7 @@ async def builderaction(request: Request, name: str, rec_name: str = ""):
         if name == "preview":
             return {"link": f"/module/{todo.rec_name}", "reload": True}
         elif name == "update":
-            return {"link": f"#", "reload": True}
+            return {"link": "#", "reload": True}
 
 
 @app.get("/design/builder/{pagetype}/{rec_name}", tags=["Form Builder"])
@@ -340,20 +391,18 @@ async def builder_desgin(
 
 # /form?type=resource&limit=1000000&select=_id,title&limit=100&skip=0
 @app.get("/form", tags=["Form Builder"])
-async def model_submissions(request: Request):
+async def model_form(request: Request):
     ozon = request.scope['ozon']
     params = request.query_params._dict
     listpatams = list(params.keys())
     model = "component"
-    distinct = "rec_name"
-    compute_label = "title"
+    # distinct = "rec_name"
+    # compute_label = "title"
     projection = {}
     pitem = {"$group": {}}
     queryd = {}
     if "model" in listpatams:
         model = params['model']
-    if "compute_label" in listpatams:
-        compute_label = params['compute_label']
     if "query" in listpatams:
         queryd = check_parse_json(params['query'])
     compo: OzonModelApp = ozon.env.get(model)

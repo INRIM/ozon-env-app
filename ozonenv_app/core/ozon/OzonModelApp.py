@@ -68,8 +68,6 @@ class OzonModelApp(OzonModel):
 
 
     # get by recname
-    async def by_name(self, name: str) -> CoreModel:
-        return await self.load({'rec_name': name})
 
     async def search_base(
             self,

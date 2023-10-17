@@ -56,11 +56,11 @@ async def test_2_sutup_with_db():
     assert 'session' in ozon.env.models
     assert ozon.env.app_code == os.getenv("APP_CODE")
     data = await get_user_data()
+    user_data = data[0]
     user_model = ozon.env.get('user')
-    user = await user_model.new(data[0])
-    pw_hash = pwd_context.hash(user.password)
-    user.password = pw_hash
-    await user_model.insert(user)
+    pw_hash = pwd_context.hash(user_data['password'])
+    user_data['password'] = pw_hash
+    await user_model.upsert(user_data)
     await ozon.env.close_env()
     await close_mongo_connection()
 

@@ -1,26 +1,12 @@
 {% extends  "layout.html" %}
 {% block loader %}
-    <style>
-        .ozon-progress {
-            height: 2px;
-            background-color: #ede7f6;
-        }
-
-        .ozon-progress .progress-bar {
-            background-color: #673ab7;
-        }
-    </style>
+    {{ super() }}
 {% endblock %}
 {% block form %}
     <div class="container">
         <div class="it-hero-card it-hero-bottom-overlapping shadow mb-5 pb-1">
 
-            <div class="col-12 p-0 d-none" id="progress_loader d-none">
-                <div class="progress progress-indeterminate ozon-progress">
-                    <span class="sr-only">In elaborazione...</span>
-                    <div class="progress-bar" role="progressbar"></div>
-                </div>
-            </div>
+
             <div class="row">
                 {% if builder_mode and not rec_name %}
                     <div class="row container-fluid text-center mt-2">
@@ -39,12 +25,17 @@
                 <div class="col-10 offset-1 ">
 
                     <h5 id="title" class="card-title py-3  text-center"></h5>
-                    <div id="oform" class="row"></div>
+                    <div id="{{ form_schema }}_oform"
+                         class="row form_container"></div>
                 </div>
             </div>
             <script>
                 $(document).ready(function () {
-
+                    {#var utils = require('formiojs.utils');#}
+                    let table_columns = [];
+                    let input_components = [];
+                    let data_values;
+                    let loader = $("#global_progress_loader");
 
                     function init_ckeditor(form) {
                         if (form && form.editor) {
@@ -244,18 +235,34 @@
                         });
 
                         Formio.createForm(
-                            document.getElementById('oform'),
+                            document.getElementById('{{ form_schema }}_oform'),
                             jsonForm
                         ).then(function (form) {
                             form.language = "it";
+                            form.renderMode = 'table';
                             form.baseUrl = window.location.origin;
                             form.nosubmit = true;
                             {%  if rec_name %}
                                 form.state = "submitted";
                                 form.submission = moduleData;
                             {% endif %}
-                            init_ckeditor(form);
+                            console.log(table_columns);
+                            form.on('change', (changed, flags) => {
+                                console.log("Changed ", changed, flags);
+                                if (flags.changed !== undefined && flags.changed.instance.templateData) {
+                                    var rkey = flags.changed.component.key;
+                                    changed.metadata[rkey] = {};
+                                    Object.entries(flags.changed.instance.templateData).forEach(([key, value]) => {
+                                        changed.metadata[rkey][key] = value
+                                    })
+                                }
+
+                            });
+                            form.on("submitError", (error) => {
+                                console.log(error)
+                            });
                             form.on('submit', function (submission) {
+                                loader.removeClass("d-none");
                                 return Formio.fetch('{{ submit }}', {
                                         body: JSON.stringify(submission),
                                         headers: {
@@ -265,6 +272,7 @@
                                         mode: 'cors',
                                     }
                                 ).then(async response => {
+                                    loader.addClass("d-none");
                                     form.emit('submitDone', submission);
                                     let data = await response.json()
                                     console.log(data);
@@ -278,7 +286,7 @@
                         });
                     }
 
-                    let loader = "progress_loader";
+
                     $.ajax({
                         type: "get",
                         {%  if rec_name %}
@@ -293,14 +301,16 @@
                         async: true,
                         cache: false,
                         beforeSend: function () {
-                            $("#" + loader).removeClass("d-none");
+                            loader.removeClass("d-none");
                         },
                         error: function (e) {
-                            $("#" + loader).addClass("d-none");
+                            loader.addClass("d-none");
                             alert("Errore Interno contattare Helpdesk \n" + e);
                         },
                         success: function (result) {
+
                             initForm(result);
+                            loader.addClass("d-none");
                         },
                     });
 
