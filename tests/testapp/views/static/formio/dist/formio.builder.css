@@ -403,7 +403,7 @@ dialog.fixed {
 @charset "UTF-8";
 .formio-loader {
   position: relative;
-  min-height: 100px;
+  min-height: 60px;
 }
 
 .loader-wrapper {
@@ -413,6 +413,7 @@ dialog.fixed {
   left: 0px;
   bottom: 0px;
   right: 0px;
+  height: 120px;
   background-color: rgba(0, 0, 0, 0);
 }
 
@@ -430,16 +431,6 @@ dialog.fixed {
   width: 60px;
   height: 60px;
   animation: spin 2s linear infinite;
-}
-
-.alert-success {
-  position: relative;
-  padding: 1rem;
-  margin-bottom: 1rem;
-  color: #0a3622;
-  background-color: #d1e7dd;
-  border: #a3cfbb;
-  border-radius: 0.375rem;
 }
 
 @keyframes spin {
@@ -735,7 +726,7 @@ td > .formio-form-group {
   color: #C3C3C3;
 }
 
-.is-active.choices__list--dropdown {
+.choices__list--dropdown {
   z-index: 100;
 }
 
@@ -1307,9 +1298,6 @@ body.formio-dialog-open {
 .formio-component-htmlelement {
   word-wrap: break-word;
 }
-.formio-component-htmlelement ol, .formio-component-htmlelement ul {
-  margin-left: 10px;
-}
 
 .editgrid-table-container {
   margin-bottom: 10px;
@@ -1374,8 +1362,6 @@ body.formio-dialog-open {
 
 .formio-component-datagrid {
   overflow-x: auto;
-  overflow-y: visible;
-  height: auto;
 }
 .formio-component-datagrid .datagrid-table, .formio-component-datagrid .datagrid-table td, .formio-component-datagrid .datagrid-table th {
   border: 3px solid #ddd !important;
@@ -1536,9 +1522,6 @@ td .formio-component-modaledit .formio-modaledit-view-container {
 }
 .formio-component-textarea .ck.ck-editor__editable .image .ck-progress-bar {
   height: 4px;
-}
-.formio-component-textarea .ck.ck-editor ul, .formio-component-textarea .ck.ck-editor ol {
-  margin-left: 10px;
 }
 
 div[data-oembed-url] {
@@ -1719,9 +1702,6 @@ div[data-oembed-url] {
 }
 .formio-component-content .text-huge {
   font-size: 1.8em;
-}
-.formio-component-content ol {
-  padding-inline-start: 40px;
 }
 
 .formio-component-address.formio-component-label-hidden > label.field-required {
@@ -2186,9 +2166,6 @@ span[role=link] {
 .component-settings .formio-dialog-content {
   max-height: 100%;
 }
-.component-settings .formio-dialog-content .ck-editor__editable ol {
-  padding-inline-start: 40px;
-}
 
 .component-btn-group .btn.component-settings-button-paste {
   display: none;
@@ -2229,6 +2206,24 @@ span[role=link] {
   position: relative;
 }
 
+.wizard-page-container {
+  display: flex;
+}
+
+.wizard-pages {
+  display: flex;
+  list-style-type: none;
+  margin-bottom: 0;
+  padding-left: 0;
+}
+.wizard-pages li:not(:first-child) {
+  margin-left: 20px;
+}
+
+.wizard-add-page {
+  margin-left: 20px;
+}
+
 .gu-mirror {
   list-style-type: none;
 }
@@ -2264,8 +2259,8 @@ span[role=link] {
 }
 
 .component-edit-tabs.col-sm-6 {
-  min-height: 87vh;
   height: 100%;
+  overflow-y: auto;
 }
 
 .component-edit-tabs.col-sm-12 {
@@ -2291,9 +2286,4 @@ span[role=link] {
   cursor: not-allowed;
   opacity: 0.65;
   box-shadow: none;
-}
-
-.builder-component-selected {
-  border: 2px dashed #919191;
-  outline: none !important;
 }

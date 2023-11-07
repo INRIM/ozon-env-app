@@ -23,7 +23,7 @@ class QueryEngine:
         )
         # for dt --> 2021-08-11T17:22:04
         self.isodate_regex = re.compile(
-            '(\d{4}-\d{2}-\d{2})[A-Z]+(\d{2}:\d{2}:\d{2})'
+            '(\\d{4}-\\d{2}-\\d{2})[A-Z]+(\\d{2}:\\d{2}:\\d{2})'
         )
         self.autodate_parser = {
             "year": lambda y=0: self.dte.year_range(year=y),

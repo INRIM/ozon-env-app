@@ -233,7 +233,13 @@
                                 url = "/builder/" + jsonForm.type + "/" + jsonForm.rec_name
                             );
                         });
-
+                        var chkonClick = Formio.Components.components.checkbox.prototype.onClick;
+                        Formio.Components.components.checkbox.prototype.onClick = function (event) {
+                            console.log(event)
+                            if (window.confirm('Are you sure you want to press this button?')) {
+                                chkonClick.call(this, event);
+                            }
+                        };
                         Formio.createForm(
                             document.getElementById('{{ form_schema }}_oform'),
                             jsonForm

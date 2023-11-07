@@ -14,6 +14,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: Implementation :: CPython"]
 
 [build-system]
@@ -32,7 +33,8 @@ passlib = { version = ">=1.7.4", extras = ["bcrypt"] }
 json_logic_qubit = ">=0.9.1"
 cbor2 = ">=5.4.6"
 jinja2 = ">=3.1.2"
-aiopath = ">=0.6.11"
+aiopath = [{version = "^0.6.11", python =">=3.10,<3.12"},{version = ">=0.7.7", python =">=3.12,<4"}]
+setuptools = {version =">=68.2.2", python =">=3.12"}
 python-ldap = ">=3.4.3"
 
 

@@ -1,8 +1,8 @@
 # Copyright INRIM (https://www.inrim.eu)
 # See LICENSE file for full licensing details.
-from datetime import datetime
 import logging
 import uuid
+from datetime import datetime
 
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm

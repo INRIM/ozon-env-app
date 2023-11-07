@@ -266,5 +266,17 @@ input[type=date], input[type=datetime-local], input[type=email], input[type=numb
 }
 
 textarea {
-    border: 1px solid #C6C6C6!important;
+    border: 1px solid #C6C6C6 !important;
+}
+
+.form-check [type=checkbox], .form-check [type=radio] {
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+}
+
+@media (min-width: 640px) {
+    .choices__list--dropdown .choices__item--selectable, .choices__list[aria-expanded] .choices__item--selectable {
+        padding-right: 2px;
+    }
 }

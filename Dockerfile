@@ -1,4 +1,4 @@
-FROM python:3.11.4
+FROM python:3.12
 
 LABEL maintainer="Alessio Gerace <a.gerace@inrim.it>"
 ARG APP_GROUP
