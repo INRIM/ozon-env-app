@@ -9,7 +9,6 @@ import sys
 
 from fastapi import FastAPI
 from fastapi import Request, Header, HTTPException, Depends
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
@@ -54,20 +53,6 @@ app.add_event_handler("startup", connect_db)
 app.add_event_handler("shutdown", close_db)
 app.add_middleware(
     AuthenticationMiddleware, backend=OzonAuthenticationBackend()
-)
-
-# angular testing
-origins = [
-    "http://localhost:4200",
-    "http://localhost:63344",
-]
-# angular testing
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
 )
 
 
@@ -198,8 +183,12 @@ async def schmamodel(request: Request, model: str):
 async def schmamodelname(request: Request, model: str, name: str):
     logger.info(" User --> needed ")
     ozon = request.scope['ozon']
-    compo, data = await ozon.component_schema_data(model, name)
-    return {"schema": compo.get_dict(), "data": data.get_dict()}
+    compo, data, user = await ozon.component_schema_data(model, name)
+    return {
+        "schema": compo.get_dict(),
+        "data": data.get_dict(),
+        "user": user.get_dict(),
+    }
 
 
 @app.get("/module/{model}", tags=["View Form"])

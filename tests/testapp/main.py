@@ -6,8 +6,25 @@ from fastapi import Request
 
 from ozonenv_app.core.appinit import app
 from ozonenv_app.core.ozon.OzonModelApp import OzonModelApp
+from fastapi.middleware.cors import CORSMiddleware
+
 
 logger = logging.getLogger(__name__)
+
+
+# angular testing
+origins = [
+    "http://localhost:4200",
+    "http://localhost:63344",
+]
+# angular testing
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 async def get_remote_data(
      headers: dict = None, header_key="", header_value="", url=""

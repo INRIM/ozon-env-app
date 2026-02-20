@@ -101,7 +101,8 @@ class OzonEnvApp:
         model: OzonModelApp = self.env.get(modelname)
         schema = await componets.by_name(modelname)
         data = await model.by_name(recname)
-        return schema, data
+        user =  componets.orm.user_session
+        return schema, data, user
 
 
     async def chek_token_valid(self, token) -> bool:
