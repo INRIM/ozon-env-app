@@ -17,3 +17,4 @@ da_importare
 test_token_exchange.sh
 test_nob
 database/scripts/init_db.js
+.env
