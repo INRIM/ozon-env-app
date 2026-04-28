@@ -1,44 +1,51 @@
 services:
-
-  database:
-    image: mongo:latest
-    restart: always
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: servicetest
-      MONGO_INITDB_ROOT_PASSWORD: servicetest
-      MONGO_INITDB_DATABASE: servicetest
+  api:
+    image: ozonapp.api:latest
+    container_name: ozon-env-api
+    env_file:
+      - .env
     ports:
-      - "10000:27017"
+      - "7999:8000"
+    volumes:
+      - ./app:/app/app
+      - ./models:/models
+      - ./tests:/app/tests
+      - ./uv.lock:/app/uv.lock
+    restart: unless-stopped
+    networks:
+      - ozn-network
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
 
-
-  mongo-express:
-    image: mongo-express
-    restart: always
-    ports:
-      - 9000:8081
-    environment:
-      ME_CONFIG_MONGODB_ADMINUSERNAME: root
-      ME_CONFIG_MONGODB_ADMINPASSWORD: example
-      ME_CONFIG_MONGODB_URL: mongodb://servicetest:servicetest@database:27017
-
-  redis_cache:
-    image: redis:latest
-    command: redis-server --maxmemory 100mb  --maxmemory-policy allkeys-lfu --appendonly no --stop-writes-on-bgsave-error no --lfu-log-factor 10 --lfu-decay-time 1
-    ports:
-      - "10001:6379"
-
-  testapp:
+  ozonenv_app_db:
     stdin_open: true  # -i
     tty: true
-    image: ozonapp.tests:latest
-    command: /run_app.sh
+    image: ozonapp.db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: $MONGO_USER
+      MONGO_INITDB_ROOT_PASSWORD: $MONGO_PASS
+      MONGO_INITDB_DATABASE: $MONGO_DB
     volumes:
-      - ./ozonenv_app:/ozonenv_app
-      - ./tests/testapp:/app/
-      - ./tests:/tests
-      - ./tests/tests.sh:/tests.sh
-      - ./tests/run_app.sh:/run_app.sh
-    depends_on:
-      - database
-    ports:
-      - 8002:8000
+      - ./mdbdata:/data/db
+      - ./database/dump:/dump
+      - ./database/scripts/init_db.js:/docker-entrypoint-initdb.d/init_db.js:ro
+    restart: unless-stopped
+    networks:
+      - ozn-network
+    ulimits:
+      nofile:
+        soft: 64000
+        hard: 64000
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  ozn-network:
+    external: false
+    name: ozn-network
+
+

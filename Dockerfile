@@ -1,40 +1,35 @@
-FROM python:3.12
+FROM python:3.14-slim
 
-LABEL maintainer="Alessio Gerace <a.gerace@inrim.it>"
-ARG APP_GROUP
-ARG APP_NAME
-ARG TZ
-ARG REQUIREMENTS
+# Impostazioni di base per Python e uv
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_NO_CACHE=1
 
+WORKDIR /app
 
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
-ENV DEBIAN_FRONTEND noninteractive
+# Forza apt a usare HTTPS (porta 443) invece di HTTP (porta 80)
+# Sostituisce http: con https: nei file di sistema Debian vecchi e nuovi
+RUN sed -i 's/http:/https:/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || true && \
+    sed -i 's/http:/https:/g' /etc/apt/sources.list 2>/dev/null || true && \
+    apt-get update && \
+    # ca-certificates assicura che il server accetti i certificati SSL di debian.org e github
+    apt-get install -y --no-install-recommends git ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
-COPY ./requirements.txt /app/requirements.txt
-COPY ./requirements_test.txt /app/requirements_test.txt
-COPY ./tests/run_app.sh /run_app.sh
-COPY ./. /.
+# Scarica il binario di uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+# Copia i file di progetto
+COPY pyproject.toml uv.lock README.md ./
 
-RUN apt-get update;  \
-    apt-get upgrade;  \
-    apt-get install -y \
-            build-essential python3-dev git \
-            ldap-utils libldap-dev libsasl2-dev python3-dev \
-            gcc g++ locales locales-all; \
-    apt-get clean
+# Copia il codice sorgente
+COPY app /app/app
 
-ENV LC_ALL it_IT.UTF-8
-ENV LANG en_US.UTF-8
-ENV LANGUAGE en_US.UTF-8
+# Sincronizza l'ambiente:
+RUN uv sync --frozen --no-dev
 
-RUN chmod +x /run_app.sh
-RUN pip install --upgrade pip
-RUN pip install --upgrade -e .
-RUN pip install -r /app/requirements.txt
-RUN pip install -r /app/requirements_test.txt
+EXPOSE 8000
 
-
-
+# Lancia l'applicazione
+CMD ["uv", "run", "python", "-m", "app.main"]

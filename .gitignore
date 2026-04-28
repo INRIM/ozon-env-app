@@ -10,3 +10,9 @@ htmlcov
 .coverage
 tests/model/*.py
 models/
+.venv
+dump/servicemci
+mdbdata
+da_importare
+test_token_exchange.sh
+test_nob

@@ -1,12 +1,12 @@
 [tool.poetry]
 name = "ozon-env-app"
-version = "0.1.0"
+version = "1.0.0"
 homepage = "https://github.com/archetipo/ozon-env-app"
 description = "Ozon Env App"
 readme = "README.md"
 authors = ["Alessio Gerace <alessio.gerace@gmail.com>"]
 license = "MIT"
-packages = [{ include = "ozonenv_app/**/*.py" }]
+packages = [{ include = "app/**/*.py" }]
 exclude = ["tests/*"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -15,6 +15,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: Implementation :: CPython"]
 
 [build-system]
@@ -22,23 +23,20 @@ requires = ["poetry_core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.dependencies]
-python = ">=3.10,<4.0"
-ozon-env = { git = "https://github.com/archetipo/ozon-env" }
-pytz = ">=2023.3"
-python-dotenv = ">=1.0.0"
-fastapi = ">=0.100.0"
-python-multipart = ">=0.0.6"
-python-jose = { version = ">=3.3.0", extras = ["cryptography"] }
-passlib = { version = ">=1.7.4", extras = ["bcrypt"] }
-json_logic_qubit = ">=0.9.1"
-cbor2 = ">=5.4.6"
-jinja2 = ">=3.1.2"
-aiopath = [{version = "^0.6.11", python =">=3.10,<3.12"},{version = ">=0.7.7", python =">=3.12,<4"}]
-setuptools = {version =">=68.2.2", python =">=3.12"}
-python-ldap = ">=3.4.3"
+python = ">=3.14,<4.0"
+ozon-env-api = { git = "https://gitlab.ininrim.it/inrimsi/microservice/services-apps/ozon-env-api.git" }
+fastapi = ">=0.136.1"
+uvicorn = { version = ">=0.35.0", extras = ["standard"] }
+python-dotenv = ">=1.1.1"
+pydantic = ">=2.11,<3.0"
+pydantic-settings = ">=2.10,<3.0"
+pyzeebe = ">=4.5,<5.0"
+httpx = ">=0.28,<1.0"
+grpcio = ">=1.66,<2.0"
+camunda-orchestration-sdk = ">=8.9.0.dev25"
 
 
-[tool.poetry.dev-dependencies]
+[tool.poetry.group.dev.dependencies]
 pytest-asyncio = ">=0.23.4"
 pytest-mock = "*"
 pytest-mock-server = "*"
@@ -67,6 +65,9 @@ force_single_line = true
 skip = "tests"
 
 [tool.pytest.ini_options]
+pythonpath = [
+    "."
+]
 filterwarnings = [
     "error",
     "ignore::UserWarning",
@@ -90,10 +91,17 @@ omit = [
     "/tests/*"
 ]
 
+[tool.uv.sources]
+ozon-env = { git = "https://github.com/inrim/ozon-env.git", rev = "3.3.5" }
+
 [project]
-dynamic = ["dependencies"]
-
-[tool.setuptools.dynamic]
-dependencies = { file = ["requirements.txt"] }
-
-
+name = "ozon-env-app"
+version = "1.0.0"
+requires-python = ">=3.14,<4.0"
+dependencies = [
+    "camunda-orchestration-sdk>=9.0.0",
+    "fastapi>=0.116.0",
+    "ozon-env",
+    "python-dotenv>=1.1.1",
+    "uvicorn[standard]>=0.35.0",
+]

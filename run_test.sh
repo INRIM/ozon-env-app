@@ -1,12 +1,25 @@
 #!/bin/bash
-echo "update system"
-poetry update
-echo "check code"
-poetry run black ozonenv_app/**/*.py
-#poetry run flake8 ozonenv_app/**/*.py
+set -euo pipefail
+
+if ! command -v uv >/dev/null 2>&1; then
+  echo "uv non trovato: installa uv per eseguire i test."
+  exit 1
+fi
+
+echo "check code (optional)"
+if [[ "${RUN_FORMAT_CHECK:-0}" == "1" ]]; then
+  uv run black --check app tests
+  # uv run flake8 app tests
+else
+  echo "skip format check (set RUN_FORMAT_CHECK=1 to enable)"
+fi
+
 rm -rf tests/models
-docker-compose down
-docker-compose up -d
+
+docker compose down
+docker compose up -d
+
 echo "run test"
-docker-compose exec testapp /bin/bash tests.sh
+uv run pytest tests/test_api.py
+
 echo "make project: Done."
