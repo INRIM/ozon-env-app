@@ -13,7 +13,7 @@ from ozonenv.OzonEnv import OzonEnv
 
 from app.app_settings import EnvSettings
 from app.core.models import AttachmentMetadata
-from app.core.models import User
+from ozonenv.core.BaseModels import User
 from app.core.runtime import ActionCommand
 from app.core.runtime import ActionType
 from app.core.runtime import RuntimeExecution

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.core.models import User
+from ozonenv.core.BaseModels import User
 
 
 def extract_sector_code(user: User) -> str:

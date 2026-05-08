@@ -133,13 +133,9 @@ def test_get_formio_select_options_parses_string_field_definition():
         def __init__(self):
             self.env = FakeEnv()
 
-    class FakeCliSession:
-        def __init__(self):
-            self.service = FakeService()
-
     out = asyncio.run(
         get_formio_select_options(
-            FakeCliSession(),
+            FakeService(),
             curr_model="customer",
             field_key="supplier",
         )
@@ -210,13 +206,9 @@ def test_get_formio_select_options_parses_string_select_fields():
         def __init__(self):
             self.env = FakeEnv()
 
-    class FakeCliSession:
-        def __init__(self):
-            self.service = FakeService()
-
     out = asyncio.run(
         get_formio_select_options(
-            FakeCliSession(),
+            FakeService(),
             curr_model="customer",
             field_key="supplier",
         )

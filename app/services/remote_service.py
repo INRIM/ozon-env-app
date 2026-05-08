@@ -56,7 +56,7 @@ async def _fetch_remote_data(
     return extract_remote_data(datar)
 
 async def remote_data_select_response(
-        cli_session: Any,
+        service: Any,
         url: str,
         path_value: str,
         header_key: str,
@@ -64,7 +64,7 @@ async def remote_data_select_response(
 ) -> list[Any]:
     remote_url = _append_path(url, path_value)
     logger.info("remote select response start url=%s", remote_url)
-    rec_cfg = await get_global_param(cli_session, header_value_key)
+    rec_cfg = await get_global_param(service, header_value_key)
 
     header_val = rec_cfg.get("key") if isinstance(rec_cfg, dict) else rec_cfg
 

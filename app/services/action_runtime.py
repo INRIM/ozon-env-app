@@ -141,6 +141,32 @@ class ActionRuntime:
             logger.debug("schema component not found name=%s", schema_name)
         return None
 
+    async def _get_fast_search_config(
+            self, action_name: str, action_model: str
+    ) -> dict[str, Any] | None:
+        try:
+            fs_model = self.service.env.get("fast_search_config")
+            record = await fs_model.load({"model": action_name, "deleted": 0})
+            if not record:
+                return None
+            data = _obj_to_dict(record)
+            search_form_name = str(data.get("searchForm", "") or "").strip()
+            if not search_form_name:
+                return None
+            compo_model = self.service.env.get("component")
+            schema = await compo_model.by_name(search_form_name)
+            schema_dict = _obj_to_dict(schema) if schema else {}
+            return {
+                "model": action_model,
+                "schema": schema_dict.get("components", schema_dict),
+                "fast_serch_model": search_form_name,
+            }
+        except Exception:
+            logger.warning(
+                "fast_search_config lookup failed action=%s", action_name
+            )
+            return None
+
     async def _get_component_record(self, component_name: str) -> dict[str, Any]:
         if not component_name:
             return {}
@@ -295,6 +321,10 @@ class ActionRuntime:
             response_fields["next_action_name"] = action_sequence.get(
                 "submit_action", ""
             )
+        if action_mode == "list":
+            fs_config = await self._get_fast_search_config(action_name, action_model)
+            if fs_config:
+                response_fields["fast_search"] = fs_config
         res.fields = response_fields
         return res
 

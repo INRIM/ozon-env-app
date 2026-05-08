@@ -53,7 +53,6 @@ async def _stream_ndjson(data: Any):
     except Exception as exc:
         yield f"{json.dumps({'error': str(exc)}, ensure_ascii=False, default=str)}\n"
 
-
 async def _stream_ndjson_with_start_packet(data_cursor: Any, meta: Any):
     try:
         # 1. Start Packet: Svuotiamo i dati per alleggerire la busta
@@ -78,7 +77,6 @@ async def _stream_ndjson_with_start_packet(data_cursor: Any, meta: Any):
         # RISOLTO: Yield inserita per restituire il json d'errore allo stream!
         yield f"{json.dumps(err, ensure_ascii=False)}\n"
 
-
 def check_parse_json(str_test):
     try:
         import ujson
@@ -101,7 +99,6 @@ def decode_resource_template(tmp):
     list_kyes = strcleaned.strip().split(".")
     return list_kyes[1:]
 
-
 def fetch_dict_get_value(dict_src, list_keys):
     if len(list_keys) == 0:
         return
@@ -112,8 +109,6 @@ def fetch_dict_get_value(dict_src, list_keys):
         return fetch_dict_get_value(nextdict, list_keys)
     else:
         return dict_src.get(node)
-
-
 
 def extract_remote_data(datar: Any) -> Any:
     data = copy.deepcopy(datar)

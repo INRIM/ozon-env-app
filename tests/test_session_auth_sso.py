@@ -79,6 +79,42 @@ class _FakeCollection:
         return SimpleNamespace(acknowledged=True)
 
 
+class _FakeUserRecord:
+    """Minimal CoreModel stand-in for ORM load/upsert returns."""
+
+    def __init__(self, data: dict):
+        self._data = data.copy()
+
+    def get_dict(self) -> dict:
+        return self._data.copy()
+
+    def model_dump(self, mode="python") -> dict:
+        return self._data.copy()
+
+
+class _FakeUserModel:
+    """Minimal ORM model stand-in for the 'user' collection."""
+
+    def __init__(self, collection: "_FakeCollection"):
+        self._coll = collection
+        self.status = SimpleNamespace(fail=False)
+
+    async def load(self, query: dict):
+        doc = await self._coll.find_one(query)
+        if doc:
+            return _FakeUserRecord(doc)
+        return None
+
+    async def upsert(self, data: dict):
+        rec_name = data.get("rec_name") or data.get("uid", "")
+        await self._coll.replace_one(
+            {"rec_name": rec_name},
+            data.copy(),
+            upsert=True,
+        )
+        return _FakeUserRecord(data)
+
+
 class _FakeEngine:
     def __init__(self, collections):
         self.collections = collections
@@ -88,14 +124,10 @@ class _FakeEngine:
 
 
 class _FakeOzonEnv:
-    def __init__(self, user_docs=None, session_docs=None):
+    def __init__(self, user_docs=None):
+        self._user_coll = _FakeCollection(user_docs)
         self.db = SimpleNamespace(
-            engine=_FakeEngine(
-                {
-                    "session": _FakeCollection(session_docs),
-                    "user": _FakeCollection(user_docs),
-                }
-            )
+            engine=_FakeEngine({"user": self._user_coll})
         )
         self.orm = SimpleNamespace(
             app_settings=SimpleNamespace(
@@ -108,6 +140,11 @@ class _FakeOzonEnv:
         self.session_token = ""
         self.upload_folder = ""
 
+    def get(self, name: str):
+        if name == "user":
+            return _FakeUserModel(self._user_coll)
+        raise ValueError(f"Unknown model: {name}")
+
 
 def _settings() -> SimpleNamespace:
     return SimpleNamespace(
@@ -116,6 +153,7 @@ def _settings() -> SimpleNamespace:
         keycloak_token_endpoint="https://kc.example/token",
         keycloak_client_id="backend-web",
         keycloak_client_secret="secret",
+        admins=[],
     )
 
 
@@ -148,7 +186,6 @@ def test_build_keycloak_session_reads_sso_tokens_from_headers():
                 "deleted": 0,
             }
         ],
-        session_docs=[],
     )
     exp = int((datetime.now(timezone.utc) + timedelta(minutes=5)).timestamp())
     access_token = _fake_jwt_with_exp(exp)
@@ -170,12 +207,121 @@ def test_build_keycloak_session_reads_sso_tokens_from_headers():
         )
     )
 
-    persisted = env.db.engine.get_collection("session").replace_calls[0]["payload"]
+    persisted = env.db.engine.get_collection("user").replace_calls[0]["payload"]
     assert session.sso_token == access_token
     assert session.sso_refresh == "refresh-1"
     assert session.sso_expire is not None
     assert persisted["sso_refresh"] == "refresh-1"
     assert session.uid == "kc.user"
+
+
+def test_build_keycloak_session_reuses_existing_token():
+    """Existing token in user record is preserved across requests."""
+    env = _FakeOzonEnv(
+        user_docs=[
+            {
+                "uid": "kc.user",
+                "token": "existing-uuid-token",
+                "full_name": "Keycloak User",
+                "active": True,
+                "deleted": 0,
+            }
+        ],
+    )
+    request = _build_request(
+        "/get_session",
+        headers=[(b"x-remote-user", b"kc.user")],
+    )
+
+    session = asyncio.run(
+        session_auth.build_keycloak_session(
+            ozon_env=env,
+            request=request,
+            settings=_settings(),
+            app_code="mci",
+        )
+    )
+
+    assert session.token == "existing-uuid-token"
+
+
+def test_build_keycloak_session_generates_token_when_none_exists():
+    env = _FakeOzonEnv(
+        user_docs=[
+            {
+                "uid": "new.user",
+                "active": True,
+                "deleted": 0,
+            }
+        ],
+    )
+    request = _build_request(
+        "/get_session",
+        headers=[(b"x-remote-user", b"new.user")],
+    )
+
+    session = asyncio.run(
+        session_auth.build_keycloak_session(
+            ozon_env=env,
+            request=request,
+            settings=_settings(),
+            app_code="mci",
+        )
+    )
+
+    assert session.token
+    assert len(session.token) == 36  # UUID format
+
+
+def test_build_keycloak_session_creates_user_when_not_found():
+    """User not in DB → auto-created with is_admin=False (not in admins)."""
+    env = _FakeOzonEnv(user_docs=[])
+    request = _build_request(
+        "/get_session",
+        headers=[(b"x-remote-user", b"ghost.user")],
+    )
+
+    session = asyncio.run(
+        session_auth.build_keycloak_session(
+            ozon_env=env,
+            request=request,
+            settings=_settings(),
+            app_code="mci",
+        )
+    )
+
+    assert session.uid == "ghost.user"
+    assert session.is_admin is False
+    assert len(env.db.engine.get_collection("user").replace_calls) >= 1
+
+
+def test_build_keycloak_session_sets_is_admin_from_admins_list():
+    """User uid in admins[] → is_admin=True on auto-creation."""
+    env = _FakeOzonEnv(user_docs=[])
+    settings_admin = SimpleNamespace(
+        keycloak_remote_user_header="x-remote-user",
+        token_header="Authorization",
+        keycloak_token_endpoint="https://kc.example/token",
+        keycloak_client_id="backend-web",
+        keycloak_client_secret="secret",
+        admins=["admin.user"],
+    )
+    request = _build_request(
+        "/get_session",
+        headers=[(b"x-remote-user", b"admin.user")],
+    )
+
+    session = asyncio.run(
+        session_auth.build_keycloak_session(
+            ozon_env=env,
+            request=request,
+            settings=settings_admin,
+            app_code="mci",
+        )
+    )
+
+    assert session.uid == "admin.user"
+    assert session.is_admin is True
 
 
 def test_ensure_sso_token_fresh_refreshes_when_expiring(monkeypatch):
@@ -218,7 +364,7 @@ def test_ensure_sso_token_fresh_refreshes_when_expiring(monkeypatch):
     assert updated.sso_token == new
     assert updated.sso_refresh == "refresh-2"
     assert updated.sso_expire is not None
-    assert len(env.db.engine.get_collection("session").replace_calls) == 1
+    assert len(env.db.engine.get_collection("user").replace_calls) == 1
 
 
 def test_ensure_sso_token_fresh_fails_when_expired_without_refresh():

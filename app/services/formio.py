@@ -284,7 +284,7 @@ def make_resource_list(field: dict, data: list) -> list[dict]:
 
 
 async def get_formio_select_options(
-        cli_session, curr_model, field_key
+        service, curr_model, field_key
 ) -> list[dict]:
     logger.info(
         "get_formio_select_options field=%s model=%s",
@@ -301,7 +301,7 @@ async def get_formio_select_options(
         "properties_type": "",
     }
     try:
-        model = cli_session.service.env.get(curr_model).model
+        model = service.env.get(curr_model).model
         raw_select_fields = model.select_fields()
         context["select_fields_type"] = type(raw_select_fields).__name__
         select_fields = _normalize_select_fields(curr_model, raw_select_fields)
@@ -363,7 +363,7 @@ async def get_formio_select_options(
                     domain = (
                         parsed_domain if isinstance(parsed_domain, dict) else {}
                     )
-                data = await cli_session.service.get_distinct(
+                data = await service.get_distinct(
                     model_name,
                     domain,
                     props.get("compute_label", ""),
@@ -371,7 +371,7 @@ async def get_formio_select_options(
             else:
                 header = build_remote_select_header(field)
                 data = await remote_data_select_response(
-                    cli_session=cli_session,
+                    service=service,
                     url=header.url,
                     path_value=header.path_value,
                     header_key=header.header_key,

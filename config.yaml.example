@@ -1,0 +1,143 @@
+# OzonEnvCoreSettings — configurazione locale
+#
+# Copiare in .ozonenv/config.yaml nella root del progetto.
+# Se il file esiste ha precedenza sulle variabili d'ambiente.
+# Sintassi ${VAR}: legge da env var. Se la var non è impostata il campo
+# usa il default della classe.
+# Chiavi = field name Pydantic (snake_case). Omettere campi non necessari.
+
+# ── Applicazione ─────────────────────────────────────────────────────────────
+
+rec_name: ${APP_CODE}
+app_code: ${APP_CODE}
+app_name: ${OZON_APP_NAME}
+version: ${OZON_APP_VERSION}
+models_folder: ${MODELS_FOLDER}
+external_base_url: ${EXTERNAL_BASE_URL}
+
+# ── Server / ASGI ────────────────────────────────────────────────────────────
+
+asgi_host: ${ASGI_HOST}
+asgi_port: ${ASGI_PORT}
+internal_port: ${ASGI_PORT}
+port: ${ASGI_PORT}
+
+# ── MongoDB ──────────────────────────────────────────────────────────────────
+
+mongo_user: ${MONGO_USER}
+mongo_pass: ${MONGO_PASS}
+mongo_url: ${MONGO_URL}
+mongo_db: ${MONGO_DB}
+mongo_replica: ${MONGO_REPLICA}
+
+# ── API ──────────────────────────────────────────────────────────────────────
+
+api_prefix: /v2
+require_auth: true
+auth_mode: ${AUTH_MODE}                # session | keycloak | none | token
+backend_interface: db                  # db | rest
+token_header: ${TOKEN_HEADER}
+keycloak_remote_user_header: ${KEYCLOAK_REMOTE_USER_HEADER}
+
+# ── Session / Cookie / CSRF ──────────────────────────────────────────────────
+
+session_secret: ${SESSION_SECRET}
+cookie_secure: ${COOKIE_SECURE}
+auth_cookie_name: ${AUTH_COOKIE_NAME}
+auth_cookie_max_age: ${AUTH_COOKIE_MAX_AGE}
+auth_cookie_samesite: ${AUTH_COOKIE_SAMESITE}
+csrf_cookie_name: ${CSRF_COOKIE_NAME}
+auth_state_cookie_name: ${AUTH_STATE_COOKIE_NAME}
+post_login_redirect_url: ${POST_LOGIN_REDIRECT_URL}
+logout_redirect_url: ${LOGOUT_REDIRECT_URL}
+
+# ── OAuth / Keycloak ─────────────────────────────────────────────────────────
+
+oauth_url: ${OZON_OAUTH_URL}
+oauth_client_id: ${OZON_CLIENT_ID}
+token_audience: ${OZON_TOKEN_AUDIENCE}
+keycloak_jwks_url_value: ${OZON_KEYCLOAK_JWKS_URL}
+keycloak_issuer_value: ${OZON_KEYCLOAK_ISSUER}
+keycloak_algorithms: RS256
+
+keycloak_realm: ${KEYCLOAK_REALM}
+keycloak_client_id: ${KEYCLOAK_CLIENT_ID}
+keycloak_client_secret: ${KEYCLOAK_CLIENT_SECRET}
+keycloak_server_url_public: ${KEYCLOAK_SERVER_URL_PUBLIC}
+keycloak_server_url_internal: ${KEYCLOAK_SERVER_URL_INTERNAL}
+keycloak_worker_client_id: ${KEYCLOAK_WORKER_CLIENT_ID}
+keycloak_worker_client_secret: ${KEYCLOAK_WORKER_CLIENT_SECRET}
+keycloak_token_url: ${KEYCLOAK_TOKEN_URL}
+
+# ── Camunda / Workflow ───────────────────────────────────────────────────────
+
+camunda_enabled: ${CAMUNDA_ENABLED}
+camunda_web_url: ${CAMUNDA_WEB_URL}
+camunda_api_url: ${CAMUNDA_API_URL}
+camunda_zeebe_address: ${CAMUNDA_ZEEBE_ADDRESS}
+camunda_zeebe_secure: ${CAMUNDA_ZEEBE_SECURE}
+camunda_tasklist_url: ${CAMUNDA_TASKLIST_URL}
+camunda_oauth_token_url: ${CAMUNDA_OAUTH_TOKEN_URL}
+camunda_client_id: ${CAMUNDA_CLIENT_ID}
+camunda_client_secret: ${CAMUNDA_CLIENT_SECRET}
+camunda_tenant_id: ${CAMUNDA_TENANT_ID}
+camunda_process_id: ${CAMUNDA_PROCESS_ID}
+camunda_verify_tls: ${CAMUNDA_VERIFY_TLS}
+
+runtime_default_process_id: ${RUNTIME_DEFAULT_PROCESS_ID}
+runtime_action_process_map_json: ${RUNTIME_ACTION_PROCESS_MAP_JSON}
+runtime_function_process_map_json: ${RUNTIME_FUNCTION_PROCESS_MAP_JSON}
+runtime_admin_roles_json: ${RUNTIME_ADMIN_ROLES_JSON}
+runtime_default_app_key: ${RUNTIME_DEFAULT_APP_KEY}
+runtime_default_form_key: ${RUNTIME_DEFAULT_FORM_KEY}
+runtime_validate_payload_schema: ${RUNTIME_VALIDATE_PAYLOAD_SCHEMA}
+runtime_require_published_schema: ${RUNTIME_REQUIRE_PUBLISHED_SCHEMA}
+runtime_internal_token: ${RUNTIME_INTERNAL_TOKEN}
+
+workflow_wait_timeout_seconds: ${WORKFLOW_WAIT_TIMEOUT_SECONDS}
+workflow_wait_poll_interval_seconds: ${WORKFLOW_WAIT_POLL_INTERVAL_SECONDS}
+
+# ── Files / Upload ───────────────────────────────────────────────────────────
+
+bootstrap_user_file: base_data/user.json
+upload_folder: ${UPLOAD_ROOT}
+upload_root: ${UPLOAD_ROOT}
+tmp_upload_folder: /tmp
+max_upload_size_mb: ${MAX_UPLOAD_SIZE_MB}
+
+# ── ClamAV ───────────────────────────────────────────────────────────────────
+
+clamav_host: ${CLAMAV_HOST}
+clamav_port: ${CLAMAV_PORT}
+clamav_enabled: ${CLAMAV_ENABLED}
+clamav_fail_closed: ${CLAMAV_FAIL_CLOSED}
+clamav_timeout_seconds: ${CLAMAV_TIMEOUT_SECONDS}
+clamav_max_stream_mb: ${CLAMAV_MAX_STREAM_MB}
+
+# ── Settings (parent) ────────────────────────────────────────────────────────
+# Campi ereditati da Settings. Tutti opzionali, mostrati con il loro default.
+
+app_origin_type: ""
+module_label: ""
+description: ""
+admins: []
+module_type: app
+module_group: ""
+stato: ""
+web_concurrency: 1
+delete_record_after_days: 1
+token_expire_hours: 12
+theme: italia
+logo_img_url: ""
+tz: Europe/Rome
+
+report_orientation: Portrait
+report_page_size: A4
+report_footer_company: ""
+report_footer_title1: ""
+report_footer_sub_title: ""
+report_footer_pagination: true
+report_header_space: 30mm
+report_footer_space: 8mm
+report_margin_left: 10mm
+report_margin_right: 10mm

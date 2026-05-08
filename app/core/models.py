@@ -13,54 +13,6 @@ from pydantic import AliasChoices
 from pydantic import Field
 
 
-class User(BasicModel):
-    uid: str
-    password: str = Field(default="", exclude=True)
-    token: str = Field(default="", exclude=True)
-    req_id: str = ""
-    parent: str = ""
-    childs: list[Any] = Field(default_factory=list)
-    last_update: int | str | Decimal128 = 0
-    is_admin: bool = False
-    is_bot: bool = False
-    use_auth: bool = True
-    rec_name: str = ""
-    nome: str = ""
-    cognome: str = ""
-    mail: str = ""
-    matricola: str = ""
-    codicefiscale: str = ""
-    data_value: dict[str, Any] = Field(default_factory=dict)
-    allowed_users: list[str] = Field(default_factory=list)
-    user_data: dict[str, Any] = Field(default_factory=dict)
-    list_order: int = 1
-    process_id: str = ""
-    process_task_id: str = ""
-    user_preferences: dict[str, Any] = Field(default_factory=dict)
-    user_function: str = ""
-    function: str = ""
-    owner_function: str = ""
-    owner_sector: Optional[str] = ""
-    owner_mail: Optional[str] = ""
-    owner_sector_id: Optional[int] = 0
-    owner_personal_type: Optional[str] = ""
-    owner_job_title: Optional[str] = ""
-    create_datetime: Optional[datetime] = None
-    update_datetime: Optional[datetime] = None
-    sector: Optional[str] = ""
-    sector_id: Optional[int] = 0
-    sector_code: Optional[str] = ""
-    last_login: Optional[datetime] = None
-    sys: bool = False
-    active: bool = True
-    default: bool = True
-    demo: bool = False
-    tz: str = "Europe/Rome"
-    user_role: str = "base"
-    tech_admin: bool = False
-    groups: list[str] = Field(default_factory=list)
-
-
 class MailTemplate(CoreModel):
     template_key: str
     subject_template: str

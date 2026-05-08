@@ -1,19 +1,16 @@
 import json
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from ozonenv.core.BaseModels import Settings
+from ozon_env_api.settings import OzonEnvApiSettings
+from ozonenv.core.BaseModels import OzonEnvCoreSettings
+from ozonenv.core.BaseModels import _expand_yaml_data
 from pydantic import AliasChoices
-from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import model_validator
-
-try:
-    from pydantic_settings import SettingsConfigDict
-except ImportError:  # pragma: no cover - optional when pydantic-settings is absent
-    SettingsConfigDict = ConfigDict
 
 
 def _iter_env_aliases(field_name: str, alias: Any) -> list[str]:
@@ -40,18 +37,86 @@ def _load_settings_from_env() -> dict[str, Any]:
     return payload
 
 
-class EnvSettings(Settings):
-    model_config = SettingsConfigDict(
-        env_file=".env-local",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
-    )
+def _load_yaml_config() -> dict[str, Any]:
+    yaml_path = Path(".ozonenv") / "config.yaml"
+    if not yaml_path.exists():
+        return {}
+    try:
+        import yaml
+        raw = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+        return _expand_yaml_data(raw)
+    except Exception:
+        return {}
 
+
+_PUBLIC_DB_SETTINGS_FIELDS = frozenset(
+    {
+        "list_order",
+        "rec_name",
+        "internal_port",
+        "app_origin_type",
+        "module_label",
+        "description",
+        "admins",
+        "module_type",
+        "module_group",
+        "version",
+        "port",
+        "stato",
+        "upload_folder",
+        "web_concurrency",
+        "delete_record_after_days",
+        "session_expire_hours",
+        "theme",
+        "logo_img_url",
+        "server_datetime_mask",
+        "server_date_mask",
+        "ui_datetime_mask",
+        "ui_date_mask",
+        "tz",
+        "report_orientation",
+        "report_page_size",
+        "report_footer_company",
+        "report_footer_title1",
+        "report_footer_sub_title",
+        "report_footer_pagination",
+        "report_header_space",
+        "report_footer_space",
+        "report_margin_left",
+        "report_margin_right",
+        "domain",
+        "external_proxy_uri_configs",
+    }
+)
+
+
+def _normalize_public_setting_value(value: Any) -> Any:
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {
+            str(key): _normalize_public_setting_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_normalize_public_setting_value(item) for item in value]
+    if isinstance(value, set):
+        return [
+            _normalize_public_setting_value(item)
+            for item in sorted(value, key=lambda item: str(item))
+        ]
+    return value
+
+
+class EnvSettings(OzonEnvCoreSettings):
+    # Override inherited fields with app-specific aliases / defaults
     app_code: str = Field(
         default="",
         validation_alias=AliasChoices("APP_CODE", "OZON_APP_CODE"),
     )
+    # Local auth uses "token" as default; ozon-env core defaults to "session"
+    auth_mode: str = Field(default="token", validation_alias="AUTH_MODE")
+
     app_name: str = Field(
         default="ozon-env-api", validation_alias="OZON_APP_NAME"
     )
@@ -62,23 +127,12 @@ class EnvSettings(Settings):
     asgi_host: str = Field(default="0.0.0.0", validation_alias="ASGI_HOST")
     asgi_port: int = Field(default=8000, validation_alias="ASGI_PORT")
 
-    auth_mode: str = Field(default="token", validation_alias="AUTH_MODE")
     token_header: str = Field(
         default="Authorization", validation_alias="TOKEN_HEADER"
     )
     keycloak_remote_user_header: str = Field(
         default="x-remote-user",
         validation_alias="KEYCLOAK_REMOTE_USER_HEADER",
-    )
-
-    mongo_user: str = Field(default="", validation_alias="MONGO_USER")
-    mongo_pass: str = Field(default="", validation_alias="MONGO_PASS")
-    mongo_url: str = Field(default="", validation_alias="MONGO_URL")
-    mongo_db: str = Field(default="", validation_alias="MONGO_DB")
-    mongo_replica: str = Field(default="", validation_alias="MONGO_REPLICA")
-
-    models_folder: str = Field(
-        default="/models", validation_alias="MODELS_FOLDER"
     )
 
     external_base_url: str = Field(
@@ -92,6 +146,21 @@ class EnvSettings(Settings):
     )
     cookie_secure: bool = Field(
         default=False, validation_alias="COOKIE_SECURE"
+    )
+    auth_cookie_name: str = Field(
+        default="ozon_session", validation_alias="AUTH_COOKIE_NAME"
+    )
+    auth_cookie_max_age: int = Field(
+        default=86400, validation_alias="AUTH_COOKIE_MAX_AGE"
+    )
+    auth_cookie_samesite: str = Field(
+        default="lax", validation_alias="AUTH_COOKIE_SAMESITE"
+    )
+    csrf_cookie_name: str = Field(
+        default="ozon_csrf", validation_alias="CSRF_COOKIE_NAME"
+    )
+    auth_state_cookie_name: str = Field(
+        default="ozon_state", validation_alias="AUTH_STATE_COOKIE_NAME"
     )
 
     post_login_redirect_url: str = Field(
@@ -245,6 +314,10 @@ class EnvSettings(Settings):
         validation_alias="CLAMAV_MAX_STREAM_MB",
     )
 
+    plugins_folder: Path = Field(
+        default=Path("/plugins"), validation_alias="PLUGINS_FOLDER"
+    )
+
     @property
     def max_upload_size_bytes(self) -> int:
         return self.max_upload_size_mb * 1024 * 1024
@@ -252,18 +325,6 @@ class EnvSettings(Settings):
     @property
     def clamav_max_stream_bytes(self) -> int:
         return self.clamav_max_stream_mb * 1024 * 1024
-
-    @model_validator(mode="after")
-    def validate_upload_scanning_limits(self) -> "EnvSettings":
-        if (
-            self.clamav_enabled
-            and self.clamav_fail_closed
-            and self.clamav_max_stream_mb < self.max_upload_size_mb
-        ):
-            raise ValueError(
-                "CLAMAV_MAX_STREAM_MB must be >= MAX_UPLOAD_SIZE_MB when ClamAV fail-closed is enabled"
-            )
-        return self
 
     @property
     def redirect_uri(self) -> str:
@@ -295,6 +356,19 @@ class EnvSettings(Settings):
         return (
             f"{self.keycloak_server_url_internal}/realms/{self.keycloak_realm}"
             "/protocol/openid-connect/userinfo"
+        )
+
+    @property
+    def keycloak_jwks_url(self) -> str:
+        return (
+            f"{self.keycloak_server_url_internal}/realms/{self.keycloak_realm}"
+            "/protocol/openid-connect/certs"
+        )
+
+    @property
+    def keycloak_issuer(self) -> str:
+        return (
+            f"{self.keycloak_server_url_public}/realms/{self.keycloak_realm}"
         )
 
     @property
@@ -338,6 +412,80 @@ class EnvSettings(Settings):
             return set()
         return {str(value) for value in payload if str(value)}
 
+    @model_validator(mode="after")
+    def validate_upload_scanning_limits(self) -> "EnvSettings":
+        if (
+            self.clamav_enabled
+            and self.clamav_fail_closed
+            and self.clamav_max_stream_mb < self.max_upload_size_mb
+        ):
+            raise ValueError(
+                "CLAMAV_MAX_STREAM_MB must be >= MAX_UPLOAD_SIZE_MB when ClamAV fail-closed is enabled"
+            )
+        return self
+
+
+def build_public_db_settings_payload(settings: EnvSettings) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "rec_name": str(settings.app_code or "").strip(),
+        "app_code": str(settings.app_code or "").strip(),
+        "active": True,
+        "deleted": 0,
+    }
+    for field_name in _PUBLIC_DB_SETTINGS_FIELDS:
+        if field_name == "rec_name" or not hasattr(settings, field_name):
+            continue
+        value = getattr(settings, field_name)
+        if value is None:
+            continue
+        payload[field_name] = _normalize_public_setting_value(value)
+
+    if not payload.get("module_label"):
+        payload["module_label"] = str(
+            getattr(settings, "module_name", "")
+            or getattr(settings, "app_name", "")
+            or settings.app_code
+        ).strip()
+    if not payload.get("description"):
+        payload["description"] = str(
+            getattr(settings, "description", "")
+            or getattr(settings, "app_name", "")
+            or settings.app_code
+        ).strip()
+    payload["version"] = str(
+        getattr(settings, "app_version", "")
+        or payload.get("version", "")
+        or getattr(settings, "version", "")
+        or ""
+    ).strip()
+    return payload
+
+
+def merge_public_db_settings(
+    settings: EnvSettings,
+    db_payload: Mapping[str, Any] | None,
+) -> EnvSettings:
+    if not isinstance(db_payload, Mapping):
+        return settings
+    merged = settings.model_dump(mode="python")
+    for field_name in _PUBLIC_DB_SETTINGS_FIELDS:
+        if (
+            field_name in db_payload
+            and field_name in EnvSettings.model_fields
+        ):
+            merged[field_name] = db_payload[field_name]
+    return EnvSettings(**merged)
+
+
+def build_api_settings(settings: EnvSettings) -> OzonEnvApiSettings:
+    # Older ozon-env-api builds still use dataclasses.asdict() in from_env().
+    field_names = set(OzonEnvApiSettings.model_fields)
+    return OzonEnvApiSettings(**settings.model_dump(include=field_names))
+
+
 def get_env_settings() -> EnvSettings:
     load_dotenv(".env-local", override=False)
-    return EnvSettings(**_load_settings_from_env())
+    load_dotenv(".env", override=False)
+    yaml_data = _load_yaml_config()
+    env_data = _load_settings_from_env()
+    return EnvSettings(**{**yaml_data, **env_data})

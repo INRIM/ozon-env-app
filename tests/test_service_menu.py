@@ -30,16 +30,26 @@ class DummyModel:
 
 
 class DummyEnv:
-    def __init__(self, app_code="demo", is_admin=True, models=None):
+    def __init__(
+        self,
+        app_code="demo",
+        is_admin=True,
+        uid="admin.user",
+        admins=None,
+        models=None,
+    ):
         self.user_session = types.SimpleNamespace(
             app_code=app_code,
             is_admin=is_admin,
+            uid=uid,
+            user={"uid": uid},
         )
         self.orm = types.SimpleNamespace(
             app_settings=types.SimpleNamespace(
                 module_name="demo",
                 version="1.0.0",
                 logo_img_url="",
+                admins=list(admins or []),
             )
         )
         self._models = models or {}
@@ -88,7 +98,7 @@ def test_default_query_for_menu_group_adds_expected_filters():
 
 
 def test_service_get_menu_non_admin_returns_empty_group():
-    env = DummyEnv(is_admin=False)
+    env = DummyEnv(is_admin=True, uid="plain.user", admins=["admin.user"])
     service = Service(env)
 
     res = asyncio.run(service.service_get_menu(parent="root"))
@@ -96,6 +106,56 @@ def test_service_get_menu_non_admin_returns_empty_group():
     assert res.mode == "menu"
     assert res.data == [{}]
     assert res.query == {"admin": True, "parent": "root"}
+
+
+def test_service_get_menu_uses_settings_admins_membership():
+    env = DummyEnv(
+        is_admin=False,
+        uid="admin.user",
+        admins=["admin.user"],
+        models={
+            "menu_group": DummyModel(
+                "menu_group",
+                rows=[{"rec_name": "root", "label": "Admin", "admin": True}],
+            ),
+            "action": DummyModel(
+                "action",
+                rows=[
+                    {
+                        "rec_name": "settings",
+                        "title": "Settings",
+                        "button_icon": "it-settings",
+                        "action_type": "menu",
+                        "action_root_path": "/action",
+                        "builder_enabled": False,
+                        "model": "settings",
+                    }
+                ],
+            ),
+        },
+    )
+    service = Service(env)
+
+    res = asyncio.run(service.service_get_menu())
+
+    assert res.mode == "menu"
+    assert res.data == [
+        {
+            "Admin": [
+                {
+                    "model": "settings",
+                    "key": "settings",
+                    "type": "button",
+                    "label": "Settings",
+                    "leftIcon": "it-settings",
+                    "btn_action_type": None,
+                    "action_type": "menu",
+                    "url_action": "/action/settings",
+                    "builder": False,
+                }
+            ]
+        }
+    ]
 
 
 def test_service_get_dashboard_builds_card_payload():

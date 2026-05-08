@@ -3,11 +3,15 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
+from ozon_env_api.settings import OzonEnvApiSettings
 from ozonenv.core.BaseModels import Settings as OzonSettings
 from pydantic import ValidationError
 
+from app.app_settings import build_public_db_settings_payload
+from app.app_settings import build_api_settings
 from app.app_settings import EnvSettings
 from app.app_settings import get_env_settings
+from app.app_settings import merge_public_db_settings
 from app.core.models import AttachmentScanStatus
 from app.ozon_env_acl import CompiledFieldAcl
 from app.services.antivirus import AntivirusUnavailableError
@@ -167,6 +171,90 @@ def test_get_env_settings_loads_env_local(tmp_path, monkeypatch):
     settings = get_env_settings()
 
     assert settings.app_code == "from-file"
+
+
+def test_build_api_settings_maps_env_settings_without_from_env(monkeypatch):
+    def _unexpected_from_env(cls):
+        raise AssertionError("from_env should not be used")
+
+    monkeypatch.setattr(
+        OzonEnvApiSettings,
+        "from_env",
+        classmethod(_unexpected_from_env),
+    )
+    settings = EnvSettings(
+        app_code="demo",
+        mongo_url="mongodb://db:27017",
+        upload_folder="/tmp/uploads",
+        tmp_upload_folder="/tmp/work",
+    )
+
+    api_settings = build_api_settings(settings)
+
+    assert isinstance(api_settings, OzonEnvApiSettings)
+    assert api_settings.app_code == "demo"
+    assert api_settings.mongo_url == "mongodb://db:27017"
+    assert api_settings.upload_folder == "/tmp/uploads"
+    assert api_settings.tmp_upload_folder == "/tmp/work"
+
+
+def test_public_db_settings_payload_excludes_sensitive_fields():
+    settings = EnvSettings(
+        app_code="demo",
+        app_name="Demo App",
+        app_version="2.4.6",
+        module_label="Demo Label",
+        description="Visible description",
+        admins=["u-admin"],
+        session_secret="session-secret",
+        keycloak_client_secret="kc-secret",
+        camunda_client_secret="camunda-secret",
+        runtime_internal_token="runtime-secret",
+        mongo_pass="mongo-secret",
+    )
+
+    payload = build_public_db_settings_payload(settings)
+
+    assert payload["rec_name"] == "demo"
+    assert payload["app_code"] == "demo"
+    assert payload["module_label"] == "Demo Label"
+    assert payload["description"] == "Visible description"
+    assert payload["admins"] == ["u-admin"]
+    assert payload["version"] == "2.4.6"
+    assert "session_secret" not in payload
+    assert "keycloak_client_secret" not in payload
+    assert "camunda_client_secret" not in payload
+    assert "runtime_internal_token" not in payload
+    assert "mongo_pass" not in payload
+
+
+def test_merge_public_db_settings_only_overrides_public_fields():
+    settings = EnvSettings(
+        app_code="demo",
+        app_name="Demo App",
+        module_label="Env Label",
+        description="Env description",
+        admins=["env-admin"],
+        session_secret="env-session-secret",
+        keycloak_client_secret="env-kc-secret",
+    )
+
+    merged = merge_public_db_settings(
+        settings,
+        {
+            "module_label": "DB Label",
+            "description": "DB description",
+            "admins": ["db-admin"],
+            "session_secret": "db-session-secret",
+            "keycloak_client_secret": "db-kc-secret",
+        },
+    )
+
+    assert merged.module_label == "DB Label"
+    assert merged.description == "DB description"
+    assert merged.admins == ["db-admin"]
+    assert merged.session_secret == "env-session-secret"
+    assert merged.keycloak_client_secret == "env-kc-secret"
 
 
 def test_field_acl_read_masks_and_compiles_on_session():

@@ -1,16 +1,54 @@
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
+from ozon_env_api.core.serviceapi import OzonEnvApiService
 
 from app.api.action_router import router as action_router
+from app.api.auth_routes import router as auth_router
+from app.api.filter_router import router as filter_router
 from app.api.routes import router
+from app.app_settings import build_api_settings
 from app.app_settings import get_env_settings
 from app.middleware.logging import LoggingMiddleware
+from app.plugins import discover_plugins
+from app.services.plugin_installer import PluginInstaller
 from app.services.session_auth import AUTH_MODE_KEYCLOAK
 from app.services.session_auth import normalize_auth_mode
 
-
 settings = get_env_settings()
 auth_mode = normalize_auth_mode(settings.auth_mode)
+local_settings = build_api_settings(settings)
+
+
+class _AppService(OzonEnvApiService):
+    async def startup(self) -> None:
+        from app.deps.app_env import _build_ozon_cfg
+        from app.deps.app_env import sync_app_settings_startup
+
+        await sync_app_settings_startup()
+        installer = PluginInstaller(cfg=_build_ozon_cfg())
+        await installer.run(
+            discover_plugins(
+                plugins_dir=settings.plugins_folder,
+                app_code=settings.app_code,
+            )
+        )
+
+
+local_service = _AppService(settings=local_settings)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await local_service.startup()
+    try:
+        yield
+    finally:
+        await local_service.shutdown()
+
 
 app = FastAPI(
     title=settings.app_name,
@@ -31,11 +69,15 @@ app = FastAPI(
             "boundary and still creates its own internal session."
         )
     ),
+    lifespan=lifespan,
 )
 
+
 app.add_middleware(LoggingMiddleware)
+app.include_router(auth_router)
 app.include_router(router)
 app.include_router(action_router)
+app.include_router(filter_router)
 
 
 def custom_openapi() -> dict:
@@ -85,25 +127,13 @@ def custom_openapi() -> dict:
                 "properties": {
                     "token": {
                         "type": "string",
-                        "description": (
-                            "Internal session token. In token mode it matches "
-                            "the user bearer token; in Keycloak mode it is "
-                            "generated server-side after the trusted header is "
-                            "validated."
-                        ),
+                        "description": "Valid Keycloak Token",
                     },
                     "app_code": {
                         "type": "string",
                         "description": (
                             "Fixed server app code from APP_CODE/OZON_APP_CODE "
                             f"(current: `{configured_app_code}`)."
-                        ),
-                    },
-                    "sso_token": {
-                        "type": "string",
-                        "description": (
-                            "Current Keycloak access token cached in session "
-                            "(available in Keycloak mode)."
                         ),
                     },
                     "sso_refresh": {

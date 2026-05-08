@@ -1,19 +1,20 @@
 from __future__ import annotations
 
 import base64
+import json
+import logging
+import uuid
 from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
-import json
-import logging
 from typing import Any
-import uuid
 
 import httpx
 from fastapi import HTTPException
 from fastapi import Request
 from fastapi import status
 from ozonenv.OzonEnv import OzonEnv
+from ozonenv.core.BaseModels import BasicReturn, CoreModel
 
 from app.app_settings import EnvSettings
 from app.core.OzonModelApp import DateEngineApp
@@ -74,20 +75,25 @@ async def build_keycloak_session(
     app_code: str,
 ) -> AppSession:
     remote_user = _extract_remote_user(request, settings)
-    user_record = await _load_user_record(ozon_env, remote_user)
-    existing_session = await _load_session_record(ozon_env, remote_user, app_code)
-    payload = existing_session.copy() if existing_session else {}
+    admins = list(settings.admins or [])
+    user_record = await _get_or_create_user(ozon_env, remote_user, admins)
+    user_dict = _model_to_dict(user_record)
+
     access_token, refresh_token = _extract_sso_tokens(request, settings)
     token_expire = _decode_token_expiry(access_token) if access_token else None
 
-    user_snapshot = _make_user_snapshot(user_record, remote_user)
+    user_snapshot = _make_user_snapshot(user_dict, remote_user)
     created_at, expires_at = _session_window(ozon_env)
     now_ts = datetime.now().timestamp()
 
+    existing_token = str(user_dict.get("token") or "").strip()
+
+    payload = user_dict.copy()
     payload.update(
         {
             "uid": remote_user,
-            "token": payload.get("token") or str(uuid.uuid4()),
+            "rec_name": remote_user,
+            "token": existing_token or str(uuid.uuid4()),
             "app_code": app_code,
             "full_name": _full_name(user_snapshot),
             "divisione_uo": str(
@@ -145,19 +151,20 @@ async def build_keycloak_session(
             "create_datetime": payload.get("create_datetime") or created_at,
             "expire_datetime": expires_at,
             "user": user_snapshot,
-            "sso_token": access_token or payload.get("sso_token", ""),
-            "sso_refresh": refresh_token or payload.get("sso_refresh", ""),
-            "sso_expire": token_expire or payload.get("sso_expire"),
+            "sso_token": access_token or str(user_dict.get("sso_token") or ""),
+            "sso_refresh": refresh_token or str(user_dict.get("sso_refresh") or ""),
+            "sso_expire": token_expire or user_dict.get("sso_expire"),
         }
     )
     payload.setdefault("app", {"app_code": app_code})
     payload.setdefault("apps", {app_code: {"app_code": app_code}})
 
     session = AppSession(**payload)
-    await persist_session(ozon_env, session)
-
+    # Set user_session before persist so ORM owner-tracking has context
     ozon_env.user_session = session
     ozon_env.session_token = session.token
+    await persist_user_session(ozon_env, session)
+
     if not getattr(ozon_env, "upload_folder", ""):
         ozon_env.upload_folder = getattr(
             getattr(ozon_env.orm, "app_settings", None), "upload_folder", ""
@@ -168,6 +175,34 @@ async def build_keycloak_session(
         remote_user,
     )
     return session
+
+
+async def build_keycloak_session_from_tokens(
+    ozon_env: OzonEnv,
+    settings: EnvSettings,
+    app_code: str,
+    token: Any,
+) -> CoreModel:
+    """BFF callback path: validate Keycloak token dict via session_app()."""
+    ozon_env.params["current_token"] = token
+    res: BasicReturn = await ozon_env.session_app()
+
+    if res.fail:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Cannot extract user identity from Keycloak token {res.msg}",
+        )
+
+    if not getattr(ozon_env, "upload_folder", ""):
+        ozon_env.upload_folder = getattr(
+            getattr(ozon_env.orm, "app_settings", None), "upload_folder", ""
+        )
+    logger.info(
+        "keycloak session ready (bff) app_code=%s uid=%s",
+        app_code,
+        ozon_env.user_session.uid,
+    )
+    return ozon_env.user_session
 
 
 async def ensure_sso_token_fresh(
@@ -218,18 +253,44 @@ async def ensure_sso_token_fresh(
     session.sso_expire = _resolve_expire_datetime(refreshed)
     session.last_update = datetime.now().timestamp()
 
-    await persist_session(ozon_env, session)
+    await persist_user_session(ozon_env, session)
     ozon_env.user_session = session
     return session
 
 
-async def persist_session(ozon_env: OzonEnv, session: AppSession) -> None:
-    collection = ozon_env.db.engine.get_collection("session")
-    await collection.replace_one(
-        {"token": session.token},
-        session.model_dump(mode="python"),
-        upsert=True,
-    )
+async def load_session_by_token(
+    ozon_env: OzonEnv,
+    token: str,
+    app_code: str,
+    settings: EnvSettings,
+) -> AppSession:
+    """Load session from user collection by internal UUID token (BFF cookie path)."""
+    user_model = ozon_env.get("user")
+    record = await user_model.load({"token": token, "active": True, "deleted": 0})
+    if not record:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session not found or expired",
+        )
+    data = _model_to_dict(record)
+    data["app_code"] = app_code
+    session = AppSession(**data)
+
+    ozon_env.user_session = session
+    ozon_env.session_token = session.token
+    if not getattr(ozon_env, "upload_folder", ""):
+        ozon_env.upload_folder = getattr(
+            getattr(ozon_env.orm, "app_settings", None), "upload_folder", ""
+        )
+    return session
+
+
+async def persist_user_session(ozon_env: OzonEnv, session: AppSession) -> None:
+    """Persist session data to user collection via ORM."""
+    user_model = ozon_env.get("user")
+    data = session.model_dump(mode="python")
+    data.setdefault("rec_name", session.uid)
+    await user_model.upsert(data)
 
 
 async def _refresh_keycloak_tokens(
@@ -350,53 +411,51 @@ def _extract_remote_user(request: Request, settings: EnvSettings) -> str:
     )
 
 
-async def _load_user_record(ozon_env: OzonEnv, remote_user: str) -> dict[str, Any]:
-    collection = ozon_env.db.engine.get_collection("user")
+async def _get_or_create_user(
+    ozon_env: OzonEnv, uid: str, admins: list[str]
+) -> Any:
+    """Return existing user CoreModel, or create a new one with is_admin set."""
+    user_model = ozon_env.get("user")
     query = {
         "$and": [
             {"active": True},
             {"deleted": 0},
-            {"$or": [{"uid": remote_user}, {"rec_name": remote_user}]},
+            {"$or": [{"uid": uid}, {"rec_name": uid}]},
         ]
     }
-    user_record = await collection.find_one(query)
+    user_record = await user_model.load(query)
     if user_record:
         return user_record
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail=(
-            f"Trusted user '{remote_user}' not present in collection 'user'"
-        ),
-    )
 
-
-async def _load_session_record(
-    ozon_env: OzonEnv,
-    remote_user: str,
-    app_code: str,
-) -> dict[str, Any] | None:
-    collection = ozon_env.db.engine.get_collection("session")
-    query = {
-        "$and": [
-            {"uid": remote_user},
-            {"app_code": app_code},
-            {"active": True},
-            {"deleted": 0},
-        ]
+    new_user = {
+        "uid": uid,
+        "rec_name": uid,
+        "is_admin": uid in admins,
+        "active": True,
+        "deleted": 0,
     }
-    return await collection.find_one(query)
+    created = await user_model.upsert(new_user)
+    if created is None:
+        logger.error("failed to create user '%s': %s", uid, user_model.status)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create user '{uid}'",
+        )
+    logger.info("created new user uid=%s is_admin=%s", uid, new_user["is_admin"])
+    return created
 
 
 def _make_user_snapshot(
-    user_record: dict[str, Any],
-    remote_user: str,
+    user_record: Any,
+    fallback_uid: str = "",
 ) -> dict[str, Any]:
-    snapshot = user_record.copy()
+    snapshot = _model_to_dict(user_record)
     if "_id" in snapshot:
         snapshot["id"] = str(snapshot.pop("_id"))
     elif "id" in snapshot:
         snapshot["id"] = str(snapshot["id"])
-    snapshot["uid"] = str(snapshot.get("uid") or remote_user)
+    if not snapshot.get("uid") and fallback_uid:
+        snapshot["uid"] = fallback_uid
     snapshot["full_name"] = _full_name(snapshot)
     return snapshot
 

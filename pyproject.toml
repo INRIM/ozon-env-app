@@ -92,7 +92,8 @@ omit = [
 ]
 
 [tool.uv.sources]
-ozon-env = { git = "https://github.com/inrim/ozon-env.git", rev = "3.3.5" }
+ozon-env = { git = "https://github.com/inrim/ozon-env.git", rev = "4.0.0" }
+ozon-env-api = { git = "https://gitlab.ininrim.it/inrimsi/microservice/services-apps/ozon-env-api.git" }
 
 [project]
 name = "ozon-env-app"
@@ -101,7 +102,17 @@ requires-python = ">=3.14,<4.0"
 dependencies = [
     "camunda-orchestration-sdk>=9.0.0",
     "fastapi>=0.116.0",
+    "httpx>=0.28",
+    "itsdangerous>=2.2",
     "ozon-env",
+    "ozon-env-api",
     "python-dotenv>=1.1.1",
     "uvicorn[standard]>=0.35.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.1.0",
 ]

@@ -1,7 +1,8 @@
 from fastapi.testclient import TestClient
 
 from app.app import app
-from app.deps.app_env import client_session
+from app.deps.app_env import get_authed_env
+from app.deps.app_env import get_service
 from app.services.common import ResponseObjectData
 
 
@@ -108,17 +109,17 @@ class FakeActionService:
         return base
 
 
-class FakeClientSession:
-    def __init__(self):
-        self.service = FakeActionService()
+async def _fake_authed_env():
+    pass
 
 
 async def _dep():
-    yield FakeClientSession()
+    yield FakeActionService()
 
 
 def _client() -> TestClient:
-    app.dependency_overrides[client_session] = _dep
+    app.dependency_overrides[get_authed_env] = _fake_authed_env
+    app.dependency_overrides[get_service] = _dep
     return TestClient(app)
 
 

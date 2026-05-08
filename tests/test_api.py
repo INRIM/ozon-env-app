@@ -6,7 +6,9 @@ from pydantic import BaseModel
 
 from app.api import routes as api_routes
 from app.app import app
-from app.deps.app_env import client_session
+from app.deps.app_env import get_authed_env
+from app.deps.app_env import get_ozon_env
+from app.deps.app_env import get_service
 from app.services.common import ResponseObject, ResponseObjectData
 
 # --- MOCK MODELS ---
@@ -128,15 +130,16 @@ class FakeService:
         )
 
 
-class FakeClientSession:
+class FakeUserSession:
     def __init__(self, instance_id: int):
-        self.instance_id = instance_id
-        self.service = FakeService(instance_id)
-        self.service.session = {
-            "token": f"ok-token-{instance_id}",
-            "user_uid": f"U-{instance_id}",
-            "app_code": "test-app",
-        }
+        self.token = f"ok-token-{instance_id}"
+        self.user_uid = f"U-{instance_id}"
+        self.app_code = "test-app"
+
+
+class FakeOzonEnv:
+    def __init__(self, instance_id: int):
+        self.user_session = FakeUserSession(instance_id)
 
 
 class _UnserializableValue:
@@ -150,17 +153,32 @@ class FailingJsonSession(BaseModel):
     raw: object = _UnserializableValue()
 
 
-class Factory:
+class OzonEnvFactory:
     def __init__(self):
         self.calls = 0
 
     async def dep(self):
         self.calls += 1
-        yield FakeClientSession(self.calls)
+        yield FakeOzonEnv(self.calls)
+
+
+class Factory:
+    def __init__(self):
+        self.calls = 0
+        self._ozon_factory = OzonEnvFactory()
+
+    async def dep(self):
+        self.calls += 1
+        yield FakeService(self.calls)
+
+    async def fake_authed_env(self):
+        pass
 
 
 def make_client(factory: Factory):
-    app.dependency_overrides[client_session] = factory.dep
+    app.dependency_overrides[get_authed_env] = factory.fake_authed_env
+    app.dependency_overrides[get_service] = factory.dep
+    app.dependency_overrides[get_ozon_env] = factory._ozon_factory.dep
     return TestClient(app)
 
 
@@ -196,14 +214,18 @@ def test_get_session():
 
 
 def test_get_session_with_fallback_serializer():
-    class FallbackClientSession:
+    class FakeFailingOzonEnv:
         def __init__(self):
-            self.service = type("Svc", (), {"session": FailingJsonSession()})()
+            self.user_session = FailingJsonSession()
 
-    async def dep():
-        yield FallbackClientSession()
+    async def fake_authed_env():
+        pass
 
-    app.dependency_overrides[client_session] = dep
+    async def ozon_dep():
+        yield FakeFailingOzonEnv()
+
+    app.dependency_overrides[get_authed_env] = fake_authed_env
+    app.dependency_overrides[get_ozon_env] = ozon_dep
     client = TestClient(app)
     response = client.get(
         "/get_session", headers={"Authorization": "Bearer ok-token"}
@@ -407,7 +429,7 @@ def test_get_remote_data_select(monkeypatch):
     client = make_client(factory)
 
     async def fake_remote_data_select_response(
-        cli_session, url, path_value, header_key, header_value_key
+        service, url, path_value, header_key, header_value_key
     ):
         return [{"label": "One", "value": "1"}]
 
@@ -430,7 +452,12 @@ def test_get_remote_data_select(monkeypatch):
     app.dependency_overrides.clear()
 
 
-def test_openapi_documents_single_token_and_fixed_app_code():
+def test_openapi_documents_security_scheme_and_fixed_app_code():
+    from app.app_settings import get_env_settings
+    from app.services.session_auth import AUTH_MODE_KEYCLOAK, normalize_auth_mode
+
+    current_auth_mode = normalize_auth_mode(get_env_settings().auth_mode)
+
     app.openapi_schema = None
     client = TestClient(app)
 
@@ -439,7 +466,10 @@ def test_openapi_documents_single_token_and_fixed_app_code():
     schema = response.json()
 
     security_scheme = schema["components"]["securitySchemes"]["APIKeyHeader"]
-    assert "Single-token mode" in security_scheme["description"]
+    if current_auth_mode == AUTH_MODE_KEYCLOAK:
+        assert "Keycloak mode" in security_scheme["description"]
+    else:
+        assert "Single-token mode" in security_scheme["description"]
 
     get_session_schema = (
         schema["paths"]["/get_session"]["get"]["responses"]["200"]["content"][

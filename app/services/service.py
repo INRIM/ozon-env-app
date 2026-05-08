@@ -2,6 +2,7 @@ import logging
 from typing import Any
 from typing import Union
 
+from fastapi import HTTPException
 from ozonenv.OzonEnv import OzonEnv
 
 from .action_runtime import ActionRuntime
@@ -111,12 +112,10 @@ class Service:
 
     async def get_select_options(
             self,
-            cli_session,
             field_key,
             curr_model,
             schema_type: str = "formio",
     ):
-        # Ad oggi supportiamo select basate su schema FormIO.
         logger.info(
             "service.get_select_options field=%s model=%s schema_type=%s",
             field_key,
@@ -125,7 +124,7 @@ class Service:
         )
         if schema_type == "formio":
             return await get_formio_select_options(
-                cli_session,
+                self,
                 curr_model,
                 field_key,
             )
@@ -288,7 +287,66 @@ class Service:
             trnf_config=trnf_config,
             fields_parser=fields_parser,
         )
+        if model_name == "component" and record is not None:
+            schema = _obj_to_dict(record)
+            try:
+                await self.env.insert_update_component(schema)
+                logger.info(
+                    "component hook: insert_update_component ok rec_name=%s",
+                    schema.get("rec_name", ""),
+                )
+            except Exception:
+                logger.exception(
+                    "component hook: insert_update_component failed rec_name=%s",
+                    schema.get("rec_name", ""),
+                )
+            try:
+                await self._make_default_actions_for_component(schema)
+            except Exception:
+                logger.exception(
+                    "component hook: make_default_actions failed rec_name=%s",
+                    schema.get("rec_name", ""),
+                )
         return make_response_object(record_model, mode="form", data=record)
+
+    async def fast_search_list(
+            self,
+            action_name: str,
+            query_fields: list[dict[str, Any]],
+            skip: int = 0,
+            limit: int = 100,
+            order: str = "",
+    ) -> ResponseObject:
+        action = await self.action_runtime.get_action_record(action_name)
+        if not action:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Action '{action_name}' not found",
+            )
+        action_model = _field(action, "model", "")
+        action_mode = _field(action, "mode", "")
+        if action_mode != "list":
+            raise HTTPException(
+                status_code=422,
+                detail="fast_search only valid on list actions",
+            )
+        resolved_query, resolved_order = (
+            await self.action_runtime._resolve_list_defaults(action, action_model)
+        )
+        effective_order = order.strip() or resolved_order
+        if query_fields:
+            merged = _merge_query(resolved_query, {"$and": query_fields})
+        else:
+            merged = resolved_query
+        return await self.list_records(
+            model_name=action_model,
+            query=merged,
+            order=effective_order,
+            skip=skip,
+            limit=limit,
+            resp_stream=True,
+            batch_size=10,
+        )
 
     async def load(
             self, domain: dict, in_execution=False
@@ -313,6 +371,114 @@ class Service:
         response = make_response_object(record_model, mode="form", data=record)
         response.content.obfucated_fields = obfuscate_fields
         return response
+
+    async def _make_default_actions_for_component(
+            self,
+            schema: dict[str, Any],
+    ) -> None:
+        model_name = str(schema.get("rec_name", "") or "").strip()
+        if not model_name:
+            return
+
+        comp_type = str(schema.get("type", "") or "").strip()
+        comp_title = str(schema.get("title", "") or model_name).strip()
+        comp_sys = bool(schema.get("sys", False))
+
+        action_model = self.env.get("action")
+        menu_group_model = self.env.get("menu_group")
+
+        template_actions = await action_model.find(
+            domain={
+                "$and": [
+                    {"model": "action"},
+                    {"sys": True},
+                    {"deleted": 0},
+                    {"list_query": "{}"},
+                ]
+            },
+            sort="list_order:asc,rec_name:desc",
+            limit=0,
+        )
+        logger.info(
+            "component hook: found %s template actions for model=%s",
+            len(template_actions) if isinstance(template_actions, list) else "?",
+            model_name,
+        )
+
+        if comp_type != "resource":
+            existing_count = await menu_group_model.count(
+                domain={"rec_name": model_name, "deleted": 0}
+            )
+            if not existing_count:
+                group_data: dict[str, Any] = {
+                    "rec_name": model_name,
+                    "label": comp_title,
+                    "admin": comp_sys,
+                    "active": True,
+                    "deleted": 0,
+                }
+                if not comp_sys:
+                    app_code = str(
+                        getattr(self.session, "app_code", "") or ""
+                    ).strip()
+                    if app_code:
+                        group_data["app_code"] = [app_code]
+                await menu_group_model.upsert(
+                    data=group_data, rec_name=model_name
+                )
+                logger.info(
+                    "component hook: menu_group created model=%s", model_name
+                )
+
+        for template in template_actions if isinstance(template_actions, list) else []:
+            data = _obj_to_dict(template)
+            data.pop("_id", None)
+            data.pop("id", None)
+
+            action_rec_name = str(data.get("rec_name", "") or "").replace(
+                "_action", f"_{model_name}"
+            )
+            next_action = str(data.get("next_action_name", "") or "").replace(
+                "_action", f"_{model_name}"
+            )
+
+            data.update({
+                "rec_name": action_rec_name,
+                "next_action_name": next_action,
+                "model": model_name,
+                "sys": comp_sys,
+                "admin": comp_sys,
+                "active": True,
+                "deleted": 0,
+                "action_root_path": "/action",
+            })
+            if not comp_sys:
+                data["user_function"] = "user"
+            if data.get("component_type"):
+                data["component_type"] = comp_type
+            if data.get("action_type") == "menu":
+                data["title"] = comp_title
+                data_value = dict(data.get("data_value") or {})
+                data_value.update({
+                    "title": comp_title,
+                    "model": comp_title,
+                    "data_model": model_name,
+                    "rec_name": action_rec_name,
+                })
+                if comp_type == "resource":
+                    data["menu_group"] = "risorse_app"
+                    data_value["menu_group"] = "Risorse Apps"
+                else:
+                    data["menu_group"] = model_name
+                    data_value["menu_group"] = comp_title
+                data["data_value"] = data_value
+
+            await action_model.upsert(data=data, rec_name=action_rec_name)
+            logger.info(
+                "component hook: action upserted model=%s action=%s",
+                model_name,
+                action_rec_name,
+            )
 
     async def _resolve_write_operation(
             self,
@@ -556,6 +722,28 @@ class Service:
             "builder": rec.get("builder_enabled", False),
         }
 
+    def _settings_admins(self) -> set[str]:
+        admins = getattr(self.settings, "admins", []) or []
+        if isinstance(admins, str):
+            admins = [admins]
+        if not isinstance(admins, (list, tuple, set)):
+            return set()
+        return {str(item).strip() for item in admins if str(item).strip()}
+
+    def _session_uid(self) -> str:
+        uid = str(getattr(self.session, "uid", "") or "").strip()
+        if uid:
+            return uid
+        return str(
+            _field(getattr(self.session, "user", {}), "uid", "") or ""
+        ).strip()
+
+    def _is_menu_admin(self) -> bool:
+        uid = self._session_uid()
+        if uid:
+            return uid in self._settings_admins()
+        return bool(getattr(self.session, "is_admin", False))
+
     async def _get_basic_menu_list(self, parent: str = "") -> list[dict[str, Any]]:
         menu_group_model = self.env.get("menu_group")
         action_model = self.env.get("action")
@@ -669,15 +857,22 @@ class Service:
                 "schema": schema,
                 "menu": menu_data.data,
                 "settings": {
-                    "module_name": getattr(self.settings, "module_name", ""),
-                    "version": getattr(self.settings, "version", ""),
+                    "module_name": (
+                        getattr(self.settings, "module_name", "")
+                        or getattr(self.settings, "module_label", "")
+                        or getattr(self.settings, "app_name", "")
+                    ),
+                    "version": (
+                        getattr(self.settings, "version", "")
+                        or getattr(self.settings, "app_version", "")
+                    ),
                     "logo_img_url": getattr(self.settings, "logo_img_url", ""),
                 },
             },
         )
 
     async def service_get_menu(self, parent: str = "") -> ResponseObjectData:
-        is_admin = bool(getattr(self.session, "is_admin", False))
+        is_admin = self._is_menu_admin()
         if not is_admin:
             return ResponseObjectData(
                 mode="menu",

@@ -16,6 +16,15 @@ class ListRequest(BaseModel):
     limit: int = 100
 
 
+class FastSearchRequest(BaseModel):
+    """Payload per l'endpoint /filter/fast_search/{action_name}."""
+
+    query_fields: list[dict[str, Any]] = Field(default_factory=list)
+    order: str = ""
+    skip: int = 0
+    limit: int = 100
+
+
 class RemoteSelectHeaderEntry(BaseModel):
     """Coppia chiave/valore usata per valorizzare un header remoto."""
 
@@ -165,9 +174,9 @@ def make_response_object(
         content=content,
     )
 
-async def get_global_param(cli_session, name: str) -> Any:
+async def get_global_param(service, name: str) -> Any:
 
-    params = await cli_session.service.by_name("global_params", name)
+    params = await service.by_name("global_params", name)
     if not params:
         return {}
     vals = check_parse_json(params.value)

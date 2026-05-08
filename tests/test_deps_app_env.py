@@ -7,9 +7,9 @@ import json
 from types import SimpleNamespace
 
 from fastapi import Response
-from ozonenv.core.BaseModels import Session
 from starlette.requests import Request
 
+from app.core.session import AppSession
 from app.deps import app_env
 
 
@@ -98,11 +98,10 @@ class _FakeOzonEnv:
         user_app_code: str = "legacy",
         user_session=None,
         user_docs=None,
-        session_docs=None,
     ):
         self.params = {"current_session_token": "admin-token"}
         self.config_system = {"ozon_admin_token": "admin-token"}
-        self.user_session = user_session or Session(
+        self.user_session = user_session or AppSession(
             uid="legacy-user",
             token="ok-token",
             app_code=user_app_code,
@@ -112,7 +111,6 @@ class _FakeOzonEnv:
         self.db = SimpleNamespace(
             engine=_FakeEngine(
                 {
-                    "session": _FakeCollection(session_docs),
                     "user": _FakeCollection(user_docs),
                 }
             )
@@ -122,7 +120,8 @@ class _FakeOzonEnv:
                 upload_folder="/uploads",
                 session_expire_hours=12,
                 tz="Europe/Rome",
-            )
+            ),
+            add_static_model=_noop_add_static_model,
         )
         self.upload_folder = ""
 
@@ -131,23 +130,37 @@ class _FakeOzonEnv:
         return _SessionResult()
 
 
+async def _noop_add_static_model(name, model_class):
+    pass
+
+
 class _FakeService:
     def __init__(self, env):
         self.session = env.user_session
 
 
 def test_build_ozon_cfg_ignores_admin_env_token(monkeypatch):
+    _base = {
+        "app_code": "mci",
+        "mongo_user": "user",
+        "mongo_pass": "pass",
+        "mongo_url": "mongodb://localhost:27017",
+        "mongo_db": "test",
+        "mongo_replica": "",
+        "models_folder": "/models",
+        "backend_interface": "db",
+    }
     monkeypatch.setattr(
         app_env,
         "settings",
         SimpleNamespace(
-            app_code="mci",
-            mongo_user="user",
-            mongo_pass="pass",
-            mongo_url="mongodb://localhost:27017",
-            mongo_db="test",
-            mongo_replica="",
-            models_folder="/models",
+            **_base,
+            ozon_env_cfg=lambda: _base.copy(),
+            keycloak_jwks_url="",
+            keycloak_issuer="",
+            keycloak_token_endpoint="",
+            keycloak_client_id="",
+            keycloak_client_secret="",
         ),
     )
 
@@ -157,131 +170,70 @@ def test_build_ozon_cfg_ignores_admin_env_token(monkeypatch):
     assert "ozon_admin_token" not in cfg
 
 
-def test_client_session_sync_app_code_on_get_session(monkeypatch):
-    monkeypatch.setattr(
-        app_env,
-        "settings",
-        SimpleNamespace(
-            auth_mode="token",
-            keycloak_remote_user_header="x-remote-user",
-        ),
-    )
-    monkeypatch.setattr(app_env, "_build_ozon_cfg", lambda: {"app_code": "mci"})
-    monkeypatch.setattr(app_env, "Service", _FakeService)
+_FAKE_SETTINGS = SimpleNamespace(
+    auth_mode="token",
+    auth_cookie_name="session",
+    session_secret="test-secret",
+    auth_cookie_max_age=3600,
+    csrf_cookie_name="csrf",
+    app_code="mci",
+    keycloak_remote_user_header="x-remote-user",
+    token_header="Authorization",
+    auth_cookie_samesite="lax",
+    cookie_secure=False,
+)
 
-    ozon_env = _FakeOzonEnv(user_app_code="legacy")
+
+def test_get_authed_env_sets_token_in_params(monkeypatch):
+    monkeypatch.setattr(app_env, "settings", _FAKE_SETTINGS)
+
+    ozon_env = _FakeOzonEnv(user_app_code="mci")
     response = Response()
-    request = _build_request("/get_session")
+    request = _build_request("/action/list")
 
     result = asyncio.run(
-        app_env.client_session(
-            "Bearer ok-token", ozon_env, request, response
-        )
+        app_env.get_authed_env("Bearer ok-token", ozon_env, request, response)
     )
 
-    assert result.app_code == "mci"
-    assert ozon_env.params["current_session_token"] == "ok-token"
+    assert ozon_env.params["current_token"] == "ok-token"
     assert "ozon_admin_token" not in ozon_env.params
     assert "ozon_admin_token" not in ozon_env.config_system
-    assert ozon_env.user_session.app_code == "mci"
-    assert ozon_env.user_session.uid == "legacy-user"
-    assert len(ozon_env.db.engine.get_collection("session").replace_calls) == 1
     assert ozon_env.session_app_calls == 1
+    assert result is ozon_env
 
 
-def test_client_session_sync_app_code_on_other_paths(monkeypatch):
-    monkeypatch.setattr(
-        app_env,
-        "settings",
-        SimpleNamespace(
-            auth_mode="token",
-            keycloak_remote_user_header="x-remote-user",
-        ),
-    )
-    monkeypatch.setattr(app_env, "_build_ozon_cfg", lambda: {"app_code": "mci"})
-    monkeypatch.setattr(app_env, "Service", _FakeService)
+def test_get_authed_env_removes_admin_token_from_params(monkeypatch):
+    monkeypatch.setattr(app_env, "settings", _FAKE_SETTINGS)
 
-    ozon_env = _FakeOzonEnv(user_app_code="legacy")
+    ozon_env = _FakeOzonEnv(user_app_code="mci")
+    ozon_env.params["ozon_admin_token"] = "should-be-removed"
+    ozon_env.config_system["ozon_admin_token"] = "should-be-removed"
     response = Response()
     request = _build_request("/models/distinct")
 
-    result = asyncio.run(
-        app_env.client_session(
-            "Bearer ok-token", ozon_env, request, response
-        )
+    asyncio.run(
+        app_env.get_authed_env("Bearer ok-token", ozon_env, request, response)
     )
 
-    assert result.app_code == "mci"
-    assert ozon_env.params["current_session_token"] == "ok-token"
     assert "ozon_admin_token" not in ozon_env.params
     assert "ozon_admin_token" not in ozon_env.config_system
-    assert ozon_env.user_session.app_code == "mci"
-    assert ozon_env.user_session.uid == "legacy-user"
-    assert len(ozon_env.db.engine.get_collection("session").replace_calls) == 1
-    assert ozon_env.session_app_calls == 1
 
 
-def test_client_session_builds_keycloak_session_from_trusted_header(monkeypatch):
-    monkeypatch.setattr(
-        app_env,
-        "settings",
-        SimpleNamespace(
-            auth_mode="keycloak",
-            keycloak_remote_user_header="x-remote-user",
-            token_header="Authorization",
-            keycloak_token_endpoint="https://kc.example/token",
-            keycloak_client_id="backend-web",
-            keycloak_client_secret="secret",
-        ),
-    )
-    monkeypatch.setattr(app_env, "_build_ozon_cfg", lambda: {"app_code": "mci"})
-    monkeypatch.setattr(app_env, "Service", _FakeService)
+def test_get_authed_env_calls_session_app_once(monkeypatch):
+    monkeypatch.setattr(app_env, "settings", _FAKE_SETTINGS)
 
-    ozon_env = _FakeOzonEnv(
-        user_session=None,
-        user_docs=[
-            {
-                "uid": "kc.user",
-                "full_name": "Keycloak User",
-                "mail": "kc.user@example.org",
-                "is_admin": True,
-                "active": True,
-                "deleted": 0,
-            }
-        ],
-    )
-    response = Response()
     exp = int((datetime.now(timezone.utc) + timedelta(minutes=5)).timestamp())
     sso_token = _fake_jwt_with_exp(exp)
+    ozon_env = _FakeOzonEnv(user_app_code="mci")
+    response = Response()
     request = _build_request(
         "/get_session",
-        headers=[
-            (b"x-remote-user", b"kc.user"),
-            (b"authorization", f"Bearer {sso_token}".encode("utf-8")),
-            (b"x-refresh-token", b"refresh-kc-token"),
-        ],
+        headers=[(b"authorization", f"Bearer {sso_token}".encode("utf-8"))],
     )
 
-    result = asyncio.run(
-        app_env.client_session(
-            None,
-            ozon_env,
-            request,
-            response,
-        )
+    asyncio.run(
+        app_env.get_authed_env(f"Bearer {sso_token}", ozon_env, request, response)
     )
 
-    session_collection = ozon_env.db.engine.get_collection("session")
-
-    assert result.app_code == "mci"
-    assert ozon_env.params["current_session_token"] == result.api_key
-    assert result.service.session.uid == "kc.user"
-    assert result.service.session.full_name == "Keycloak User"
-    assert result.service.session.is_admin is True
-    assert result.service.session.sso_token == sso_token
-    assert result.service.session.sso_refresh == "refresh-kc-token"
-    assert result.service.session.sso_expire is not None
-    assert len(session_collection.replace_calls) == 1
-    assert session_collection.replace_calls[0]["payload"]["user"]["uid"] == "kc.user"
-    assert session_collection.replace_calls[0]["payload"]["sso_refresh"] == "refresh-kc-token"
-    assert "app_code=mci" in response.headers["set-cookie"]
+    assert ozon_env.session_app_calls == 1
+    assert ozon_env.params["current_token"] == sso_token
