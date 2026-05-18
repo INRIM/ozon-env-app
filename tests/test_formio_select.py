@@ -96,13 +96,9 @@ def test_get_formio_select_options_missing_field_returns_empty_list():
         def __init__(self):
             self.env = FakeEnv()
 
-    class FakeCliSession:
-        def __init__(self):
-            self.service = FakeService()
-
     out = asyncio.run(
         get_formio_select_options(
-            FakeCliSession(),
+            FakeService(),
             curr_model="customer",
             field_key="missing",
         )
@@ -169,13 +165,9 @@ def test_get_formio_select_options_local_url_missing_model_returns_empty():
         async def get_distinct(self, *_args, **_kwargs):
             raise AssertionError("get_distinct should not be called")
 
-    class FakeCliSession:
-        def __init__(self):
-            self.service = FakeService()
-
     out = asyncio.run(
         get_formio_select_options(
-            FakeCliSession(),
+            FakeService(),
             curr_model="customer",
             field_key="supplier",
         )
@@ -217,6 +209,241 @@ def test_get_formio_select_options_parses_string_select_fields():
     assert out == [{"label": "Fornitore A", "value": "SUP-1"}]
 
 
+def test_get_formio_select_options_values_falls_back_to_field_data_values():
+    class FakeModel:
+        def select_fields(self):
+            return {
+                "supplier": {
+                    "src": "values",
+                    "key": "supplier",
+                    "data": {
+                        "values": [
+                            {"label": "Fornitore A", "value": "SUP-1"},
+                            {"label": "Fornitore B", "value": "SUP-2"},
+                        ]
+                    },
+                    "properties": {"label": "label", "id": "value"},
+                }
+            }
+
+        def select_options(self, _):
+            return []
+
+    class FakeEnvEntry:
+        model = FakeModel()
+
+    class FakeEnv:
+        def get(self, _):
+            return FakeEnvEntry()
+
+    class FakeService:
+        def __init__(self):
+            self.env = FakeEnv()
+
+    out = asyncio.run(
+        get_formio_select_options(
+            FakeService(),
+            curr_model="customer",
+            field_key="supplier",
+        )
+    )
+
+    assert out == [
+        {"label": "Fornitore A", "value": "SUP-1"},
+        {"label": "Fornitore B", "value": "SUP-2"},
+    ]
+
+
+def test_get_formio_select_options_local_url_uses_model_distinct():
+    class FakeModel:
+        def select_fields(self):
+            return {
+                "supplier": {
+                    "src": "url",
+                    "url": "/models/distinct",
+                    "properties": {
+                        "model": "supplier",
+                        "domain": {"active": True},
+                        "compute_label": "code,name",
+                    },
+                }
+            }
+
+    class FakeEnvEntry:
+        model = FakeModel()
+
+    class FakeEnv:
+        def get(self, _):
+            return FakeEnvEntry()
+
+    class FakeService:
+        def __init__(self):
+            self.env = FakeEnv()
+
+        async def get_distinct(self, model, query, compute_label):
+            assert model == "supplier"
+            assert query == {"active": True}
+            assert compute_label == "code,name"
+            return [{"k": "SUP-1", "v": "Fornitore A"}]
+
+    out = asyncio.run(
+        get_formio_select_options(
+            FakeService(),
+            curr_model="customer",
+            field_key="supplier",
+        )
+    )
+
+    assert out == [{"label": "Fornitore A", "value": "SUP-1"}]
+
+
+def test_get_formio_select_options_resource_source_uses_resource_id():
+    class FakeCurrentModel:
+        def select_fields(self):
+            return {
+                "action_type": {
+                    "src": "resource",
+                    "resource_id": "action_type",
+                    "template_label_keys": ["label"],
+                    "idPath": "id",
+                    "properties": {},
+                }
+            }
+
+    class FakeCurrentEntry:
+        model = FakeCurrentModel()
+
+    class FakeResourceModel:
+        def get_domain(self, query):
+            return query
+
+        async def find(self, domain, sort="", limit=0):
+            assert domain == {"active": True, "deleted": 0}
+            assert sort == "list_order:asc,rec_name:asc"
+            assert limit == 0
+            return [
+                {"rec_name": "window", "label": "Window"},
+                {"rec_name": "menu", "label": "Menu"},
+            ]
+
+    class FakeEnv:
+        def get(self, name):
+            if name == "action":
+                return FakeCurrentEntry()
+            if name == "action_type":
+                return FakeResourceModel()
+            raise KeyError(name)
+
+    class FakeService:
+        def __init__(self):
+            self.env = FakeEnv()
+
+    out = asyncio.run(
+        get_formio_select_options(
+            FakeService(),
+            curr_model="action",
+            field_key="action_type",
+        )
+    )
+
+    assert out == [
+        {"label": "Window", "value": "window"},
+        {"label": "Menu", "value": "menu"},
+    ]
+
+
+def test_get_formio_select_options_resource_source_supports_nested_data_resource():
+    class FakeCurrentModel:
+        def select_fields(self):
+            return {
+                "user_function": {
+                    "src": "resource",
+                    "data": {"resource": "user_type"},
+                    "template_label_keys": ["label"],
+                    "idPath": "id",
+                    "properties": {},
+                }
+            }
+
+    class FakeCurrentEntry:
+        model = FakeCurrentModel()
+
+    class FakeResourceModel:
+        def get_domain(self, query):
+            return query
+
+        async def find(self, domain, sort="", limit=0):
+            return [
+                {"rec_name": "admin", "label": "Admin"},
+                {"rec_name": "user", "label": "User"},
+            ]
+
+    class FakeEnv:
+        def get(self, name):
+            if name == "action":
+                return FakeCurrentEntry()
+            if name == "user_type":
+                return FakeResourceModel()
+            raise KeyError(name)
+
+    class FakeService:
+        def __init__(self):
+            self.env = FakeEnv()
+
+    out = asyncio.run(
+        get_formio_select_options(
+            FakeService(),
+            curr_model="action",
+            field_key="user_function",
+        )
+    )
+
+    assert out == [
+        {"label": "Admin", "value": "admin"},
+        {"label": "User", "value": "user"},
+    ]
+
+
+def test_get_formio_select_options_custom_uses_inline_custom_rows():
+    class FakeModel:
+        def select_fields(self):
+            return {
+                "status": {
+                    "src": "custom",
+                    "key": "status",
+                    "custom": [
+                        {"id": "draft", "label": "Bozza"},
+                        {"id": "done", "label": "Completato"},
+                    ],
+                    "properties": {"label": "label", "id": "id"},
+                }
+            }
+
+    class FakeEnvEntry:
+        model = FakeModel()
+
+    class FakeEnv:
+        def get(self, _):
+            return FakeEnvEntry()
+
+    class FakeService:
+        def __init__(self):
+            self.env = FakeEnv()
+
+    out = asyncio.run(
+        get_formio_select_options(
+            FakeService(),
+            curr_model="customer",
+            field_key="status",
+        )
+    )
+
+    assert out == [
+        {"label": "Bozza", "value": "draft"},
+        {"label": "Completato", "value": "done"},
+    ]
+
+
 def test_get_formio_select_options_invalid_select_fields_type_returns_empty():
     class FakeModel:
         def select_fields(self):
@@ -236,13 +463,9 @@ def test_get_formio_select_options_invalid_select_fields_type_returns_empty():
         def __init__(self):
             self.env = FakeEnv()
 
-    class FakeCliSession:
-        def __init__(self):
-            self.service = FakeService()
-
     out = asyncio.run(
         get_formio_select_options(
-            FakeCliSession(),
+            FakeService(),
             curr_model="customer",
             field_key="supplier",
         )
@@ -260,13 +483,9 @@ def test_get_formio_select_options_internal_error_returns_empty():
         def __init__(self):
             self.env = FakeEnv()
 
-    class FakeCliSession:
-        def __init__(self):
-            self.service = FakeService()
-
     out = asyncio.run(
         get_formio_select_options(
-            FakeCliSession(),
+            FakeService(),
             curr_model="customer",
             field_key="supplier",
         )

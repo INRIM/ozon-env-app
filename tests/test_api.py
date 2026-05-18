@@ -1,4 +1,5 @@
 import json
+import types
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -10,6 +11,7 @@ from app.deps.app_env import get_authed_env
 from app.deps.app_env import get_ozon_env
 from app.deps.app_env import get_service
 from app.services.common import ResponseObject, ResponseObjectData
+from app.services.service import Service
 
 # --- MOCK MODELS ---
 
@@ -348,6 +350,273 @@ def test_list_records_total_count(monkeypatch):
     lines = [line for line in response.text.splitlines() if line.strip()]
     envelope = json.loads(lines[0])
     assert envelope["content"]["total_count"] == 57
+
+
+def test_list_records_non_stream_returns_json(monkeypatch):
+    factory = Factory()
+    monkeypatch.setattr(
+        api_routes, "make_response_object", fake_make_response_object
+    )
+    client = make_client(factory)
+
+    response = client.post(
+        "/list/customer?stream=false",
+        headers={"Authorization": "Bearer ok-token"},
+        json={
+            "query": {"active": True},
+            "order": "-created_at",
+            "skip": 5,
+            "limit": 2,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    body = response.json()
+    assert body["content"]["mode"] == "list"
+    assert body["content"]["total_count"] == 57
+    assert body["content"]["data"] == []
+
+
+def test_list_records_accepts_stringified_json_body(monkeypatch):
+    factory = Factory()
+    monkeypatch.setattr(
+        api_routes, "make_response_object", fake_make_response_object
+    )
+
+    async def fake_stream(data_cursor, meta):
+        yield f"{meta.model_dump_json()}\n"
+        for item in data_cursor:
+            yield f"{json.dumps(item)}\n"
+
+    monkeypatch.setattr(
+        api_routes, "_stream_ndjson_with_start_packet", fake_stream
+    )
+
+    client = make_client(factory)
+    response = client.post(
+        "/list/component",
+        headers={"Authorization": "Bearer ok-token"},
+        json='{"order":"","skip":0,"limit":1000000,"query":{"type":"resource"}}',
+    )
+
+    assert response.status_code == 200
+    lines = [line for line in response.text.splitlines() if line.strip()]
+    envelope = json.loads(lines[0])
+    row = json.loads(lines[1])
+    assert envelope["content"]["mode"] == "list_stream"
+    assert row["query"] == {"type": "resource"}
+    assert row["limit"] == 1000000
+
+
+def test_list_records_accepts_double_encoded_json_body(monkeypatch):
+    factory = Factory()
+    monkeypatch.setattr(
+        api_routes, "make_response_object", fake_make_response_object
+    )
+
+    async def fake_stream(data_cursor, meta):
+        yield f"{meta.model_dump_json()}\n"
+        for item in data_cursor:
+            yield f"{json.dumps(item)}\n"
+
+    monkeypatch.setattr(
+        api_routes, "_stream_ndjson_with_start_packet", fake_stream
+    )
+
+    client = make_client(factory)
+    response = client.post(
+        "/list/component",
+        headers={"Authorization": "Bearer ok-token"},
+        json='"{\\"order\\":\\"\\",\\"skip\\":0,\\"limit\\":1000000,\\"query\\":{\\"type\\":\\"resource\\"}}"',
+    )
+
+    assert response.status_code == 200
+    lines = [line for line in response.text.splitlines() if line.strip()]
+    row = json.loads(lines[1])
+    assert row["query"] == {"type": "resource"}
+    assert row["limit"] == 1000000
+
+
+def test_list_records_accepts_text_plain_json_body(monkeypatch):
+    factory = Factory()
+    monkeypatch.setattr(
+        api_routes, "make_response_object", fake_make_response_object
+    )
+
+    async def fake_stream(data_cursor, meta):
+        yield f"{meta.model_dump_json()}\n"
+        for item in data_cursor:
+            yield f"{json.dumps(item)}\n"
+
+    monkeypatch.setattr(
+        api_routes, "_stream_ndjson_with_start_packet", fake_stream
+    )
+
+    client = make_client(factory)
+    response = client.post(
+        "/list/component",
+        headers={
+            "Authorization": "Bearer ok-token",
+            "Content-Type": "text/plain",
+        },
+        data='{"order":"","skip":0,"limit":1000000,"query":{"type":"resource"}}',
+    )
+
+    assert response.status_code == 200
+    lines = [line for line in response.text.splitlines() if line.strip()]
+    row = json.loads(lines[1])
+    assert row["query"] == {"type": "resource"}
+    assert row["limit"] == 1000000
+
+
+def test_list_records_unknown_model_returns_404():
+    class MissingModelEnv:
+        def __init__(self):
+            self.user_session = types.SimpleNamespace(
+                app_code="test-app",
+                is_admin=False,
+                uid="u1",
+                user={"uid": "u1"},
+            )
+            self.orm = types.SimpleNamespace(
+                app_settings=types.SimpleNamespace(
+                    module_name="demo",
+                    version="1.0.0",
+                    logo_img_url="",
+                    admins=[],
+                )
+            )
+
+        def get(self, model_name: str):
+            return None
+
+    async def fake_authed_env():
+        pass
+
+    async def service_dep():
+        yield Service(MissingModelEnv())
+
+    app.dependency_overrides[get_authed_env] = fake_authed_env
+    app.dependency_overrides[get_service] = service_dep
+    client = TestClient(app)
+
+    response = client.post(
+        "/list/missing",
+        headers={"Authorization": "Bearer ok-token"},
+        json={
+            "query": {"active": True},
+            "order": "-created_at",
+            "skip": 0,
+            "limit": 10,
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Model 'missing' not found"
+    app.dependency_overrides.clear()
+
+
+def test_list_records_title_case_model_is_normalized():
+    class Status:
+        fail = False
+        msg = ""
+
+    class Schema:
+        @staticmethod
+        def schema():
+            return {"components": []}
+
+        @staticmethod
+        def filter_keys():
+            return {}
+
+    class UserModel:
+        data_model = "user"
+        status = Status()
+        model = Schema()
+        table_columns = {"rec_name": "Name"}
+
+        def get_domain(self, query):
+            return query
+
+        async def count(self, domain):
+            return 1
+
+        async def find(
+            self,
+            domain,
+            sort="",
+            skip=0,
+            limit=0,
+            pipeline_items=None,
+            obfuscate_fields=None,
+            fields=None,
+        ):
+            return [{"rec_name": "john"}]
+
+        def stream_find(
+            self,
+            domain,
+            sort="",
+            skip=0,
+            limit=0,
+            pipeline_items=None,
+            obfuscate_fields=None,
+            fields=None,
+            batch_size=0,
+        ):
+            return [{"rec_name": "john"}]
+
+    class AliasModelEnv:
+        def __init__(self):
+            self.user_session = types.SimpleNamespace(
+                app_code="test-app",
+                is_admin=False,
+                uid="u1",
+                user={"uid": "u1"},
+            )
+            self.orm = types.SimpleNamespace(
+                app_settings=types.SimpleNamespace(
+                    module_name="demo",
+                    version="1.0.0",
+                    logo_img_url="",
+                    admins=[],
+                )
+            )
+            self._models = {"user": UserModel()}
+
+        def get(self, model_name: str):
+            return self._models.get(model_name)
+
+    async def fake_authed_env():
+        pass
+
+    async def service_dep():
+        yield Service(AliasModelEnv())
+
+    app.dependency_overrides[get_authed_env] = fake_authed_env
+    app.dependency_overrides[get_service] = service_dep
+    client = TestClient(app)
+
+    response = client.post(
+        "/list/User",
+        headers={"Authorization": "Bearer ok-token"},
+        json={
+            "query": {"active": True},
+            "order": "rec_name:asc",
+            "skip": 0,
+            "limit": 10,
+        },
+    )
+
+    assert response.status_code == 200
+    lines = [line for line in response.text.splitlines() if line.strip()]
+    envelope = json.loads(lines[0])
+    row = json.loads(lines[1])
+    assert envelope["content"]["model"] == "user"
+    assert row["rec_name"] == "john"
+    app.dependency_overrides.clear()
 
 
 def test_record_by_name():

@@ -6,6 +6,8 @@ from datetime import timezone
 import json
 from types import SimpleNamespace
 
+import pytest
+from fastapi import HTTPException
 from fastapi import Response
 from starlette.requests import Request
 
@@ -15,12 +17,13 @@ from app.deps import app_env
 
 def _build_request(
     path: str,
+    method: str = "GET",
     headers: list[tuple[bytes, bytes]] | None = None,
 ) -> Request:
     scope = {
         "type": "http",
         "http_version": "1.1",
-        "method": "GET",
+        "method": method,
         "scheme": "http",
         "path": path,
         "raw_path": path.encode(),
@@ -237,3 +240,52 @@ def test_get_authed_env_calls_session_app_once(monkeypatch):
 
     assert ozon_env.session_app_calls == 1
     assert ozon_env.params["current_token"] == sso_token
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/list/customer",
+        "/models/distinct",
+        "/get_remote_data_select",
+        "/get_remote_select",
+    ],
+)
+def test_get_authed_env_skips_csrf_for_read_only_post_routes(
+    monkeypatch, path
+):
+    monkeypatch.setattr(app_env, "settings", _FAKE_SETTINGS)
+
+    signed_session = app_env.sign_token("ok-token", _FAKE_SETTINGS.session_secret)
+    request = _build_request(
+        path,
+        method="POST",
+        headers=[(b"cookie", f"session={signed_session}".encode("utf-8"))],
+    )
+    response = Response()
+    ozon_env = _FakeOzonEnv(user_app_code="mci")
+
+    result = asyncio.run(app_env.get_authed_env(None, ozon_env, request, response))
+
+    assert result is ozon_env
+    assert ozon_env.params["current_token"] == "ok-token"
+    assert ozon_env.session_app_calls == 1
+
+
+def test_get_authed_env_requires_csrf_for_cookie_write_routes(monkeypatch):
+    monkeypatch.setattr(app_env, "settings", _FAKE_SETTINGS)
+
+    signed_session = app_env.sign_token("ok-token", _FAKE_SETTINGS.session_secret)
+    request = _build_request(
+        "/record/customer/CUS001",
+        method="POST",
+        headers=[(b"cookie", f"session={signed_session}".encode("utf-8"))],
+    )
+    response = Response()
+    ozon_env = _FakeOzonEnv(user_app_code="mci")
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(app_env.get_authed_env(None, ozon_env, request, response))
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail == "CSRF validation failed"

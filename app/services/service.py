@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Any
 from typing import Union
 
@@ -73,6 +74,22 @@ def _merge_query(
     return {"$and": [base_query.copy(), extra_query.copy()]}
 
 
+def _model_lookup_candidates(model_name: str) -> list[str]:
+    normalized_name = str(model_name or "").strip()
+    if not normalized_name:
+        return []
+
+    candidates = [normalized_name]
+    lower_name = normalized_name.lower()
+    snake_source = re.sub(r"(?<!^)(?=[A-Z])", "_", normalized_name)
+    snake_name = re.sub(r"[^0-9A-Za-z]+", "_", snake_source).strip("_").lower()
+
+    for candidate in (lower_name, snake_name):
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+    return candidates
+
+
 class Service:
     def __init__(self, env: OzonEnv):
         self.env = env
@@ -88,7 +105,17 @@ class Service:
     async def get_models(self, query: dict = None):
         logger.info("service.get_models query=%s", query if query else {})
         compo_model = self.env.get("component")
-        return await compo_model.distinct("rec_name", query if query else {})
+        dynamic: list[str] = await compo_model.distinct(
+            "rec_name", query if query else {}
+        )
+        if not isinstance(dynamic, list):
+            dynamic = []
+        static: list[str] = list(self.env.models.keys())
+        # static first, dynamic appended (deduplication via dict.fromkeys)
+        merged = list(dict.fromkeys(static + dynamic))
+        logger.info("service.get_models static=%d dynamic=%d total=%d",
+                    len(static), len(dynamic), len(merged))
+        return merged
 
     async def get_distinct(
             self,
@@ -102,7 +129,7 @@ class Service:
             query if query else {},
             compute_label,
         )
-        _model = self.env.get(model)
+        _model = self._require_model(model)
         return await _model.search_all_distinct(
             "rec_name",
             query if query else {},
@@ -137,12 +164,12 @@ class Service:
 
     async def by_name(self, model: str, name: str):
         logger.info("service.by_name model=%s name=%s", model, name)
-        compo_model = self.env.get(model)
+        compo_model = self._require_model(model)
         return await compo_model.by_name(name)
 
     async def compo_by_name(self, model: str, name: str) -> ResponseObject:
         logger.info("service.compo_by_name model=%s name=%s", model, name)
-        compo_model = self.env.get(model)
+        compo_model = self._require_model(model)
         record = await compo_model.by_name(name)
         return make_response_object(compo_model, mode="form", data=record)
 
@@ -163,7 +190,7 @@ class Service:
             skip,
             limit,
         )
-        model = self.env.get(envelope.content.model)
+        model = self._require_model(envelope.content.model)
         return model.stream_find(
             domain=envelope.content.query,
             sort=normalized_order,
@@ -198,7 +225,7 @@ class Service:
             limit,
             resp_stream,
         )
-        record_model = self.env.get(model_name)
+        record_model = self._require_model(model_name)
         domain = record_model.get_domain(query)
         total_count = await record_model.count(domain=domain)
         acl = await self._get_compiled_field_acl()
@@ -269,7 +296,7 @@ class Service:
             model_name,
             rec_name,
         )
-        record_model = self.env.get(model_name)
+        record_model = self._require_model(model_name)
         operation = await self._resolve_write_operation(record_model, rec_name, data)
         acl = await self._get_compiled_field_acl()
         await enforce_write_acl(
@@ -360,7 +387,7 @@ class Service:
             self, model: str, rec_name: str
     ) -> Union[None, ResponseObject]:
         logger.info("service.load_record model=%s rec_name=%s", model, rec_name)
-        record_model = self.env.get(model)
+        record_model = self._require_model(model)
         record = await record_model.by_name(rec_name)
         acl = await self._get_compiled_field_acl()
         record, obfuscate_fields = acl.apply_read(
@@ -655,11 +682,42 @@ class Service:
         return await model.count(domain=domain)
 
     async def _safe_model(self, model_name: str) -> Any | None:
-        try:
-            return self.env.get(model_name)
-        except Exception:
-            logger.warning("model not found model=%s", model_name)
+        return self._resolve_model(model_name)
+
+    def _resolve_model(self, model_name: str) -> Any | None:
+        normalized_name = str(model_name or "").strip()
+        if not normalized_name:
+            logger.warning("empty model name received")
             return None
+        candidates = _model_lookup_candidates(normalized_name)
+        for candidate in candidates:
+            try:
+                model = self.env.get(candidate)
+            except Exception:
+                continue
+            if model is not None:
+                if candidate != normalized_name:
+                    logger.info(
+                        "model lookup normalized requested=%s resolved=%s",
+                        normalized_name,
+                        candidate,
+                    )
+                return model
+        logger.warning(
+            "model lookup returned none model=%s candidates=%s",
+            normalized_name,
+            candidates,
+        )
+        return None
+
+    def _require_model(self, model_name: str) -> Any:
+        model = self._resolve_model(model_name)
+        if model is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Model '{model_name}' not found",
+            )
+        return model
 
     async def _make_menu_item(
             self, card: dict[str, Any], rec_b: dict[str, Any]

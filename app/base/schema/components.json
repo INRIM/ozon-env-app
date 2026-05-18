@@ -466,7 +466,7 @@
                             "and": [
                               {
                                 "var": [
-                                  "form.rec_name",
+                                  "data.rec_name",
                                   false
                                 ]
                               },
@@ -506,7 +506,7 @@
                           },
                           "/",
                           {
-                            "var": "form.rec_name"
+                            "var": "data.rec_name"
                           }
                         ]
                       }
@@ -652,12 +652,12 @@
                       "json": {
                         "and": [
                           {
-                            "var": "form.rec_name"
+                            "var": "data.rec_name"
                           },
                           {
                             "!": [
                               {
-                                "var": "form.admin"
+                                "var": "data.admin"
                               }
                             ]
                           }
@@ -668,7 +668,7 @@
                       {
                         "name": "set domain",
                         "type": "value",
-                        "value": "domain={\n    \"cat\": [\n        \"{'$and':\",\n        \"[{'active':true}, {'admin':false},{'rec_name': {'$ne': '\",\n        {\"var\": \"form.rec_name\"},\n        \"'}}]}\"\n    ]\n}"
+                        "value": "domain={\n    \"cat\": [\n        \"{'$and':\",\n        \"[{'active':true}, {'admin':false},{'rec_name': {'$ne': '\",\n        {\"var\": \"data.rec_name\"},\n        \"'}}]}\"\n    ]\n}"
                       }
                     ]
                   },
@@ -679,10 +679,10 @@
                       "json": {
                         "and": [
                           {
-                            "var": "form.rec_name"
+                            "var": "data.rec_name"
                           },
                           {
-                            "var": "form.admin"
+                            "var": "data.admin"
                           }
                         ]
                       }
@@ -753,7 +753,7 @@
                             "and": [
                               {
                                 "var": [
-                                  "form.rec_name",
+                                  "data.rec_name",
                                   false
                                 ]
                               },
@@ -793,7 +793,7 @@
                           },
                           "/",
                           {
-                            "var": "form.rec_name"
+                            "var": "data.rec_name"
                           }
                         ]
                       }
@@ -920,7 +920,7 @@
             "trigger": {
               "type": "json",
               "json": {
-                "var": "form.admin"
+                "var": "data.admin"
               }
             },
             "actions": [
@@ -964,14 +964,14 @@
                         "trigger": {
                           "type": "json",
                           "json": {
-                            "var": "form.rec_name"
+                            "var": "data.rec_name"
                           }
                         },
                         "actions": [
                           {
                             "name": "eval query",
                             "type": "value",
-                            "value": "query={\"cat\":[\"{'parent':'\", {\"var\":\"form.rec_name\"}, \"'}\"]}"
+                            "value": "query={\"cat\":[\"{'parent':'\", {\"var\":\"data.rec_name\"}, \"'}\"]}"
                           }
                         ]
                       }
@@ -1524,7 +1524,7 @@
                           "json": {
                             "==": [
                               {
-                                "var": "form.module_type"
+                                "var": "data.module_type"
                               },
                               "server"
                             ]
@@ -1578,7 +1578,7 @@
                           "json": {
                             "==": [
                               {
-                                "var": "form.module_type"
+                                "var": "data.module_type"
                               },
                               "server"
                             ]
@@ -1631,7 +1631,7 @@
                           "json": {
                             "==": [
                               {
-                                "var": "form.module_type"
+                                "var": "data.module_type"
                               },
                               "server"
                             ]
@@ -1684,7 +1684,7 @@
                           "json": {
                             "==": [
                               {
-                                "var": "form.module_type"
+                                "var": "data.module_type"
                               },
                               "server"
                             ]
@@ -1725,7 +1725,7 @@
                   "json": {
                     "!=": [
                       {
-                        "var": "form.module_type"
+                        "var": "data.module_type"
                       },
                       "server"
                     ]
@@ -2400,7 +2400,7 @@
                             "and": [
                               {
                                 "var": [
-                                  "form.rec_name",
+                                  "data.rec_name",
                                   false
                                 ]
                               },
@@ -2417,7 +2417,7 @@
                               {
                                 "==": [
                                   {
-                                    "var": "form.deleted"
+                                    "var": "data.deleted"
                                   },
                                   0
                                 ]
@@ -2452,7 +2452,7 @@
                           },
                           "/",
                           {
-                            "var": "form.rec_name"
+                            "var": "data.rec_name"
                           }
                         ]
                       }
@@ -2604,7 +2604,7 @@
                       "type": "json",
                       "json": {
                         "var": [
-                          "form.MAIL_PORT",
+                          "data.MAIL_PORT",
                           "465"
                         ]
                       }
@@ -2666,7 +2666,7 @@
                     "trigger": {
                       "type": "json",
                       "json": {
-                        "var": "form.USE_CREDENTIALS"
+                        "var": "data.USE_CREDENTIALS"
                       }
                     },
                     "actions": [
@@ -2701,7 +2701,7 @@
                     "trigger": {
                       "type": "json",
                       "json": {
-                        "var": "form.USE_CREDENTIALS"
+                        "var": "data.USE_CREDENTIALS"
                       }
                     },
                     "actions": [
@@ -2836,7 +2836,7 @@
                             "and": [
                               {
                                 "var": [
-                                  "form.rec_name",
+                                  "data.rec_name",
                                   false
                                 ]
                               },
@@ -2876,7 +2876,7 @@
                           },
                           "/",
                           {
-                            "var": "form.rec_name"
+                            "var": "data.rec_name"
                           }
                         ]
                       }
@@ -3021,7 +3021,7 @@
                         },
                         "/",
                         {
-                          "var": "form.rec_name"
+                          "var": "data.rec_name"
                         }
                       ]
                     }
@@ -3126,7 +3126,7 @@
                         },
                         "/",
                         {
-                          "var": "form.rec_name"
+                          "var": "data.rec_name"
                         }
                       ]
                     }
@@ -3801,7 +3801,7 @@
     "settings": {},
     "properties": {
       "rheader": "1",
-      "report": "<p>{{ form.ui }}</p><p>Gentile {{ form.data_value.full_name }},</p><p>sei un utente {% if form.is_admin %} <strong>Admin</strong> {% else %} <strong>{{ form.data_value.user_function }}</strong> {% endif %}</p><p>&nbsp;</p><p>Ciao</p>",
+      "report": "<p>{{ data.ui }}</p><p>Gentile {{ data.data_value.full_name }},</p><p>sei un utente {% if data.is_admin %} <strong>Admin</strong> {% else %} <strong>{{ data.data_value.user_function }}</strong> {% endif %}</p><p>&nbsp;</p><p>Ciao</p>",
       "rfooter": "1"
     },
     "handle_global_change": 1,
@@ -3865,19 +3865,19 @@
                         "trigger": {
                           "type": "json",
                           "json": {
-                            "var": "form.title"
+                            "var": "data.title"
                           }
                         },
                         "actions": [
                           {
                             "name": "set query",
                             "type": "value",
-                            "value": "query={\n    \"cat\": [\n        \"{'$and':\",\n        \"[{'active':True},{'$or': [{'title': {'$regex': '\",\n        {\"var\": \"form.title\"},\n        \"', '$options': 'i'}},{'rec_name': {'$regex': '\",\n        {\"var\": \"form.title\"},\n        \"', '$options': 'i'}}]}]}\"\n    ]\n}"
+                            "value": "query={\n    \"cat\": [\n        \"{'$and':\",\n        \"[{'active':True},{'$or': [{'title': {'$regex': '\",\n        {\"var\": \"data.title\"},\n        \"', '$options': 'i'}},{'rec_name': {'$regex': '\",\n        {\"var\": \"data.title\"},\n        \"', '$options': 'i'}}]}]}\"\n    ]\n}"
                           },
                           {
                             "name": "default value",
                             "type": "value",
-                            "value": "defaultValue={\"var\":\"form.title\"}"
+                            "value": "defaultValue={\"var\":\"data.title\"}"
                           }
                         ]
                       }
@@ -3910,19 +3910,19 @@
                         "trigger": {
                           "type": "json",
                           "json": {
-                            "var": "form.search_model"
+                            "var": "data.search_model"
                           }
                         },
                         "actions": [
                           {
                             "name": "set query",
                             "type": "value",
-                            "value": "query={\n  \"cat\": [\n    \"{'$and':\",\n    \"[{'active':True},{'rec_name':'\",\n    {\"var\":\"form.search_model\"},\n    \"'}]}\"\n  ]\n}"
+                            "value": "query={\n  \"cat\": [\n    \"{'$and':\",\n    \"[{'active':True},{'rec_name':'\",\n    {\"var\":\"data.search_model\"},\n    \"'}]}\"\n  ]\n}"
                           },
                           {
                             "name": "default value",
                             "type": "value",
-                            "value": "defaultValue={\"var\":\"form.search_model\"}"
+                            "value": "defaultValue={\"var\":\"data.search_model\"}"
                           }
                         ]
                       }
@@ -3955,19 +3955,19 @@
                         "trigger": {
                           "type": "json",
                           "json": {
-                            "var": "form.progetto"
+                            "var": "data.progetto"
                           }
                         },
                         "actions": [
                           {
                             "name": "set query",
                             "type": "value",
-                            "value": "query={\n  \"cat\": [\n    \"{'$and':\",\n    \"[{'active':True},{'projectId': {'$regex': '\",\n    {\"var\":\"form.progetto\"},\n    \"', '$options': 'i'}}\",\n    \"]}\"\n  ]\n}"
+                            "value": "query={\n  \"cat\": [\n    \"{'$and':\",\n    \"[{'active':True},{'projectId': {'$regex': '\",\n    {\"var\":\"data.progetto\"},\n    \"', '$options': 'i'}}\",\n    \"]}\"\n  ]\n}"
                           },
                           {
                             "name": "default value",
                             "type": "value",
-                            "value": "defaultValue={\"var\":\"form.search_model\"}"
+                            "value": "defaultValue={\"var\":\"data.search_model\"}"
                           }
                         ]
                       }
@@ -4027,14 +4027,14 @@
                         "trigger": {
                           "type": "json",
                           "json": {
-                            "var": "form.sys"
+                            "var": "data.sys"
                           }
                         },
                         "actions": [
                           {
                             "name": "set query",
                             "type": "value",
-                            "value": "query = {\n  \"cat\": [\n    \"{'$and':[{'active':True}, {'sys':\",\n        {\"var\": \"form.sys\"},\n    \"}]}\"\n  ]\n}"
+                            "value": "query = {\n  \"cat\": [\n    \"{'$and':[{'active':True}, {'sys':\",\n        {\"var\": \"data.sys\"},\n    \"}]}\"\n  ]\n}"
                           }
                         ]
                       }
@@ -4333,7 +4333,7 @@
                             "and": [
                               {
                                 "var": [
-                                  "form.rec_name",
+                                  "data.rec_name",
                                   false
                                 ]
                               },
@@ -4350,7 +4350,7 @@
                               {
                                 "==": [
                                   {
-                                    "var": "form.deleted"
+                                    "var": "data.deleted"
                                   },
                                   0
                                 ]
@@ -4385,7 +4385,7 @@
                           },
                           "/",
                           {
-                            "var": "form.rec_name"
+                            "var": "data.rec_name"
                           }
                         ]
                       }
@@ -4646,7 +4646,7 @@
                             "and": [
                               {
                                 "var": [
-                                  "form.rec_name",
+                                  "data.rec_name",
                                   false
                                 ]
                               },
@@ -4687,7 +4687,7 @@
                           "/action/delete_action",
                           "/",
                           {
-                            "var": "form.rec_name"
+                            "var": "data.rec_name"
                           }
                         ]
                       }
@@ -4864,7 +4864,7 @@
                       "type": "json",
                       "json": {
                         "var": [
-                          "form.rec_name",
+                          "data.rec_name",
                           false
                         ]
                       }
@@ -4873,12 +4873,12 @@
                       {
                         "name": "required",
                         "type": "value",
-                        "value": "required = {\"!\":[{\"var\":[\"form.admin\", true]}]}"
+                        "value": "required = {\"!\":[{\"var\":[\"data.admin\", true]}]}"
                       },
                       {
-                        "name": "hide if form.admin is True",
+                        "name": "hide if data.admin is True",
                         "type": "value",
-                        "value": "hidden = {\"var\": [\"form.admin\",false]}"
+                        "value": "hidden = {\"var\": [\"data.admin\",false]}"
                       }
                     ]
                   }
@@ -4915,7 +4915,7 @@
               {
                 "name": "show Row",
                 "type": "value",
-                "value": "hidden={\"!\": [{\"var\": [\"form.rec_name\", false]}]}"
+                "value": "hidden={\"!\": [{\"var\": [\"data.rec_name\", false]}]}"
               }
             ]
           }
@@ -5027,7 +5027,7 @@
                     }
                   ]
                 },
-                "valueProperty": "form.model",
+                "valueProperty": "data.model",
                 "selectThreshold": 0.3,
                 "key": "view_name",
                 "properties": {
@@ -5045,11 +5045,11 @@
                         "cat": [
                           "{'$and':[{'active':true},{'$or':[{'data_model':'",
                           {
-                            "var": "form.model"
+                            "var": "data.model"
                           },
                           "'},{'$and':[{'rec_name':'",
                           {
-                            "var": "form.model"
+                            "var": "data.model"
                           },
                           "'}]}]}]}"
                         ]
@@ -5093,7 +5093,7 @@
                       "json": {
                         "!==": [
                           {
-                            "var": "form.action_type"
+                            "var": "data.action_type"
                           },
                           "task"
                         ]
@@ -5138,7 +5138,7 @@
                       "json": {
                         "==": [
                           {
-                            "var": "form.action_type"
+                            "var": "data.action_type"
                           },
                           "task"
                         ]
@@ -5185,7 +5185,7 @@
                       "json": {
                         "!==": [
                           {
-                            "var": "form.action_type"
+                            "var": "data.action_type"
                           },
                           "delete"
                         ]
@@ -5390,7 +5390,7 @@
                       "json": {
                         "!==": [
                           {
-                            "var": "form.mode"
+                            "var": "data.mode"
                           },
                           "list"
                         ]
@@ -5769,7 +5769,7 @@
                             "and": [
                               {
                                 "var": [
-                                  "form.rec_name",
+                                  "data.rec_name",
                                   false
                                 ]
                               },
@@ -5786,7 +5786,7 @@
                               {
                                 "==": [
                                   {
-                                    "var": "form.deleted"
+                                    "var": "data.deleted"
                                   },
                                   0
                                 ]
@@ -5821,7 +5821,7 @@
                           },
                           "/",
                           {
-                            "var": "form.rec_name"
+                            "var": "data.rec_name"
                           }
                         ]
                       }
@@ -5925,7 +5925,7 @@
       },
       {
         "label": "Oggetto",
-        "description": "usare i placeholder {{ form.[nome_campo_form] }} o \n{{ form.data_valie.[nome_campo_form] }} oppure {{ user.[campo] }}",
+        "description": "usare i placeholder {{ data.[nome_campo_form] }} o \n{{ data.data_valie.[nome_campo_form] }} oppure {{ user.[campo] }}",
         "tableView": true,
         "key": "subject",
         "type": "textfield",
@@ -5940,7 +5940,7 @@
         "input": true
       },
       {
-        "html": "<p>Gentile {{ form.data_value.owner_name }}</p><p>&nbsp;Testo dal messaggio</p>",
+        "html": "<p>Gentile {{ data.data_value.owner_name }}</p><p>&nbsp;Testo dal messaggio</p>",
         "label": "Corpo della mail",
         "refreshOnChange": false,
         "key": "corpoDellaMail",
@@ -6101,7 +6101,7 @@
           "json": {
             "==": [
               {
-                "var": "form.tipo"
+                "var": "data.tipo"
               },
               "task"
             ]
@@ -6252,14 +6252,14 @@
                                 "and": [
                                   {
                                     "var": [
-                                      "form.rec_name",
+                                      "data.rec_name",
                                       false
                                     ]
                                   },
                                   {
                                     "in": [
                                       {
-                                        "var": "form.tipo"
+                                        "var": "data.tipo"
                                       },
                                       [
                                         "task"
@@ -6279,7 +6279,7 @@
                                   {
                                     "==": [
                                       {
-                                        "var": "form.deleted"
+                                        "var": "data.deleted"
                                       },
                                       0
                                     ]
@@ -6310,7 +6310,7 @@
                             "cat": [
                               "/client/run/calendar_tasks/",
                               {
-                                "var": "form.rec_name"
+                                "var": "data.rec_name"
                               }
                             ]
                           }
@@ -6472,7 +6472,7 @@
                       "show": true,
                       "when": "periodico",
                       "json": {
-                        "var": "form.periodico"
+                        "var": "data.periodico"
                       }
                     },
                     "type": "datetime",
@@ -6520,7 +6520,7 @@
           "json": {
             "!=": [
               {
-                "var": "form.tipo"
+                "var": "data.tipo"
               },
               "task"
             ]
@@ -6694,7 +6694,7 @@
                         "trigger": {
                           "type": "json",
                           "json": {
-                            "var": "form.model"
+                            "var": "data.model"
                           }
                         },
                         "actions": [
@@ -6899,7 +6899,7 @@
                             "and": [
                               {
                                 "var": [
-                                  "form.rec_name",
+                                  "data.rec_name",
                                   false
                                 ]
                               },
@@ -6916,7 +6916,7 @@
                               {
                                 "==": [
                                   {
-                                    "var": "form.deleted"
+                                    "var": "data.deleted"
                                   },
                                   0
                                 ]
@@ -6951,7 +6951,7 @@
                           },
                           "/",
                           {
-                            "var": "form.rec_name"
+                            "var": "data.rec_name"
                           }
                         ]
                       }
@@ -7162,19 +7162,19 @@
                         "trigger": {
                           "type": "json",
                           "json": {
-                            "var": "form.title"
+                            "var": "data.title"
                           }
                         },
                         "actions": [
                           {
                             "name": "set query",
                             "type": "value",
-                            "value": "query={\n    \"cat\": [\n        \"{'$and':\",\n        \"[{'active':True},{'$or': [{'title': {'$regex': '\",\n        {\"var\": \"form.title\"},\n        \"', '$options': 'i'}},{'rec_name': {'$regex': '\",\n        {\"var\": \"form.title\"},\n        \"', '$options': 'i'}}]}]}\"\n    ]\n}"
+                            "value": "query={\n    \"cat\": [\n        \"{'$and':\",\n        \"[{'active':True},{'$or': [{'title': {'$regex': '\",\n        {\"var\": \"data.title\"},\n        \"', '$options': 'i'}},{'rec_name': {'$regex': '\",\n        {\"var\": \"data.title\"},\n        \"', '$options': 'i'}}]}]}\"\n    ]\n}"
                           },
                           {
                             "name": "default value",
                             "type": "value",
-                            "value": "defaultValue={\"var\":\"form.title\"}"
+                            "value": "defaultValue={\"var\":\"data.title\"}"
                           }
                         ]
                       }
@@ -7207,19 +7207,19 @@
                         "trigger": {
                           "type": "json",
                           "json": {
-                            "var": "form.search_model"
+                            "var": "data.search_model"
                           }
                         },
                         "actions": [
                           {
                             "name": "set query",
                             "type": "value",
-                            "value": "query={\n  \"cat\": [\n    \"{'$and':\",\n    \"[{'active':True},{'rec_name':'\",\n    {\"var\":\"form.search_model\"},\n    \"'}]}\"\n  ]\n}"
+                            "value": "query={\n  \"cat\": [\n    \"{'$and':\",\n    \"[{'active':True},{'rec_name':'\",\n    {\"var\":\"data.search_model\"},\n    \"'}]}\"\n  ]\n}"
                           },
                           {
                             "name": "default value",
                             "type": "value",
-                            "value": "defaultValue={\"var\":\"form.search_model\"}"
+                            "value": "defaultValue={\"var\":\"data.search_model\"}"
                           }
                         ]
                       }
@@ -7269,14 +7269,14 @@
                         "trigger": {
                           "type": "json",
                           "json": {
-                            "var": "form.model"
+                            "var": "data.model"
                           }
                         },
                         "actions": [
                           {
                             "name": "q",
                             "type": "value",
-                            "value": "query={\n  \"cat\": [\"{'$and':[{'active':True}, {'model':{'$in':\",\n    {\"var\": \"form.model\"},\n    \"}}]}\"\n  ]\n}"
+                            "value": "query={\n  \"cat\": [\"{'$and':[{'active':True}, {'model':{'$in':\",\n    {\"var\": \"data.model\"},\n    \"}}]}\"\n  ]\n}"
                           }
                         ]
                       }
@@ -7316,14 +7316,14 @@
                         "trigger": {
                           "type": "json",
                           "json": {
-                            "var": "form.action_type"
+                            "var": "data.action_type"
                           }
                         },
                         "actions": [
                           {
                             "name": "query",
                             "type": "value",
-                            "value": "query={\n  \"cat\": [\"{'$and':[{'active':True}, {'action_type':{'$in':\",\n    {\"var\": \"form.action_type\"},\n    \"}}]}\"\n  ]\n}"
+                            "value": "query={\n  \"cat\": [\"{'$and':[{'active':True}, {'action_type':{'$in':\",\n    {\"var\": \"data.action_type\"},\n    \"}}]}\"\n  ]\n}"
                           }
                         ]
                       }
@@ -7373,14 +7373,14 @@
                         "trigger": {
                           "type": "json",
                           "json": {
-                            "var": "form.component_type"
+                            "var": "data.component_type"
                           }
                         },
                         "actions": [
                           {
                             "name": "query",
                             "type": "value",
-                            "value": "query={\n  \"cat\": [\"{'$and':[{'active':True}, {'component_type':{'$in':\",\n    {\"var\": \"form.component_type\"},\n    \"}}]}\"\n  ]\n}"
+                            "value": "query={\n  \"cat\": [\"{'$and':[{'active':True}, {'component_type':{'$in':\",\n    {\"var\": \"data.component_type\"},\n    \"}}]}\"\n  ]\n}"
                           }
                         ]
                       }
@@ -7419,14 +7419,14 @@
                         "trigger": {
                           "type": "json",
                           "json": {
-                            "var": "form.menu_group"
+                            "var": "data.menu_group"
                           }
                         },
                         "actions": [
                           {
                             "name": "query",
                             "type": "value",
-                            "value": "query={\n  \"cat\": [\"{'$and':[{'active':True}, {'menu_group':{'$in':\",\n    {\"var\": \"form.menu_group\"},\n    \"}}]}\"\n  ]\n}"
+                            "value": "query={\n  \"cat\": [\"{'$and':[{'active':True}, {'menu_group':{'$in':\",\n    {\"var\": \"data.menu_group\"},\n    \"}}]}\"\n  ]\n}"
                           }
                         ]
                       }
@@ -7540,19 +7540,19 @@
                         "trigger": {
                           "type": "json",
                           "json": {
-                            "var": "form.title"
+                            "var": "data.title"
                           }
                         },
                         "actions": [
                           {
                             "name": "set query",
                             "type": "value",
-                            "value": "query={\n    \"cat\": [\n        \"{'$and':\",\n        \"[{'active':True},{'$or': [{'label': {'$regex': '\",\n        {\"var\": \"form.title\"},\n        \"', '$options': 'i'}},{'rec_name': {'$regex': '\",\n        {\"var\": \"form.title\"},\n        \"', '$options': 'i'}}]}]}\"\n    ]\n}"
+                            "value": "query={\n    \"cat\": [\n        \"{'$and':\",\n        \"[{'active':True},{'$or': [{'label': {'$regex': '\",\n        {\"var\": \"data.title\"},\n        \"', '$options': 'i'}},{'rec_name': {'$regex': '\",\n        {\"var\": \"data.title\"},\n        \"', '$options': 'i'}}]}]}\"\n    ]\n}"
                           },
                           {
                             "name": "default value",
                             "type": "value",
-                            "value": "defaultValue={\"var\":\"form.title\"}"
+                            "value": "defaultValue={\"var\":\"data.title\"}"
                           }
                         ]
                       }
@@ -7585,19 +7585,19 @@
                         "trigger": {
                           "type": "json",
                           "json": {
-                            "var": "form.search_model"
+                            "var": "data.search_model"
                           }
                         },
                         "actions": [
                           {
                             "name": "set query",
                             "type": "value",
-                            "value": "query={\n  \"cat\": [\n    \"{'$and':\",\n    \"[{'active':True},{'rec_name':'\",\n    {\"var\":\"form.search_model\"},\n    \"'}]}\"\n  ]\n}"
+                            "value": "query={\n  \"cat\": [\n    \"{'$and':\",\n    \"[{'active':True},{'rec_name':'\",\n    {\"var\":\"data.search_model\"},\n    \"'}]}\"\n  ]\n}"
                           },
                           {
                             "name": "default value",
                             "type": "value",
-                            "value": "defaultValue={\"var\":\"form.search_model\"}"
+                            "value": "defaultValue={\"var\":\"data.search_model\"}"
                           }
                         ]
                       }
@@ -7635,14 +7635,14 @@
                         "trigger": {
                           "type": "json",
                           "json": {
-                            "var": "form.menu_group"
+                            "var": "data.menu_group"
                           }
                         },
                         "actions": [
                           {
                             "name": "query",
                             "type": "value",
-                            "value": "query={\n  \"cat\": [\"{'$and':[{'active':True}, {'parent':{'$in':\",\n    {\"var\": \"form.menu_group\"},\n    \"}}]}\"\n  ]\n}"
+                            "value": "query={\n  \"cat\": [\"{'$and':[{'active':True}, {'parent':{'$in':\",\n    {\"var\": \"data.menu_group\"},\n    \"}}]}\"\n  ]\n}"
                           }
                         ]
                       }
@@ -7696,14 +7696,14 @@
                         "trigger": {
                           "type": "json",
                           "json": {
-                            "var": "form.apps"
+                            "var": "data.apps"
                           }
                         },
                         "actions": [
                           {
                             "name": "query",
                             "type": "value",
-                            "value": "query={\n  \"cat\": [\"{'$and':[{'active':True}, {'apps':{'$in':\",\n    {\"var\": \"form.apps\"},\n    \"}}]}\"\n  ]\n}"
+                            "value": "query={\n  \"cat\": [\"{'$and':[{'active':True}, {'apps':{'$in':\",\n    {\"var\": \"data.apps\"},\n    \"}}]}\"\n  ]\n}"
                           }
                         ]
                       }

@@ -2,9 +2,12 @@ import json
 import logging
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from pydantic import ValidationError
 
 from ozonenv.OzonEnv import OzonEnv
 
@@ -20,7 +23,7 @@ from app.services.common import (
 )
 from app.services.remote_service import remote_data_select_response
 from app.services.service import Service
-from app.services.utils import _stream_ndjson_with_start_packet
+from app.services.utils import _stream_ndjson_with_start_packet, check_parse_json
 
 router = APIRouter(dependencies=[Depends(get_authed_env)])
 logger = logging.getLogger("uvicorn.error")
@@ -48,6 +51,37 @@ def _safe_encode_payload(payload: Any) -> Any:
             return json.loads(json.dumps(payload, default=str))
 
 
+def _coerce_body_model(model_cls: type[BaseModel], payload: Any) -> BaseModel:
+    normalized_payload = payload
+    if isinstance(normalized_payload, (bytes, bytearray)):
+        normalized_payload = normalized_payload.decode("utf-8", errors="ignore")
+
+    # Some clients send JSON as text/plain or double-encode the payload.
+    # Parse repeatedly until we reach a structured object or stop making progress.
+    for _ in range(3):
+        if not isinstance(normalized_payload, str):
+            break
+        parsed_payload = check_parse_json(normalized_payload)
+        if parsed_payload == normalized_payload:
+            break
+        normalized_payload = parsed_payload
+    try:
+        if hasattr(model_cls, "model_validate"):
+            return model_cls.model_validate(normalized_payload)
+        return model_cls.parse_obj(normalized_payload)
+    except ValidationError as exc:
+        errors = []
+        for item in exc.errors():
+            normalized_error = item.copy()
+            loc = normalized_error.get("loc", ())
+            if not isinstance(loc, tuple):
+                loc = tuple(loc) if isinstance(loc, list) else tuple()
+            if not loc or loc[0] != "body":
+                normalized_error["loc"] = ("body", *loc)
+            errors.append(normalized_error)
+        raise RequestValidationError(errors) from exc
+
+
 @router.get("/")
 async def healthcheck() -> dict[str, Any]:
     logger.info("healthcheck request received")
@@ -73,6 +107,32 @@ async def get_models_distinct(
     logger.info("list models request completed count=%s", len(data))
     return make_response_object(data=data, mode="list")
 
+@router.post("/models/distinct")
+async def post_models_distinct(
+    payload_raw: Annotated[Any, Body(...)],
+    service: Annotated[Service, Depends(get_service)],
+) -> ResponseObject:
+    payloadr = _coerce_body_model(RemoteSelectRequest, payload_raw)
+    logger.info(
+        "models distinct payload key=%s curr_model=%s has_properties=%s",
+        payloadr.key,
+        payloadr.curr_model,
+        payloadr.has_properties(),
+    )
+    if not payloadr.has_properties():
+        data = await service.get_models()
+        logger.info("models distinct fallback to model list count=%s", len(data))
+    else:
+        if not payloadr.key or not payloadr.curr_model:
+            logger.warning("models distinct missing key/curr_model, using model list")
+            data = await service.get_models()
+            return make_response_object(data=data, mode="list")
+        data = await service.get_select_options(
+            payloadr.key,
+            payloadr.curr_model,
+        )
+        logger.info("models distinct select options generated count=%s", len(data))
+    return make_response_object(data=data, mode="list")
 
 @router.get("/record/{model}")
 async def get_record_schema(
@@ -85,18 +145,21 @@ async def get_record_schema(
     return resp_data
 
 
-@router.post("/list/{model}")
+@router.post("/list/{model}", response_model=None)
 async def post_list_records(
     model: str,
-    payload: ListRequest,
+    payload_raw: Annotated[Any, Body(...)],
     service: Annotated[Service, Depends(get_service)],
-) -> StreamingResponse:
+    stream: bool = Query(default=True),
+) -> Any:
+    payload = _coerce_body_model(ListRequest, payload_raw)
     logger.info(
-        "list request model=%s order=%s skip=%s limit=%s",
+        "list request model=%s order=%s skip=%s limit=%s stream=%s",
         model,
         payload.order,
         payload.skip,
         payload.limit,
+        stream,
     )
     envelope = await service.list_records(
         model_name=model,
@@ -104,9 +167,18 @@ async def post_list_records(
         order=payload.order,
         skip=payload.skip,
         limit=payload.limit,
-        resp_stream=True,
+        resp_stream=stream,
         batch_size=10,
     )
+    if not stream:
+        logger.info(
+            "list response prepared model=%s total_count=%s stream=%s",
+            model,
+            envelope.content.total_count,
+            stream,
+        )
+        return envelope
+
     cols = envelope.content.columns
     total_count = envelope.content.total_count
 
@@ -163,6 +235,7 @@ async def post_update_record(
     service: Annotated[Service, Depends(get_service)],
 ) -> ResponseObject:
     logger.info("record upsert request model=%s rec_name=%s", model, rec_name)
+    logger.info(payload)
     resp_data = await service.upsert(model, payload, rec_name=rec_name)
     if not resp_data:
         logger.warning("record upsert failed model=%s rec_name=%s", model, rec_name)
@@ -174,39 +247,13 @@ async def post_update_record(
     return resp_data
 
 
-@router.post("/models/distinct")
-async def post_models_distinct(
-    payloadr: RemoteSelectRequest,
-    service: Annotated[Service, Depends(get_service)],
-) -> ResponseObject:
-    logger.info(
-        "models distinct payload key=%s curr_model=%s has_properties=%s",
-        payloadr.key,
-        payloadr.curr_model,
-        payloadr.has_properties(),
-    )
-    if not payloadr.has_properties():
-        data = await service.get_models()
-        logger.info("models distinct fallback to model list count=%s", len(data))
-    else:
-        if not payloadr.key or not payloadr.curr_model:
-            logger.warning("models distinct missing key/curr_model, using model list")
-            data = await service.get_models()
-            return make_response_object(data=data, mode="list")
-        data = await service.get_select_options(
-            payloadr.key,
-            payloadr.curr_model,
-        )
-        logger.info("models distinct select options generated count=%s", len(data))
-    return make_response_object(data=data, mode="list")
-
-
 @router.post("/get_remote_data_select")
 @router.post("/get_remote_select")
 async def post_remote_data_select(
-    payloadr: RemoteSelectRequest,
+    payload_raw: Annotated[Any, Body(...)],
     service: Annotated[Service, Depends(get_service)],
 ) -> ResponseObject:
+    payloadr = _coerce_body_model(RemoteSelectRequest, payload_raw)
     logger.info(
         "remote select payload key=%s curr_model=%s url=%s",
         payloadr.key,

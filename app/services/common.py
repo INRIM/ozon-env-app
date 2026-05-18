@@ -107,6 +107,8 @@ class ResponseObjectData(BaseModel):
     filter_kyes: dict[str, str] = Field(default_factory=dict)
     batch_size: int = 0
     total_count: int = 0
+    context_actions: list[dict[str, Any]] = Field(default_factory=list)
+    title: str = ""
 
 class ResponseObject(BaseModel):
     content: ResponseObjectData
@@ -126,6 +128,18 @@ def _extract_rec_name(data: Any) -> str:
     if value in (None, ""):
         return ""
     return str(value)
+
+
+_COMPONENT_DEFAULT_COLUMNS: dict[str, str] = {
+    "title": "Title",
+    "rec_name": "Name",
+    "sys": "Di Sistema",
+    "type": "Tipo",
+    "display": "Display",
+    "demo": "Dati Demo",
+    "projectId": "Progetto",
+    "row_action": "Action",
+}
 
 
 def make_response_object(
@@ -166,6 +180,8 @@ def make_response_object(
         )
         if mode in ["list_stream", "list"]:
             content.columns = model.table_columns
+            if not content.columns and model.data_model == "component":
+                content.columns = _COMPONENT_DEFAULT_COLUMNS
             content.filter_kyes = model.model.filter_keys()
 
     return ResponseObject(

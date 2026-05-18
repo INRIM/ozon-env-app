@@ -339,6 +339,164 @@ def test_action_get_exposes_submit_and_abandon_sequence():
     }
 
 
+def test_form_action_context_actions_include_implicit_save_and_cancel():
+    rows_by_name = {
+        "form_form_action": {
+            "rec_name": "form_form_action",
+            "mode": "form",
+            "model": "action",
+            "action_type": "window",
+            "next_action_name": "submit_action",
+            "type": "data",
+            "component_type": "",
+        },
+        "submit_action": {
+            "rec_name": "submit_action",
+            "mode": "form",
+            "model": "action",
+            "action_type": "save",
+            "next_action_name": "list_action",
+            "context_button_mode": [],
+            "title": "Salva",
+            "button_icon": "it-check",
+            "type": "data",
+            "component_type": "",
+        },
+        "copy_action": {
+            "rec_name": "copy_action",
+            "mode": "form",
+            "model": "action",
+            "action_type": "copy",
+            "next_action_name": "form_form_action",
+            "context_button_mode": ["form"],
+            "title": "Duplica",
+            "button_icon": "it-copy",
+            "type": "data",
+            "component_type": "",
+        },
+        "list_action": {
+            "rec_name": "list_action",
+            "mode": "list",
+            "model": "action",
+            "action_type": "window",
+            "next_action_name": "form_form_action",
+            "context_button_mode": ["list"],
+            "title": "Azioni",
+            "button_icon": "it-list",
+            "type": "data",
+            "component_type": "",
+        },
+    }
+    action_model = DummyActionModel(
+        rows_by_name=rows_by_name,
+        rows=[
+            rows_by_name["submit_action"],
+            rows_by_name["copy_action"],
+            rows_by_name["list_action"],
+        ],
+    )
+    async def fake_find(domain, sort="list_order:asc,rec_name:asc", limit=0):
+        and_items = domain.get("$and", []) if isinstance(domain, dict) else []
+        if any(
+            isinstance(item, dict) and item.get("mode") == "list"
+            for item in and_items
+        ):
+            return [rows_by_name["list_action"]]
+        return [
+            rows_by_name["submit_action"],
+            rows_by_name["copy_action"],
+            rows_by_name["list_action"],
+        ]
+
+    action_model.find = fake_find
+    component_model = DummyComponentModel(
+        rows_by_name={
+            "action": {
+                "rec_name": "action",
+                "title": "Action Model",
+                "components": [{"key": "title"}],
+                "no_cancel": "0",
+            }
+        }
+    )
+    env = DummyEnv(models={"action": action_model, "component": component_model})
+    service = Service(env)
+
+    res = asyncio.run(service.service_handle_action_get("form_form_action"))
+
+    assert res.mode == "form"
+    assert res.title == "Action Model"
+    assert res.fields["submit_action_name"] == "submit_action"
+    assert res.fields["abandon_action_name"] == "list_action"
+    context_by_name = {item["rec_name"]: item for item in res.context_actions}
+    assert {"submit_action", "copy_action", "cancel"} <= set(context_by_name)
+    assert context_by_name["submit_action"]["action_type"] == "save"
+    assert context_by_name["submit_action"]["url_action"] == (
+        "/action/submit_action/submit_action"
+    )
+    assert context_by_name["cancel"]["url_action"] == "/action/list_action"
+
+
+def test_form_action_hides_cancel_when_component_no_cancel_is_enabled():
+    rows_by_name = {
+        "form_form_action": {
+            "rec_name": "form_form_action",
+            "mode": "form",
+            "model": "action",
+            "action_type": "window",
+            "next_action_name": "submit_action",
+            "type": "data",
+            "component_type": "",
+        },
+        "submit_action": {
+            "rec_name": "submit_action",
+            "mode": "form",
+            "model": "action",
+            "action_type": "save",
+            "next_action_name": "list_action",
+            "context_button_mode": [],
+            "title": "Salva",
+            "button_icon": "it-check",
+            "type": "data",
+            "component_type": "",
+        },
+        "list_action": {
+            "rec_name": "list_action",
+            "mode": "list",
+            "model": "action",
+            "action_type": "window",
+            "next_action_name": "form_form_action",
+            "context_button_mode": ["list"],
+            "title": "Azioni",
+            "button_icon": "it-list",
+            "type": "data",
+            "component_type": "",
+        },
+    }
+    action_model = DummyActionModel(
+        rows_by_name=rows_by_name,
+        rows=[rows_by_name["submit_action"], rows_by_name["list_action"]],
+    )
+    component_model = DummyComponentModel(
+        rows_by_name={
+            "action": {
+                "rec_name": "action",
+                "title": "Action Model",
+                "components": [{"key": "title"}],
+                "no_cancel": 1,
+            }
+        }
+    )
+    env = DummyEnv(models={"action": action_model, "component": component_model})
+    service = Service(env)
+
+    res = asyncio.run(service.service_handle_action_get("form_form_action"))
+
+    assert res.fields["abandon_action_name"] == ""
+    assert res.fields["action_sequence"]["abandon_action"] == ""
+    assert "cancel" not in {item["rec_name"] for item in res.context_actions}
+
+
 def test_list_action_uses_model_data_and_view_name_schema():
     rows_by_name = {
         "list_documento": {

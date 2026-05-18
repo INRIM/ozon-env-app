@@ -34,6 +34,22 @@ def _safe_order_value(value: Any) -> str:
     return ""
 
 
+def _is_enabled_flag(value: Any) -> bool:
+    """Interpreta flag persistiti come bool/int/str senza ambiguita su '0'."""
+
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"", "0", "false", "no", "off", "none", "null"}:
+            return False
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+    return bool(value)
+
+
 def _merge_query(
         base_query: dict[str, Any], extra_query: dict[str, Any]
 ) -> dict[str, Any]:
@@ -140,6 +156,111 @@ class ActionRuntime:
         except Exception:
             logger.debug("schema component not found name=%s", schema_name)
         return None
+
+    async def _get_context_actions(
+            self, action_model: str, action_mode: str, component_type: str = ""
+    ) -> list[dict[str, Any]]:
+        """Restituisce i pulsanti di contesto visibili all'utente corrente.
+
+        Logica:
+        - Carica tutte le action con model == action_model, deleted=0, active=True.
+        - Filtra per context_button_mode (str o list) che include action_mode.
+        - Se component_type valorizzato: esclude action con component_type diverso
+          (action senza component_type passano sempre — sono valide per tutti i tipi).
+        - Applica controlli permesso:
+            admin        → solo se is_admin (o uid in settings.admins)
+            write_access → solo se utente autenticato (not is_public)
+            no_public_user → solo se not is_public
+        """
+        if not action_model or not action_mode:
+            return []
+        try:
+            action_model_obj = self.env.get("action")
+            query = {
+                "$and": [
+                    {"model": action_model},
+                    {"deleted": 0},
+                    {"active": True},
+                ]
+            }
+            candidates = await action_model_obj.find(
+                domain=query,
+                sort="list_order:asc,rec_name:asc",
+                limit=0,
+            )
+            session = self.service.session
+            is_admin = self.service._is_menu_admin()
+            is_public = bool(getattr(session, "is_public", False))
+
+            buttons: list[dict[str, Any]] = []
+            for item in candidates:
+                data = _obj_to_dict(item)
+
+                # --- context_button_mode match ---
+                rec_name = data.get("rec_name", "")
+                action_type = str(data.get("action_type", "") or "").strip().lower()
+                cbm = data.get("context_button_mode", None)
+                cbm_empty = (
+                    cbm is None
+                    or cbm == ""
+                    or (isinstance(cbm, list) and not cbm)
+                )
+                if cbm_empty:
+                    # Save actions without explicit cbm are implicit form context
+                    # buttons (template actions generated with cbm=[] such as
+                    # submit_*, submit_action, etc.).
+                    if not (action_mode == "form" and action_type == "save"):
+                        continue
+                elif isinstance(cbm, list):
+                    if action_mode not in cbm:
+                        continue
+                elif isinstance(cbm, str):
+                    modes = [m.strip() for m in cbm.split(",") if m.strip()]
+                    if action_mode not in modes:
+                        continue
+                else:
+                    continue
+
+                # --- component_type filter ---
+                # Action con component_type valorizzato → solo se matcha il tipo corrente.
+                # Action senza component_type → valida per tutti i tipi.
+                action_ct = str(data.get("component_type", "") or "").strip()
+                if action_ct and component_type and action_ct != component_type:
+                    continue
+
+                # --- permission checks ---
+                if data.get("admin", False) and not is_admin:
+                    continue
+                if data.get("write_access", False) and is_public:
+                    continue
+                if data.get("no_public_user", False) and is_public:
+                    continue
+                action_root = data.get("action_root_path", "/action")
+
+                # Actions that operate on a specific record use /path/rec/rec.
+                _rec_action_types = {"save", "copy", "delete"}
+                if action_type in _rec_action_types:
+                    url_action = f"{action_root}/{rec_name}/{rec_name}"
+                else:
+                    url_action = f"{action_root}/{rec_name}"
+
+                buttons.append({
+                    "rec_name": rec_name,
+                    "action_type": action_type,
+                    "label": data.get("title", rec_name),
+                    "button_icon": data.get("button_icon", ""),
+                    "modal": bool(data.get("modal", False)),
+                    "url_action": url_action,
+                    "context_button_mode": cbm,
+                })
+            return buttons
+        except Exception:
+            logger.warning(
+                "context_actions lookup failed model=%s mode=%s",
+                action_model,
+                action_mode,
+            )
+            return []
 
     async def _get_fast_search_config(
             self, action_name: str, action_model: str
@@ -321,11 +442,40 @@ class ActionRuntime:
             response_fields["next_action_name"] = action_sequence.get(
                 "submit_action", ""
             )
+            # Suppress abandon/cancel button if component schema says no_cancel.
+            comp_data = await self._get_component_record(schema_model)
+            if _is_enabled_flag(comp_data.get("no_cancel", False)):
+                action_sequence["abandon_action"] = ""
+                response_fields["abandon_action_name"] = ""
+            res.title = str(comp_data.get("title", "") or "")
         if action_mode == "list":
             fs_config = await self._get_fast_search_config(action_name, action_model)
             if fs_config:
                 response_fields["fast_search"] = fs_config
+            res.title = str(_field(action, "title", "") or "")
         res.fields = response_fields
+        context_actions = await self._get_context_actions(
+            action_model, action_mode, component_type=action_component_type
+        )
+        if action_mode == "form":
+            abandon_name = action_sequence.get("abandon_action", "")
+            if abandon_name:
+                _tz = str(
+                    getattr(self.service.settings, "tz", "") or "Europe/Rome"
+                )
+                _label = (
+                    "Abbandona" if _tz.lower().startswith("europe") else "Cancel"
+                )
+                context_actions.append({
+                    "rec_name": "cancel",
+                    "action_type": "cancel_button",
+                    "label": _label,
+                    "button_icon": "",
+                    "modal": False,
+                    "url_action": f"/action/{abandon_name}",
+                    "context_button_mode": "form",
+                })
+        res.context_actions = context_actions
         return res
 
     async def handle_post(

@@ -35,6 +35,12 @@ _STATIC_MODELS = [
     ("field_acl_policy", FieldAclPolicy),
 ]
 
+_READ_ONLY_POST_CSRF_EXEMPT_PATHS = {
+    "/models/distinct",
+    "/get_remote_data_select",
+    "/get_remote_select",
+}
+
 
 async def _register_static_models(env: OzonEnv) -> None:
     for name, model_class in _STATIC_MODELS:
@@ -306,7 +312,13 @@ async def get_ozon_env() -> AsyncGenerator[OzonEnv, None]:
 
 
 def _validate_csrf(request: Request) -> None:
-    if request.method not in ("POST", "PUT", "DELETE", "PATCH"):
+    method = str(request.method or "").upper()
+    if method not in {"POST", "PUT", "DELETE", "PATCH"}:
+        return
+    path = str(request.scope.get("path", "") or "")
+    if method == "POST" and (
+        path.startswith("/list/") or path in _READ_ONLY_POST_CSRF_EXEMPT_PATHS
+    ):
         return
     csrf_cookie = request.cookies.get(settings.csrf_cookie_name, "")
     csrf_header = request.headers.get("X-CSRF-Token", "")
