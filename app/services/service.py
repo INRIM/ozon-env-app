@@ -5,8 +5,11 @@ from typing import Union
 
 from fastapi import HTTPException
 from ozonenv.OzonEnv import OzonEnv
+from ozonenv.core.BaseModels import CoreModel
+from ozonenv.core.OzonModel import OzonModelBase
 
 from .action_runtime import ActionRuntime
+from .action_runtime import _is_enabled_flag
 from .common import *
 from .formio import get_formio_select_options
 from app.core.models import FieldAclOperation
@@ -15,6 +18,7 @@ from app.ozon_env_acl import compile_field_acl_policies
 from app.ozon_env_acl import enforce_write_acl
 
 logger = logging.getLogger("uvicorn.error")
+_COMPONENT_RUNTIME_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
 
 def _normalize_order(order: str) -> str:
@@ -44,24 +48,22 @@ def _normalize_order(order: str) -> str:
     return ",".join(normalized)
 
 
-def _obj_to_dict(obj: Any) -> dict[str, Any]:
-    if obj is None:
-        return {}
-    if isinstance(obj, dict):
-        return obj.copy()
-    if hasattr(obj, "model_dump"):
-        return obj.model_dump()
-    if hasattr(obj, "dict"):
-        return obj.dict()
-    if hasattr(obj, "get_dict"):
-        return obj.get_dict()
-    return {}
+def _has_non_system_records(records: list[Any]) -> bool:
+    for record in records if isinstance(records, list) else []:
+        if not _is_enabled_flag(getattr(record, "sys", False)):
+            return True
+    return False
 
 
-def _field(obj: Any, key: str, default: Any = None) -> Any:
-    if isinstance(obj, dict):
-        return obj.get(key, default)
-    return getattr(obj, key, default)
+def _is_admin_only_menu_group(group: CoreModel) -> bool:
+    return _is_enabled_flag(group.admin)
+
+
+def _is_runtime_component_name(name: Any) -> bool:
+    normalized = str(name or "").strip()
+    if not normalized:
+        return False
+    return bool(_COMPONENT_RUNTIME_NAME_RE.fullmatch(normalized))
 
 
 def _merge_query(
@@ -72,22 +74,6 @@ def _merge_query(
     if not extra_query:
         return base_query.copy()
     return {"$and": [base_query.copy(), extra_query.copy()]}
-
-
-def _model_lookup_candidates(model_name: str) -> list[str]:
-    normalized_name = str(model_name or "").strip()
-    if not normalized_name:
-        return []
-
-    candidates = [normalized_name]
-    lower_name = normalized_name.lower()
-    snake_source = re.sub(r"(?<!^)(?=[A-Z])", "_", normalized_name)
-    snake_name = re.sub(r"[^0-9A-Za-z]+", "_", snake_source).strip("_").lower()
-
-    for candidate in (lower_name, snake_name):
-        if candidate and candidate not in candidates:
-            candidates.append(candidate)
-    return candidates
 
 
 class Service:
@@ -129,7 +115,7 @@ class Service:
             query if query else {},
             compute_label,
         )
-        _model = self._require_model(model)
+        _model = self.env.get(model)
         return await _model.search_all_distinct(
             "rec_name",
             query if query else {},
@@ -164,13 +150,16 @@ class Service:
 
     async def by_name(self, model: str, name: str):
         logger.info("service.by_name model=%s name=%s", model, name)
-        compo_model = self._require_model(model)
+        compo_model = self.env.get(model)
         return await compo_model.by_name(name)
 
     async def compo_by_name(self, model: str, name: str) -> ResponseObject:
         logger.info("service.compo_by_name model=%s name=%s", model, name)
-        compo_model = self._require_model(model)
-        record = await compo_model.by_name(name)
+        compo_model = self.env.get(model)
+        if name == "component":
+            record = await compo_model.new({"rec_name":"", "app_code":""})
+        else:
+            record = await compo_model.by_name(name)
         return make_response_object(compo_model, mode="form", data=record)
 
     async def stream_record(
@@ -190,7 +179,7 @@ class Service:
             skip,
             limit,
         )
-        model = self._require_model(envelope.content.model)
+        model = self.env.get(envelope.content.model)
         return model.stream_find(
             domain=envelope.content.query,
             sort=normalized_order,
@@ -225,7 +214,7 @@ class Service:
             limit,
             resp_stream,
         )
-        record_model = self._require_model(model_name)
+        record_model = self.env.get(model_name)
         domain = record_model.get_domain(query)
         total_count = await record_model.count(domain=domain)
         acl = await self._get_compiled_field_acl()
@@ -290,13 +279,15 @@ class Service:
             data_value: dict = None,
             trnf_config: dict = None,
             fields_parser: dict = None,
+            sync_component_runtime: bool = False,
+            generate_component_defaults: bool = False,
     ) -> Union[None, ResponseObject]:
         logger.info(
             "service.upsert model=%s rec_name=%s",
             model_name,
             rec_name,
         )
-        record_model = self._require_model(model_name)
+        record_model = self.env.get(model_name)
         operation = await self._resolve_write_operation(record_model, rec_name, data)
         acl = await self._get_compiled_field_acl()
         await enforce_write_acl(
@@ -314,27 +305,53 @@ class Service:
             trnf_config=trnf_config,
             fields_parser=fields_parser,
         )
-        if model_name == "component" and record is not None:
-            schema = _obj_to_dict(record)
-            try:
-                await self.env.insert_update_component(schema)
-                logger.info(
-                    "component hook: insert_update_component ok rec_name=%s",
-                    schema.get("rec_name", ""),
-                )
-            except Exception:
-                logger.exception(
-                    "component hook: insert_update_component failed rec_name=%s",
-                    schema.get("rec_name", ""),
-                )
+        if (
+                model_name == "component"
+                and record is not None
+                and sync_component_runtime
+        ):
+            await self._sync_component_runtime(
+                record.get_dict(),
+                generate_defaults=(
+                    generate_component_defaults
+                    and operation == FieldAclOperation.INSERT.value
+                ),
+            )
+        return make_response_object(record_model, mode="form", data=record)
+
+    async def _sync_component_runtime(
+            self,
+            schema: dict[str, Any],
+            generate_defaults: bool = False,
+    ) -> None:
+        if not isinstance(schema, dict) or not schema:
+            return
+        model_name = str(schema.get("rec_name", "") or "").strip()
+        if not _is_runtime_component_name(model_name):
+            logger.info(
+                "component hook: skip runtime sync invalid rec_name=%s",
+                model_name,
+            )
+            return
+        try:
+            await self.env.insert_update_component(schema)
+            logger.info(
+                "component hook: insert_update_component ok rec_name=%s",
+                model_name,
+            )
+        except Exception:
+            logger.exception(
+                "component hook: insert_update_component failed rec_name=%s",
+                model_name,
+            )
+        if generate_defaults:
             try:
                 await self._make_default_actions_for_component(schema)
             except Exception:
                 logger.exception(
                     "component hook: make_default_actions failed rec_name=%s",
-                    schema.get("rec_name", ""),
+                    model_name,
                 )
-        return make_response_object(record_model, mode="form", data=record)
 
     async def fast_search_list(
             self,
@@ -350,15 +367,17 @@ class Service:
                 status_code=404,
                 detail=f"Action '{action_name}' not found",
             )
-        action_model = _field(action, "model", "")
-        action_mode = _field(action, "mode", "")
+        action_model = action.model
+        action_mode = action.mode
         if action_mode != "list":
             raise HTTPException(
                 status_code=422,
                 detail="fast_search only valid on list actions",
             )
+        schema_model = action.view_name or action_model
+        schema_record = await self._get_component_record(schema_model)
         resolved_query, resolved_order = (
-            await self.action_runtime._resolve_list_defaults(action, action_model)
+            self.action_runtime._resolve_list_defaults(action, schema_record)
         )
         effective_order = order.strip() or resolved_order
         if query_fields:
@@ -376,9 +395,9 @@ class Service:
         )
 
     async def load(
-            self, domain: dict, in_execution=False
+            self, model_name: str, domain: dict, in_execution=False
     ) -> Union[None, ResponseObject]:
-        logger.info("service.load domain=%s", domain)
+        logger.info("service.load model=%s domain=%s", model_name, domain)
         record_model = self.env.get(model_name)
         record = await record_model.load(domain)
         return make_response_object(record_model, mode="form", data=record)
@@ -387,7 +406,7 @@ class Service:
             self, model: str, rec_name: str
     ) -> Union[None, ResponseObject]:
         logger.info("service.load_record model=%s rec_name=%s", model, rec_name)
-        record_model = self._require_model(model)
+        record_model = self.env.get(model)
         record = await record_model.by_name(rec_name)
         acl = await self._get_compiled_field_acl()
         record, obfuscate_fields = acl.apply_read(
@@ -458,7 +477,7 @@ class Service:
                 )
 
         for template in template_actions if isinstance(template_actions, list) else []:
-            data = _obj_to_dict(template)
+            data = template.get_dict()
             data.pop("_id", None)
             data.pop("id", None)
 
@@ -509,7 +528,7 @@ class Service:
 
     async def _resolve_write_operation(
             self,
-            record_model: Any,
+            record_model: OzonModelBase,
             rec_name: str,
             data: dict[str, Any] | None,
     ) -> str:
@@ -565,8 +584,22 @@ class Service:
                 return []
         return []
 
-    async def _get_action_record(self, action_name: str):
+    async def _get_action_record(
+            self, action_name: str
+    ) -> CoreModel | None:
         return await self.action_runtime.get_action_record(action_name)
+
+    async def _get_component_record(
+            self, component_name: str
+    ) -> CoreModel | None:
+        if not component_name:
+            return None
+        try:
+            component_model = self.env.get("component")
+            return await component_model.by_name(component_name)
+        except Exception:
+            logger.debug("component not found name=%s", component_name)
+            return None
 
     def _update_query_values(self, data: Any) -> Any:
         """
@@ -609,7 +642,7 @@ class Service:
     def _query_has_key(self, data: Any, key: str) -> bool:
         return any(self._scan_find_key(data, key))
 
-    def _model_name(self, model: Any) -> str:
+    def _model_name(self, model: OzonModelBase) -> str:
         if hasattr(model, "str_name") and callable(model.str_name):
             try:
                 name = model.str_name()
@@ -625,7 +658,7 @@ class Service:
 
     async def _default_query(
             self,
-            model: Any,
+            model: OzonModelBase,
             query: dict[str, Any] | None,
             parent: str = "",
             model_type: str = "",
@@ -668,100 +701,59 @@ class Service:
 
     async def _find_base(
             self,
-            model: Any,
+            model: OzonModelBase,
             query: dict[str, Any],
             sort: str = "list_order:asc,rec_name:asc",
             limit: int = 0,
     ) -> list[Any]:
         return await model.find(domain=query, sort=sort, limit=limit)
 
-    async def _count_base(self, model: Any, query: dict[str, Any]) -> int:
+    async def _count_base(self, model: OzonModelBase, query: dict[str, Any]) -> int:
         domain = query
         if hasattr(model, "get_domain") and callable(model.get_domain):
             domain = model.get_domain(query)
         return await model.count(domain=domain)
 
-    async def _safe_model(self, model_name: str) -> Any | None:
-        return self._resolve_model(model_name)
-
-    def _resolve_model(self, model_name: str) -> Any | None:
-        normalized_name = str(model_name or "").strip()
-        if not normalized_name:
-            logger.warning("empty model name received")
-            return None
-        candidates = _model_lookup_candidates(normalized_name)
-        for candidate in candidates:
-            try:
-                model = self.env.get(candidate)
-            except Exception:
-                continue
-            if model is not None:
-                if candidate != normalized_name:
-                    logger.info(
-                        "model lookup normalized requested=%s resolved=%s",
-                        normalized_name,
-                        candidate,
-                    )
-                return model
-        logger.warning(
-            "model lookup returned none model=%s candidates=%s",
-            normalized_name,
-            candidates,
-        )
-        return None
-
-    def _require_model(self, model_name: str) -> Any:
-        model = self._resolve_model(model_name)
-        if model is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Model '{model_name}' not found",
-            )
-        return model
-
     async def _make_menu_item(
-            self, card: dict[str, Any], rec_b: dict[str, Any]
+            self, card: dict[str, Any], rec_b: CoreModel
     ) -> dict[str, Any] | bool:
-        card_btn = rec_b.copy()
-        action_model_name = card_btn.get("model", "")
-        cc_model = await self._safe_model(action_model_name)
-        if not cc_model:
-            return False
+        action_model_name = rec_b.model
+        cc_model = self.env.get(action_model_name)
 
-        if card_btn.get("mode"):
+        if rec_b.mode:
             link = (
-                f"{card_btn.get('action_root_path', '/action')}"
-                f"/{card_btn.get('rec_name', '')}"
+                f"{rec_b.action_root_path or '/action'}"
+                f"/{rec_b.rec_name or ''}"
             )
         else:
-            link = card_btn.get("action_root_path", "/action")
+            link = rec_b.action_root_path or "/action"
 
         number = 0
-        if card_btn.get("mode") == "list":
-            list_query = self._parse_query_dict(card_btn.get("list_query", "{}"))
+        if rec_b.mode == "list":
+            list_query = self._parse_query_dict(rec_b.list_query)
             q = await self._default_query(cc_model, list_query)
             number = await self._count_base(cc_model, q)
 
         return {
-            "model": card_btn.get("model", ""),
-            "icon": card_btn.get("button_icon", ""),
-            "action_type": card_btn.get("action_type", ""),
+            "model": rec_b.model or "",
+            "icon": rec_b.button_icon or "",
+            "action_type": rec_b.action_type or "",
             "content": link,
-            "label": card_btn.get("title", card_btn.get("rec_name", "")),
-            "mode": card_btn.get("mode", ""),
+            "label": rec_b.title or rec_b.rec_name or "",
+            "mode": rec_b.mode or "",
             "number": number,
         }
 
-    def _make_button_main_menu(self, rec: dict[str, Any]) -> dict[str, Any]:
+    def _make_button_main_menu(self, rec: CoreModel) -> dict[str, Any]:
         btn_action_parser = {
             "save": "post",
             "copy": "post",
             "delete": "post",
             "window": False,
         }
-        rec_name = rec.get("rec_name", "")
-        action_type = rec.get("action_type", "")
-        action_root_path = rec.get("action_root_path", "/action")
+        rec_name = rec.rec_name or ""
+        action_type = rec.action_type or ""
+        action_root_path = rec.action_root_path or "/action"
 
         if action_type in btn_action_parser:
             url_action = f"{action_root_path}/{rec_name}/{rec_name}"
@@ -769,46 +761,65 @@ class Service:
             url_action = f"{action_root_path}/{rec_name}"
 
         return {
-            "model": rec.get("model", ""),
+            "model": rec.model or "",
             "key": rec_name,
             "type": "button",
-            "label": rec.get("title", rec_name),
-            "leftIcon": rec.get("button_icon", ""),
+            "label": rec.title or rec_name,
+            "leftIcon": rec.button_icon or "",
             "btn_action_type": btn_action_parser.get(action_type),
             "action_type": action_type,
             "url_action": url_action,
-            "builder": rec.get("builder_enabled", False),
+            "builder": bool(rec.builder_enabled),
         }
 
-    def _settings_admins(self) -> set[str]:
-        admins = getattr(self.settings, "admins", []) or []
-        if isinstance(admins, str):
-            admins = [admins]
-        if not isinstance(admins, (list, tuple, set)):
-            return set()
-        return {str(item).strip() for item in admins if str(item).strip()}
+    async def _get_dashboard_menu_flags(
+            self,
+            group_names: list[str],
+    ) -> tuple[bool, bool]:
+        normalized_groups = [
+            str(group_name).strip()
+            for group_name in group_names
+            if str(group_name).strip()
+        ]
+        if not normalized_groups:
+            return False, False
 
-    def _session_uid(self) -> str:
-        uid = str(getattr(self.session, "uid", "") or "").strip()
-        if uid:
-            return uid
-        return str(
-            _field(getattr(self.session, "user", {}), "uid", "") or ""
-        ).strip()
+        action_model = self.env.get("action")
+        if len(normalized_groups) == 1:
+            menu_group_filter: dict[str, Any] = {
+                "menu_group": normalized_groups[0]
+            }
+        else:
+            menu_group_filter = {
+                "menu_group": {"$in": normalized_groups}
+            }
 
-    def _is_menu_admin(self) -> bool:
-        uid = self._session_uid()
-        if uid:
-            return uid in self._settings_admins()
-        return bool(getattr(self.session, "is_admin", False))
+        q_menu_user = await self._make_query_user(
+            [
+                {"action_type": "menu"},
+                {"component_type": {"$in": ["form", "resource", "layout"]}},
+                menu_group_filter,
+            ]
+        )
+        q_menu = await self._default_query(action_model, {"$and": q_menu_user})
+        menu_actions = await self._find_base(action_model, query=q_menu)
+        if not menu_actions:
+            return False, False
+        return True, _has_non_system_records(menu_actions)
 
     async def _get_basic_menu_list(self, parent: str = "") -> list[dict[str, Any]]:
+        is_admin = bool(getattr(self.session, "is_admin", False))
         menu_group_model = self.env.get("menu_group")
         action_model = self.env.get("action")
 
+        group_base = (
+            {"parent": parent}
+            if is_admin
+            else {"$and": [{"admin": False}, {"parent": parent}]}
+        )
         menu_groups_query = await self._default_query(
             menu_group_model,
-            {"$and": [{"admin": False}, {"parent": parent}]},
+            group_base,
         )
         menu_groups = await self._find_base(
             menu_group_model,
@@ -817,8 +828,10 @@ class Service:
 
         menu_list: list[dict[str, Any]] = []
         model_done: set[str] = set()
-        for group in (_obj_to_dict(item) for item in menu_groups):
-            group_name = group.get("rec_name", "")
+        for group in menu_groups:
+            if _is_admin_only_menu_group(group):
+                continue
+            group_name = group.rec_name or ""
             q_user = await self._make_query_user([{"menu_group": group_name}])
             action_query = await self._default_query(
                 action_model, {"$and": q_user}
@@ -826,15 +839,20 @@ class Service:
             found_item = await self._find_base(action_model, query=action_query)
 
             if found_item:
-                first = _obj_to_dict(found_item[0])
-                model_key = f"{group_name}{first.get('model', '')}"
+                has_menu_actions, has_non_system_menu = (
+                    await self._get_dashboard_menu_flags([group_name])
+                )
+                if has_menu_actions and not has_non_system_menu:
+                    continue
+                first = found_item[0]
+                model_key = f"{group_name}{first.model or ''}"
                 if model_key not in model_done:
                     model_done.add(model_key)
                     menu_list.append(
                         {
-                            "model": first.get("model", ""),
+                            "model": first.model or "",
                             "menu_group": group_name,
-                            "label": group.get("label", group_name),
+                            "label": group.label or group_name,
                         }
                     )
             else:
@@ -848,30 +866,19 @@ class Service:
                 )
                 if sub_menus:
                     sub_groups = [
-                        _obj_to_dict(sub).get("rec_name", "")
+                        sub.rec_name or ""
                         for sub in sub_menus
-                        if _obj_to_dict(sub).get("rec_name", "")
+                        if sub.rec_name
                     ]
-                    sub_query_user = await self._make_query_user(
-                        [
-                            {"deleted": 0},
-                            {"menu_group": {"$in": sub_groups}},
-                        ]
+                    _, has_non_system_menu = await self._get_dashboard_menu_flags(
+                        sub_groups
                     )
-                    sub_action_query = await self._default_query(
-                        action_model,
-                        {"$and": sub_query_user},
-                    )
-                    sub_items = await self._find_base(
-                        action_model,
-                        query=sub_action_query,
-                    )
-                    if sub_items:
+                    if has_non_system_menu:
                         menu_list.append(
                             {
                                 "model": False,
                                 "menu_group": group_name,
-                                "label": group.get("label", group_name),
+                                "label": group.label or group_name,
                                 "dashboard": True,
                                 "content": f"/action/dashboard/{group_name}",
                                 "action_type": "window",
@@ -889,7 +896,8 @@ class Service:
         layout_query: dict[str, Any] = {}
 
         if layout_name:
-            schema = _obj_to_dict(await component_model.by_name(layout_name))
+            record = await self._get_component_record(layout_name)
+            schema = record.get_dict() if record else {}
             layout_query = {"rec_name": layout_name}
 
         if not schema:
@@ -903,8 +911,8 @@ class Service:
                 limit=1,
             )
             if layouts:
-                schema = _obj_to_dict(layouts[0])
-                layout_name = schema.get("rec_name", layout_name)
+                schema = layouts[0].get_dict()
+                layout_name = layouts[0].rec_name or layout_name
 
         menu_data = await self.service_get_menu()
         return ResponseObjectData(
@@ -930,7 +938,7 @@ class Service:
         )
 
     async def service_get_menu(self, parent: str = "") -> ResponseObjectData:
-        is_admin = self._is_menu_admin()
+        is_admin = bool(getattr(self.session, "is_admin", False))
         if not is_admin:
             return ResponseObjectData(
                 mode="menu",
@@ -955,8 +963,8 @@ class Service:
         )
 
         grouped: dict[str, list[dict[str, Any]]] = {}
-        for menu_group in (_obj_to_dict(item) for item in menu_groups):
-            group_name = menu_group.get("rec_name", "")
+        for menu_group in menu_groups:
+            group_name = menu_group.rec_name or ""
             if not group_name:
                 continue
             menu_query_user = await self._make_query_user(
@@ -969,9 +977,9 @@ class Service:
             if not menu_actions:
                 continue
 
-            label = menu_group.get("label") or "No Menu"
+            label = menu_group.label or "No Menu"
             grouped.setdefault(label, [])
-            for rec_item in (_obj_to_dict(action) for action in menu_actions):
+            for rec_item in menu_actions:
                 grouped[label].append(self._make_button_main_menu(rec_item))
 
         data = [grouped] if grouped else [{}]
@@ -984,10 +992,6 @@ class Service:
 
         for card in menu_list:
             if card.get("model"):
-                c_model = await self._safe_model(card.get("model", ""))
-                if not c_model:
-                    continue
-
                 q_menu_user = await self._make_query_user(
                     [
                         {"action_type": "menu"},
@@ -1009,15 +1013,17 @@ class Service:
                 q = await self._default_query(action_model, {"$and": q_user})
 
                 menu_actions = await self._find_base(action_model, query=q_menu)
+                if menu_actions and not _has_non_system_records(menu_actions):
+                    continue
                 act_list = await self._find_base(action_model, query=q)
                 card_buttons: list[dict[str, Any]] = []
 
-                for rec_b in (_obj_to_dict(item) for item in menu_actions):
+                for rec_b in menu_actions:
                     item = await self._make_menu_item(card, rec_b)
                     if item:
                         card_buttons.append(item)
 
-                for rec_b in (_obj_to_dict(item) for item in act_list):
+                for rec_b in act_list:
                     item = await self._make_menu_item(card, rec_b)
                     if item:
                         card_buttons.append(item)
@@ -1082,7 +1088,7 @@ class Service:
                 curr_action,
             )
             return ""
-        next_action = (_field(action, "next_action_name", "") or "").strip()
+        next_action = (action.next_action_name or "").strip()
         if not next_action:
             logger.info(
                 "service.next_action_redirect no next_action curr_action=%s",

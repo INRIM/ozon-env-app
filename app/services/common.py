@@ -109,6 +109,7 @@ class ResponseObjectData(BaseModel):
     total_count: int = 0
     context_actions: list[dict[str, Any]] = Field(default_factory=list)
     title: str = ""
+    next_action_url: str = ""
 
 class ResponseObject(BaseModel):
     content: ResponseObjectData

@@ -82,6 +82,32 @@ def _coerce_body_model(model_cls: type[BaseModel], payload: Any) -> BaseModel:
         raise RequestValidationError(errors) from exc
 
 
+def _coerce_body_dict(payload: Any) -> dict[str, Any]:
+    normalized_payload = payload
+    if isinstance(normalized_payload, (bytes, bytearray)):
+        normalized_payload = normalized_payload.decode("utf-8", errors="ignore")
+
+    for _ in range(3):
+        if not isinstance(normalized_payload, str):
+            break
+        parsed_payload = check_parse_json(normalized_payload)
+        if parsed_payload == normalized_payload:
+            break
+        normalized_payload = parsed_payload
+
+    if isinstance(normalized_payload, dict):
+        return normalized_payload.copy()
+
+    raise RequestValidationError([
+        {
+            "type": "dict_type",
+            "loc": ("body",),
+            "msg": "Input should be a valid dictionary",
+            "input": normalized_payload,
+        }
+    ])
+
+
 @router.get("/")
 async def healthcheck() -> dict[str, Any]:
     logger.info("healthcheck request received")
@@ -231,9 +257,10 @@ async def get_record(
 async def post_update_record(
     model: str,
     rec_name: str,
-    payload: dict[str, Any],
+    payload_raw: Annotated[Any, Body(...)],
     service: Annotated[Service, Depends(get_service)],
 ) -> ResponseObject:
+    payload = _coerce_body_dict(payload_raw)
     logger.info("record upsert request model=%s rec_name=%s", model, rec_name)
     logger.info(payload)
     resp_data = await service.upsert(model, payload, rec_name=rec_name)
@@ -244,6 +271,26 @@ async def post_update_record(
             detail=f"Record '{rec_name}' not found on model '{model}'",
         )
     logger.info("record upsert completed model=%s rec_name=%s", model, rec_name)
+    return resp_data
+
+
+@router.post("/import/{model}")
+async def post_import_component(
+    model: str,
+    payload_raw: Annotated[Any, Body(...)],
+    service: Annotated[Service, Depends(get_service)],
+) -> ResponseObject:
+    payload = _coerce_body_dict(payload_raw)
+    rec_name = str(payload.get("rec_name", "") or "").strip()
+    logger.info(f"{model} import request rec_name={rec_name}")
+    resp_data = await service.upsert(
+        model,
+        payload,
+        rec_name=rec_name,
+        sync_component_runtime=True,
+        generate_component_defaults=False,
+    )
+    logger.info("component import completed rec_name=%s", rec_name)
     return resp_data
 
 

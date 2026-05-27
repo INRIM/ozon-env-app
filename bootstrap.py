@@ -1,0 +1,126 @@
+#!/usr/bin/env python
+"""Install base and external plugins into MongoDB, then seed app settings.
+
+Reads connection settings from .env-local / .env / environment variables.
+
+Usage:
+    uv run python bootstrap.py --admin UID
+    uv run python bootstrap.py --admin UID --base-only
+    uv run python bootstrap.py --admin UID --plugins-dir /path
+"""
+from __future__ import annotations
+
+import argparse
+import asyncio
+import logging
+import os
+import sys
+from pathlib import Path
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+    stream=sys.stdout,
+)
+
+log = logging.getLogger(__name__)
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--admin",
+        required=True,
+        metavar="UID",
+        help="UID dell'admin base da scrivere in settings.admins.",
+    )
+    parser.add_argument(
+        "--base-only",
+        action="store_true",
+        help="Installa solo il plugin base built-in.",
+    )
+    parser.add_argument(
+        "--plugins-dir",
+        default=None,
+        metavar="PATH",
+        help="Override PLUGINS_FOLDER env var.",
+    )
+    return parser.parse_args()
+
+
+async def _seed_settings(cfg: dict, app_code: str, admin_uid: str) -> None:
+    from ozonenv.OzonEnv import OzonEnv
+
+    env = OzonEnv(cfg=cfg)
+    log.info("seed: init env...")
+    await env.init_env()
+    try:
+        log.info("seed: get settings model...")
+        m_settings = env.get("settings")
+        log.info("seed: by_name(%s)...", app_code)
+        app = await m_settings.by_name(app_code)
+        if app is not None:
+            current = list(getattr(app, "admins", []) or [])
+            if admin_uid not in current:
+                current.append(admin_uid)
+            setattr(app, "admins", current)
+            await m_settings.update(app)
+            log.info("seed: settings.admins updated: %s", current)
+        else:
+            new_rec = await m_settings.new(data={
+                "rec_name": app_code,
+                "app_code": app_code,
+                "active": True,
+                "deleted": 0,
+                "admins": [admin_uid],
+            })
+            await m_settings.insert(new_rec)
+            log.info("seed: settings created with admins=[%s]", admin_uid)
+    finally:
+        await env.close_env()
+
+
+async def run(args: argparse.Namespace) -> None:
+    from app.app_settings import get_env_settings
+    from app.deps.app_env import _build_ozon_cfg
+    from app.plugins import _BASE_PLUGIN, discover_plugins
+    from app.services.plugin_installer import PluginInstaller
+
+    log.info("=== BOOTSTRAP START ===")
+
+    log.info("[1/4] carico settings da env...")
+    settings = get_env_settings()
+    if not settings.app_code:
+        log.error("APP_CODE non configurato — abort")
+        sys.exit(1)
+    log.info("[1/4] app_code=%s admin=%s", settings.app_code, args.admin)
+
+    log.info("[2/4] scopro plugin da %s ...", settings.plugins_folder if not args.plugins_dir else args.plugins_dir)
+    plugins_dir = Path(args.plugins_dir) if args.plugins_dir else settings.plugins_folder
+    plugins = [_BASE_PLUGIN] if args.base_only else discover_plugins(
+        plugins_dir=plugins_dir, app_code=settings.app_code
+    )
+    log.info("[2/4] %d plugin(s): %s", len(plugins), [p.name for p in plugins])
+
+    log.info("[3/4] installo plugin nel DB...")
+    cfg = _build_ozon_cfg()
+    await PluginInstaller(cfg=cfg).run(plugins)
+    log.info("[3/4] plugin installati")
+
+    log.info("[4/4] seed settings.admins uid=%s ...", args.admin)
+    await _seed_settings(cfg, settings.app_code, args.admin)
+    log.info("[4/4] settings.admins aggiornato")
+
+    log.info("=== BOOTSTRAP COMPLETE ===")
+
+
+def main() -> None:
+    asyncio.run(run(_parse_args()))
+    os._exit(0)
+
+
+if __name__ == "__main__":
+    main()

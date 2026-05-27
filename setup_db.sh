@@ -24,7 +24,7 @@ mkdir -p "${DATABASE_DIR}/scripts"
 
 (
   cd "${DATABASE_DIR}"
-  bash "./build_imges.sh"
+  bash "./build_images.sh"
 )
 
 cat > "${INIT_SCRIPT}" <<EOF

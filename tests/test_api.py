@@ -51,8 +51,9 @@ def fake_make_response_object(model=None, mode="list", data=None, **kwargs):
 
 
 class FakeService:
-    def __init__(self, instance_id: int):
+    def __init__(self, instance_id: int, factory=None):
         self.instance_id = instance_id
+        self.factory = factory
 
     async def get_models(self, query: dict = None):
         return ["customer", "order"]
@@ -117,7 +118,22 @@ class FakeService:
             },
         )
 
-    async def upsert(self, model: str, payload: dict, rec_name: str = ""):
+    async def upsert(
+        self,
+        model: str,
+        payload: dict,
+        rec_name: str = "",
+        sync_component_runtime: bool = False,
+        generate_component_defaults: bool = False,
+    ):
+        if self.factory is not None:
+            self.factory.last_upsert_call = {
+                "model": model,
+                "payload": payload.copy(),
+                "rec_name": rec_name,
+                "sync_component_runtime": sync_component_runtime,
+                "generate_component_defaults": generate_component_defaults,
+            }
         if rec_name == "mario":
             return None  # Simula un errore/mismatch
         return fake_make_response_object(
@@ -168,10 +184,11 @@ class Factory:
     def __init__(self):
         self.calls = 0
         self._ozon_factory = OzonEnvFactory()
+        self.last_upsert_call = None
 
     async def dep(self):
         self.calls += 1
-        yield FakeService(self.calls)
+        yield FakeService(self.calls, self)
 
     async def fake_authed_env(self):
         pass
@@ -655,6 +672,27 @@ def test_update_record_by_name():
     assert body["content"]["rec_name"] == "john"
     assert body["content"]["data"]["status"] == "updated"
     assert body["content"]["data"]["qty"] == 3
+
+
+def test_import_component_syncs_without_generating_defaults():
+    factory = Factory()
+    client = make_client(factory)
+    response = client.post(
+        "/import/component",
+        headers={"Authorization": "Bearer ok-token"},
+        json={"rec_name": "demo_component", "type": "resource"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["content"]["rec_name"] == "demo_component"
+    assert factory.last_upsert_call == {
+        "model": "component",
+        "payload": {"rec_name": "demo_component", "type": "resource"},
+        "rec_name": "demo_component",
+        "sync_component_runtime": True,
+        "generate_component_defaults": False,
+    }
 
 
 def test_update_record_rec_name_mismatch():

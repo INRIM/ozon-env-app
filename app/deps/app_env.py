@@ -10,7 +10,6 @@ from fastapi import Response
 from fastapi import Security
 from fastapi import status
 from fastapi.security import APIKeyHeader
-from ozonenv.OzonEnv import OzonEnv
 from ozonenv.core.auth import TokenExpiredError
 from ozonenv.core.auth import TokenRefreshError
 from ozonenv.core.auth import TokenVerificationError
@@ -18,6 +17,7 @@ from ozonenv.core.auth import TokenVerificationError
 from app.app_settings import build_public_db_settings_payload
 from app.app_settings import get_env_settings
 from app.app_settings import merge_public_db_settings
+from app.core.OzonEnvApp import AppOzonEnv
 from app.core.OzonModelApp import OzonModelApp
 from app.core.models import FieldAclPolicy
 from app.core.models import MailTemplate
@@ -42,7 +42,7 @@ _READ_ONLY_POST_CSRF_EXEMPT_PATHS = {
 }
 
 
-async def _register_static_models(env: OzonEnv) -> None:
+async def _register_static_models(env: AppOzonEnv) -> None:
     for name, model_class in _STATIC_MODELS:
         await env.orm.add_static_model(name, model_class)
 
@@ -94,7 +94,7 @@ def _normalize_app_settings_record(
     return data
 
 
-def _get_settings_model(env: OzonEnv) -> Any:
+def _get_settings_model(env: AppOzonEnv) -> Any:
     settings_model = env.get("settings")
     if settings_model is None:
         raise RuntimeError("settings model not available")
@@ -136,7 +136,7 @@ async def _load_settings_model_object(
 
 
 async def _load_app_settings_record(
-    env: OzonEnv,
+    env: AppOzonEnv,
     source_settings: Any = None,
 ) -> dict[str, Any]:
     effective_settings = _effective_settings(source_settings)
@@ -152,7 +152,7 @@ async def _load_app_settings_record(
 
 
 async def _bootstrap_app_settings_record(
-    env: OzonEnv,
+    env: AppOzonEnv,
     source_settings: Any = None,
 ) -> dict[str, Any]:
     effective_settings = _effective_settings(source_settings)
@@ -182,7 +182,7 @@ async def _bootstrap_app_settings_record(
 
 
 async def _ensure_settings_identity_fields(
-    env: OzonEnv,
+    env: AppOzonEnv,
     source_settings: Any = None,
 ) -> None:
     effective_settings = _effective_settings(source_settings)
@@ -216,7 +216,9 @@ async def _ensure_settings_identity_fields(
         raise RuntimeError("cannot persist settings identity fields")
 
 
-def _apply_runtime_app_settings(env: OzonEnv, runtime_settings: Any) -> None:
+def _apply_runtime_app_settings(
+    env: AppOzonEnv, runtime_settings: Any
+) -> None:
     env.orm.app_settings = runtime_settings
     if not getattr(env, "upload_folder", ""):
         env.upload_folder = getattr(runtime_settings, "upload_folder", "")
@@ -228,7 +230,7 @@ def _apply_runtime_app_settings(env: OzonEnv, runtime_settings: Any) -> None:
 
 
 async def _sync_runtime_app_settings(
-    env: OzonEnv,
+    env: AppOzonEnv,
     source_settings: Any = None,
 ) -> None:
     effective_settings = _effective_settings(source_settings)
@@ -259,7 +261,7 @@ async def sync_app_settings_startup(source_settings: Any = None) -> None:
     if getattr(effective_settings, "models_folder", ""):
         cfg["models_folder"] = str(effective_settings.models_folder)
 
-    env = OzonEnv(cfg=cfg, cls_model=OzonModelApp)
+    env = AppOzonEnv(cfg=cfg, cls_model=OzonModelApp)
     logger.info(
         "app settings startup sync start app_code=%s",
         effective_settings.app_code,
@@ -278,14 +280,14 @@ async def sync_app_settings_startup(source_settings: Any = None) -> None:
     )
 
 
-async def get_ozon_env() -> AsyncGenerator[OzonEnv, None]:
+async def get_ozon_env() -> AsyncGenerator[AppOzonEnv, None]:
     if not settings.app_code:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Missing APP_CODE configuration",
         )
 
-    env = OzonEnv(cfg=_build_ozon_cfg(), cls_model=OzonModelApp)
+    env = AppOzonEnv(cfg=_build_ozon_cfg(), cls_model=OzonModelApp)
     logger.info("ozon env init start app_code=%s", settings.app_code)
     try:
         await env.init_env()
@@ -343,10 +345,10 @@ def _extract_bearer(value: str | None) -> str:
 
 async def get_authed_env(
     token_header_value: Annotated[str | None, Security(api_key_header)],
-    ozon_env: Annotated[OzonEnv, Depends(get_ozon_env)],
+    ozon_env: Annotated[AppOzonEnv, Depends(get_ozon_env)],
     request: Request,
     response: Response,
-) -> OzonEnv:
+) -> AppOzonEnv:
     await _register_static_models(ozon_env)
 
     cookie_val = request.cookies.get(settings.auth_cookie_name, "")
@@ -410,6 +412,6 @@ async def get_authed_env(
 
 
 async def get_service(
-    ozon_env: Annotated[OzonEnv, Depends(get_ozon_env)],
+    ozon_env: Annotated[AppOzonEnv, Depends(get_ozon_env)],
 ) -> Service:
     return Service(ozon_env)

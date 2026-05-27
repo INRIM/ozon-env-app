@@ -16,9 +16,9 @@ class PluginInstaller:
         self.cfg = cfg
 
     async def run(self, plugins: list[Path]) -> None:
-        from ozonenv.OzonEnv import OzonEnv
+        from app.core.OzonEnvApp import AppOzonEnv
 
-        env = OzonEnv(cfg=self.cfg)
+        env = AppOzonEnv(cfg=self.cfg)
         await env.init_env()
         try:
             db = env.orm.db

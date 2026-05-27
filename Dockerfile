@@ -17,16 +17,14 @@ RUN sed -i 's/http:/https:/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null
     apt-get install -y --no-install-recommends git ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-# Scarica il binario di uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-
 # Copia i file di progetto
-COPY pyproject.toml uv.lock README.md ./
+COPY pyproject.toml uv.lock README.md bootstrap.py ./
 
 # Copia il codice sorgente
 COPY app /app/app
 
-# Sincronizza l'ambiente:
+# Installa uv
+RUN pip install uv
 RUN uv sync --frozen --no-dev
 
 EXPOSE 8000

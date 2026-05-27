@@ -1313,36 +1313,25 @@
               {
                 "components": [
                   {
-                    "label": "Admins",
-                    "widget": "choicesjs",
-                    "tableView": true,
-                    "multiple": true,
-                    "dataSrc": "url",
-                    "data": {
-                      "url": "/models/distinct",
-                      "headers": [
-                        {
-                          "key": "",
-                          "value": ""
-                        }
-                      ]
-                    },
-                    "validate": {
-                      "required": true
-                    },
-                    "key": "admins",
-                    "properties": {
-                      "id": "rec_name",
-                      "label": "title",
-                      "domain": "{}",
-                      "model": "user",
-                      "compute_label": "full_name"
-                    },
-                    "type": "select",
-                    "disableLimit": false,
-                    "input": true,
-                    "hideOnChildrenHidden": false
-                  }
+  "label": "Admins",
+  "widget": "choicesjs",
+  "description": "Select User.",
+  "tableView": true,
+  "multiple": true,
+  "dataSrc": "resource",
+  "data": {
+    "resource": "User"
+  },
+  "idPath": "rec_name",
+  "template": "<span>{{ item.data.full_name }}</span>",
+  "validateWhenHidden": false,
+  "key": "admins",
+  "type": "select",
+  "noRefreshOnScroll": false,
+  "addResource": false,
+  "reference": false,
+  "input": true
+}
                 ],
                 "width": 10,
                 "offset": 0,
@@ -7400,43 +7389,41 @@
               {
                 "components": [
                   {
-                    "label": "Menu Group",
-                    "widget": "choicesjs",
-                    "tableView": true,
-                    "multiple": true,
-                    "dataSrc": "resource",
-                    "data": {
-                      "resource": "menu_group"
-                    },
-                    "selectThreshold": 0.3,
-                    "key": "menu_group",
-                    "conditional": {
-                      "when": "action_type"
-                    },
-                    "logic": [
-                      {
-                        "name": "Menu Group logic",
-                        "trigger": {
-                          "type": "json",
-                          "json": {
-                            "var": "data.menu_group"
-                          }
-                        },
-                        "actions": [
-                          {
-                            "name": "query",
-                            "type": "value",
-                            "value": "query={\n  \"cat\": [\"{'$and':[{'active':True}, {'menu_group':{'$in':\",\n    {\"var\": \"data.menu_group\"},\n    \"}}]}\"\n  ]\n}"
-                          }
-                        ]
-                      }
-                    ],
-                    "type": "select",
-                    "input": true,
-                    "hideOnChildrenHidden": false,
-                    "addResource": false,
-                    "reference": false
-                  }
+  "label": "Menu Group",
+  "widget": "choicesjs",
+  "tableView": true,
+  "multiple": true,
+  "dataSrc": "resource",
+  "data": {
+    "resource": "menu_group"
+  },
+  "validateWhenHidden": false,
+  "key": "menu_group",
+  "logic": [
+    {
+      "name": "Menu Group logic",
+      "trigger": {
+        "type": "json",
+        "json": {
+          "var": "data.menu_group"
+        }
+      },
+      "actions": [
+        {
+          "name": "query",
+          "type": "value",
+          "value": "query={\n  \"cat\": [\"{'$and':[{'active':True}, {'menu_group':{'$in':\",\n    {\"var\": \"data.menu_group\"},\n    \"}}]}\"\n  ]\n}"
+        }
+      ]
+    }
+  ],
+  "type": "select",
+  "addResource": false,
+  "reference": false,
+  "input": true,
+  "hideOnChildrenHidden": false,
+  "noRefreshOnScroll": false
+}
                 ],
                 "size": "md",
                 "width": 2,
