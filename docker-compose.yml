@@ -20,6 +20,29 @@ services:
         max-size: 10m
         max-file: "3"
 
+  mail_sender:
+    image: ozonapp.mail_sender:latest
+    build:
+      context: ./services/mail_sender
+    container_name: ozon-env-mail-sender
+    env_file:
+      - .env
+    environment:
+      # MODELS_FOLDER dedicato: il worker legge raw, ma ozon-env init genera
+      # comunque i modelli -> dir propria per evitare race con l'app su ./models
+      MODELS_FOLDER: /models_mail
+    depends_on:
+      - ozonenv_app_db
+    volumes:
+      - ./models:/models
+    restart: unless-stopped
+    networks:
+      - ozn-network
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
   ozonenv_app_db:
     stdin_open: true  # -i
     tty: true

@@ -226,32 +226,19 @@ class ActionRuntime:
     def _resolve_list_defaults(
             self,
             action: CoreModel,
-            schema_record: CoreModel | None,
     ) -> tuple[dict[str, Any], str]:
         """
-        Risolve query/order base per action list con precedenza:
-        1) action
-        2) component schema
+        Risolve query/order base per action list.
+        list_query/listOrderString sono campi dello schema `action`,
+        quindi la sorgente e' sempre il record action (non il component
+        schema del data-model, che non li dichiara).
         """
 
         action_query_raw = action.list_query
         if action_query_raw in (None, ""):
             action_query_raw = getattr(action, "query", None)
-        action_query = self.service._parse_query_dict(action_query_raw)
-        action_order = _normalize_sort_string(action.listOrderString)
-
-        component_query_raw = {}
-        component_order_raw = ""
-        if schema_record:
-            component_query_raw = schema_record.list_query
-            if component_query_raw in (None, ""):
-                component_query_raw = getattr(schema_record, "query", {})
-            component_order_raw = schema_record.listOrderString
-        component_query = self.service._parse_query_dict(component_query_raw)
-        component_order = _normalize_sort_string(component_order_raw)
-
-        resolved_query = action_query if action_query else component_query
-        resolved_order = action_order if action_order else component_order
+        resolved_query = self.service._parse_query_dict(action_query_raw)
+        resolved_order = _normalize_sort_string(action.listOrderString)
         return resolved_query, resolved_order
 
     async def handle_get(
@@ -289,7 +276,6 @@ class ActionRuntime:
         if action_mode == "list":
             resolved_list_query, resolved_list_order = self._resolve_list_defaults(
                 action,
-                schema_record,
             )
         runtime_order = order.strip() if isinstance(order, str) else ""
         effective_order = runtime_order or resolved_list_order
@@ -373,6 +359,9 @@ class ActionRuntime:
             # Explicit alias requested by client: next action used by submit.
             response_fields["next_action_name"] = action_sequence.get(
                 "submit_action", ""
+            )
+            response_fields["cancel_button"] = not _is_enabled_flag(
+                getattr(schema_record, "no_cancel", False)
             )
             res.title = str(schema_record.title or "") if schema_record else ""
         if action_mode == "list":

@@ -7,9 +7,11 @@ from typing import Any
 from dotenv import load_dotenv
 from ozon_env_api.settings import OzonEnvApiSettings
 from ozonenv.core.BaseModels import OzonEnvCoreSettings
+from ozonenv.core.BaseModels import Settings as OzonSettings
 from ozonenv.core.BaseModels import _expand_yaml_data
 from pydantic import AliasChoices
 from pydantic import Field
+from pydantic import field_validator
 from pydantic import model_validator
 
 
@@ -49,7 +51,7 @@ def _load_yaml_config() -> dict[str, Any]:
         return {}
 
 
-_PUBLIC_DB_SETTINGS_FIELDS = frozenset(
+_APP_SETTINGS_FIELDS = frozenset(
     {
         "list_order",
         "rec_name",
@@ -66,6 +68,7 @@ _PUBLIC_DB_SETTINGS_FIELDS = frozenset(
         "upload_folder",
         "web_concurrency",
         "delete_record_after_days",
+        "token_expire_hours",
         "session_expire_hours",
         "theme",
         "logo_img_url",
@@ -108,14 +111,61 @@ def _normalize_public_setting_value(value: Any) -> Any:
     return value
 
 
+def _parse_admins_value(value: Any) -> list[str]:
+    if isinstance(value, str):
+        value = value.strip()
+        if value.startswith("["):
+            parsed = json.loads(value)
+            return [str(item).strip() for item in parsed if str(item).strip()]
+        return [item.strip() for item in value.split(",") if item.strip()]
+    if isinstance(value, (list, tuple)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
+
+
+class AppSettings(OzonSettings):
+    """Runtime settings record stored in the DB `settings` model."""
+
+    app_code: str = ""
+    admins: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("ADMINS", "APP_ADMINS"),
+    )
+    session_expire_hours: int = Field(default=12)
+    server_datetime_mask: str = Field(default="%Y-%m-%dT%H:%M:%S")
+    server_date_mask: str = Field(default="%Y-%m-%dT%H:%M:%S")
+    ui_datetime_mask: str = Field(default="%d/%m/%Y %H:%M:%S")
+    ui_date_mask: str = Field(default="%d/%m/%Y")
+    domain: str = Field(default="")
+    external_proxy_uri_configs: list[dict[str, Any]] = Field(
+        default_factory=list
+    )
+
+    @field_validator("admins", mode="before")
+    @classmethod
+    def _parse_admins(cls, v: Any) -> list[str]:
+        return _parse_admins_value(v)
+
+
 class EnvSettings(OzonEnvCoreSettings):
-    # Override inherited fields with app-specific aliases / defaults
+    # Override inherited fields with app-specific aliases / defaults.
+    # AppSettings is the DB-backed runtime settings object.
     app_code: str = Field(
         default="",
         validation_alias=AliasChoices("APP_CODE", "OZON_APP_CODE"),
     )
     # Local auth uses "token" as default; ozon-env core defaults to "session"
     auth_mode: str = Field(default="token", validation_alias="AUTH_MODE")
+
+    admins: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("ADMINS", "APP_ADMINS"),
+    )
+
+    @field_validator("admins", mode="before")
+    @classmethod
+    def _parse_seed_admins(cls, v: Any) -> list[str]:
+        return _parse_admins_value(v)
 
     app_name: str = Field(
         default="ozon-env-api", validation_alias="OZON_APP_NAME"
@@ -425,17 +475,26 @@ class EnvSettings(OzonEnvCoreSettings):
         return self
 
 
-def build_public_db_settings_payload(settings: EnvSettings) -> dict[str, Any]:
+def build_public_db_settings_payload(settings: Any) -> dict[str, Any]:
+    app_code = str(getattr(settings, "app_code", "") or "").strip()
+    if isinstance(settings, AppSettings):
+        rec_name = str(getattr(settings, "rec_name", "") or app_code).strip()
+    else:
+        rec_name = app_code
+    defaults = AppSettings(rec_name=rec_name, app_code=app_code)
     payload: dict[str, Any] = {
-        "rec_name": str(settings.app_code or "").strip(),
-        "app_code": str(settings.app_code or "").strip(),
+        "rec_name": rec_name,
+        "app_code": app_code,
         "active": True,
         "deleted": 0,
     }
-    for field_name in _PUBLIC_DB_SETTINGS_FIELDS:
-        if field_name == "rec_name" or not hasattr(settings, field_name):
+    for field_name in _APP_SETTINGS_FIELDS:
+        if field_name == "rec_name":
             continue
-        value = getattr(settings, field_name)
+        if hasattr(settings, field_name):
+            value = getattr(settings, field_name)
+        else:
+            value = getattr(defaults, field_name)
         if value is None:
             continue
         payload[field_name] = _normalize_public_setting_value(value)
@@ -464,17 +523,14 @@ def build_public_db_settings_payload(settings: EnvSettings) -> dict[str, Any]:
 def merge_public_db_settings(
     settings: EnvSettings,
     db_payload: Mapping[str, Any] | None,
-) -> EnvSettings:
+) -> AppSettings:
+    merged = build_public_db_settings_payload(settings)
     if not isinstance(db_payload, Mapping):
-        return settings
-    merged = settings.model_dump(mode="python")
-    for field_name in _PUBLIC_DB_SETTINGS_FIELDS:
-        if (
-            field_name in db_payload
-            and field_name in EnvSettings.model_fields
-        ):
+        return AppSettings(**merged)
+    for field_name in _APP_SETTINGS_FIELDS:
+        if field_name in db_payload and field_name in AppSettings.model_fields:
             merged[field_name] = db_payload[field_name]
-    return EnvSettings(**merged)
+    return AppSettings(**merged)
 
 
 def build_api_settings(settings: EnvSettings) -> OzonEnvApiSettings:

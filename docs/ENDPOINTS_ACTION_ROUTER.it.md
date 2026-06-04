@@ -334,6 +334,7 @@ Metadati aggiunti in `response.fields`:
 - `component_type`
 - `submit_action_name`
 - `next_action_name` (solo `mode = "form"`, alias esplicito della submit action)
+- `cancel_button` (solo `mode = "form"`, `true` se il form deve mostrare il pulsante abbandona; derivato da `component.no_cancel`)
 - `abandon_action_name`
 - `action_sequence`:
   - `current_action`

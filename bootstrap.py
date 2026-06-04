@@ -51,34 +51,40 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-async def _seed_settings(cfg: dict, app_code: str, admin_uid: str) -> None:
+async def _seed_settings(cfg: dict, env_settings, admin_uid: str) -> None:
     from ozonenv.OzonEnv import OzonEnv
+    from app.app_settings import build_public_db_settings_payload
 
+    app_code = env_settings.app_code
     env = OzonEnv(cfg=cfg)
     log.info("seed: init env...")
     await env.init_env()
     try:
-        log.info("seed: get settings model...")
         m_settings = env.get("settings")
         log.info("seed: by_name(%s)...", app_code)
-        app = await m_settings.by_name(app_code)
-        if app is not None:
-            current = list(getattr(app, "admins", []) or [])
-            if admin_uid not in current:
-                current.append(admin_uid)
-            setattr(app, "admins", current)
-            await m_settings.update(app)
-            log.info("seed: settings.admins updated: %s", current)
+        existing = await m_settings.by_name(app_code)
+        if existing is not None:
+            # DB is authoritative — preserve all existing fields, only merge admins.
+            current_admins = list(getattr(existing, "admins", []) or [])
+            if admin_uid not in current_admins:
+                current_admins.append(admin_uid)
+                setattr(existing, "admins", current_admins)
+                await m_settings.update(existing)
+                log.info("seed: settings.admins updated: %s", current_admins)
+            else:
+                log.info("seed: settings already up-to-date, admins=%s", current_admins)
         else:
-            new_rec = await m_settings.new(data={
-                "rec_name": app_code,
-                "app_code": app_code,
-                "active": True,
-                "deleted": 0,
-                "admins": [admin_uid],
-            })
+            # No record yet: write full payload from env vars.
+            payload = build_public_db_settings_payload(env_settings)
+            admins = list(payload.get("admins") or [])
+            if admin_uid not in admins:
+                admins.append(admin_uid)
+            payload["admins"] = admins
+            new_rec = await m_settings.new(data=payload)
             await m_settings.insert(new_rec)
-            log.info("seed: settings created with admins=[%s]", admin_uid)
+            log.info(
+                "seed: settings created for app_code=%s admins=%s", app_code, admins
+            )
     finally:
         await env.close_env()
 
@@ -110,9 +116,9 @@ async def run(args: argparse.Namespace) -> None:
     await PluginInstaller(cfg=cfg).run(plugins)
     log.info("[3/4] plugin installati")
 
-    log.info("[4/4] seed settings.admins uid=%s ...", args.admin)
-    await _seed_settings(cfg, settings.app_code, args.admin)
-    log.info("[4/4] settings.admins aggiornato")
+    log.info("[4/4] seed settings uid=%s ...", args.admin)
+    await _seed_settings(cfg, settings, args.admin)
+    log.info("[4/4] settings aggiornato")
 
     log.info("=== BOOTSTRAP COMPLETE ===")
 

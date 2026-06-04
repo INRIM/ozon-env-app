@@ -8,6 +8,7 @@ from ozonenv.core.BaseModels import CoreModel
 from ozonenv.core.DateEngine import DateEngine
 from ozonenv.core.OzonOrm import OzonModel, OzonOrm
 
+from app.app_settings import AppSettings
 from app.app_settings import EnvSettings
 from app.core.session import AppSession
 
@@ -41,7 +42,7 @@ class OzonModelApp(OzonModel):
         virtual=False,
         static: CoreModel = None,
         schema={},
-        app_settings: EnvSettings = None,
+        app_settings: AppSettings | EnvSettings | None = None,
     ):
         super(OzonModelApp, self).__init__(
             model_name=model_name,

@@ -124,7 +124,7 @@ class _FakeEngine:
 
 
 class _FakeOzonEnv:
-    def __init__(self, user_docs=None):
+    def __init__(self, user_docs=None, admins=None):
         self._user_coll = _FakeCollection(user_docs)
         self.db = SimpleNamespace(
             engine=_FakeEngine({"user": self._user_coll})
@@ -134,6 +134,7 @@ class _FakeOzonEnv:
                 upload_folder="/uploads",
                 session_expire_hours=12,
                 tz="Europe/Rome",
+                admins=list(admins or []),
             )
         )
         self.user_session = None
@@ -153,7 +154,6 @@ def _settings() -> SimpleNamespace:
         keycloak_token_endpoint="https://kc.example/token",
         keycloak_client_id="backend-web",
         keycloak_client_secret="secret",
-        admins=[],
     )
 
 
@@ -297,14 +297,13 @@ def test_build_keycloak_session_creates_user_when_not_found():
 
 def test_build_keycloak_session_sets_is_admin_from_admins_list():
     """User uid in admins[] → is_admin=True on auto-creation."""
-    env = _FakeOzonEnv(user_docs=[])
+    env = _FakeOzonEnv(user_docs=[], admins=["admin.user"])
     settings_admin = SimpleNamespace(
         keycloak_remote_user_header="x-remote-user",
         token_header="Authorization",
         keycloak_token_endpoint="https://kc.example/token",
         keycloak_client_id="backend-web",
         keycloak_client_secret="secret",
-        admins=["admin.user"],
     )
     request = _build_request(
         "/get_session",

@@ -82,7 +82,18 @@ class _RuntimeModelGuardMixin:
 
 
 class AppOzonOrm(_RuntimeModelGuardMixin, OzonOrm):
-    pass
+    async def init_settings(self, app_code):
+        # _sync_runtime_app_settings (called after init_env) is the authoritative
+        # DB read and propagates merged settings to all models. Return a shell
+        # here to avoid a redundant DB round-trip during init_db_models.
+        from ozonenv.core.BaseModels import Settings
+        return Settings(
+            rec_name=app_code or "",
+            app_code=app_code or "",
+            upload_folder="/tmp/uploads",
+            tz="Europe/Rome",
+            check_fields=False,
+        )
 
 
 class AppOzonOrmRest(_RuntimeModelGuardMixin, OzonOrmRest):

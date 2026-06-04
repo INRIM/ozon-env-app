@@ -1,0 +1,9 @@
+---
+- name: Build ozon-env-app stack
+  hosts: ozonapp
+  gather_facts: false
+  vars:
+    ozonapp_action: build
+    ozonapp_repo_root: "{{ playbook_dir | dirname | dirname }}"
+  roles:
+    - role: ozonapp_deploy

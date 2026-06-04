@@ -1,5 +1,6 @@
 import asyncio
 import base64
+from copy import copy
 from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
@@ -19,15 +20,19 @@ def _build_request(
     path: str,
     method: str = "GET",
     headers: list[tuple[bytes, bytes]] | None = None,
+    query_string: str = "",
 ) -> Request:
+    raw_path = path.encode()
+    if query_string:
+        raw_path = f"{path}?{query_string}".encode()
     scope = {
         "type": "http",
         "http_version": "1.1",
         "method": method,
         "scheme": "http",
         "path": path,
-        "raw_path": path.encode(),
-        "query_string": b"",
+        "raw_path": raw_path,
+        "query_string": query_string.encode(),
         "headers": headers or [],
         "client": ("testclient", 1234),
         "server": ("testserver", 80),
@@ -99,6 +104,7 @@ class _FakeOzonEnv:
     def __init__(
         self,
         user_app_code: str = "legacy",
+        runtime_app_code: str | None = None,
         user_session=None,
         user_docs=None,
     ):
@@ -120,6 +126,7 @@ class _FakeOzonEnv:
         )
         self.orm = SimpleNamespace(
             app_settings=SimpleNamespace(
+                app_code=runtime_app_code or user_app_code,
                 upload_folder="/uploads",
                 session_expire_hours=12,
                 tz="Europe/Rome",
@@ -171,6 +178,20 @@ def test_build_ozon_cfg_ignores_admin_env_token(monkeypatch):
 
     assert cfg["app_code"] == "mci"
     assert "ozon_admin_token" not in cfg
+
+
+def test_resolve_request_app_code_prefers_query_over_cookie_and_default(monkeypatch):
+    source_settings = copy(_FAKE_SETTINGS)
+    source_settings.app_code = "nob-test"
+    request = _build_request(
+        "/get_session",
+        headers=[(b"cookie", b"app_code=from-cookie")],
+        query_string="app_code=persona",
+    )
+
+    app_code = app_env._resolve_request_app_code(request, source_settings)
+
+    assert app_code == "persona"
 
 
 _FAKE_SETTINGS = SimpleNamespace(
@@ -240,6 +261,24 @@ def test_get_authed_env_calls_session_app_once(monkeypatch):
 
     assert ozon_env.session_app_calls == 1
     assert ozon_env.params["current_token"] == sso_token
+
+
+def test_get_authed_env_uses_runtime_app_code_for_session_and_cookie(monkeypatch):
+    monkeypatch.setattr(app_env, "settings", _FAKE_SETTINGS)
+
+    ozon_env = _FakeOzonEnv(
+        user_app_code="legacy",
+        runtime_app_code="persona",
+    )
+    response = Response()
+    request = _build_request("/get_session", query_string="app_code=persona")
+
+    asyncio.run(
+        app_env.get_authed_env("Bearer ok-token", ozon_env, request, response)
+    )
+
+    assert ozon_env.user_session.app_code == "persona"
+    assert "app_code=persona" in response.headers.get("set-cookie", "")
 
 
 @pytest.mark.parametrize(

@@ -378,6 +378,7 @@ def test_service_get_dashboard_skips_admin_only_menu_group():
     action_model = DummyModel("action")
     orders_model = DummyModel("orders", count_value=3)
     env = DummyEnv(
+        is_admin=False,
         models={
             "action": action_model,
             "menu_group": DummyModel("menu_group"),
@@ -411,6 +412,219 @@ def test_service_get_dashboard_skips_admin_only_menu_group():
 
     assert res.mode == "card"
     assert res.data == []
+
+
+def test_service_get_dashboard_skips_admin_only_menu_group_even_for_admin():
+    # I menu_group admin-only stanno nel menu admin in alto (layout),
+    # quindi non devono diventare card della dashboard nemmeno per gli admin.
+    action_model = DummyModel("action")
+    orders_model = DummyModel("orders", count_value=3)
+    env = DummyEnv(
+        is_admin=True,
+        models={
+            "action": action_model,
+            "menu_group": DummyModel("menu_group"),
+            "orders": orders_model,
+        }
+    )
+    service = MenuGroupDashboardService(
+        env,
+        menu_groups=[
+            {
+                "rec_name": "admin_group",
+                "label": "Admin Group",
+                "admin": True,
+            }
+        ],
+        action_rows=[
+            {
+                "model": "orders",
+                "button_icon": "it-settings",
+                "action_type": "menu",
+                "action_root_path": "/action",
+                "rec_name": "admin_orders",
+                "title": "Admin Orders",
+                "mode": "",
+                "sys": False,
+            }
+        ],
+    )
+
+    res = asyncio.run(service.service_get_dashboard(parent="root"))
+
+    assert res.mode == "card"
+    assert res.data == []
+
+
+def _query_parent_value(query):
+    """Estrae il valore di 'parent' da una query (anche annidata in $and)."""
+    found = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "parent":
+                    found.append(
+                        value.get("$eq") if isinstance(value, dict) else value
+                    )
+                else:
+                    walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(query)
+    return found[0] if found else None
+
+
+def _query_menu_group_values(query):
+    """Estrae i menu_group target da una query (gestisce anche $in)."""
+    found = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "menu_group":
+                    if isinstance(value, dict) and "$in" in value:
+                        found.extend(value["$in"])
+                    else:
+                        found.append(value)
+                else:
+                    walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(query)
+    return found
+
+
+class FolderDashboardService(Service):
+    """Fake query-aware per esercitare il ramo folder di _get_basic_menu_list."""
+
+    def __init__(self, env, groups_by_parent, actions_by_group):
+        super().__init__(env)
+        self._groups_by_parent = groups_by_parent
+        self._actions_by_group = actions_by_group
+
+    async def _find_base(
+        self,
+        model,
+        query,
+        sort="list_order:asc,rec_name:asc",
+        limit=0,
+    ):
+        name = model.str_name()
+        if name == "menu_group":
+            parent = _query_parent_value(query)
+            rows = self._groups_by_parent.get(parent, [])
+            return [_make_dummy_record(row) for row in rows]
+        if name == "action":
+            rows = []
+            for group in _query_menu_group_values(query):
+                rows.extend(self._actions_by_group.get(group, []))
+            return [_make_dummy_record(row) for row in rows]
+        return await super()._find_base(model, query, sort=sort, limit=limit)
+
+
+def test_dashboard_folder_excludes_admin_only_sub_menus_for_non_admin():
+    env = DummyEnv(
+        is_admin=False,
+        models={
+            "action": DummyModel("action"),
+            "menu_group": DummyModel("menu_group"),
+        },
+    )
+    nonsys_menu_action = {
+        "action_type": "menu",
+        "component_type": "form",
+        "menu_group": "child_visible",
+        "model": "orders",
+        "sys": False,
+        "rec_name": "child_visible_menu",
+    }
+    service = FolderDashboardService(
+        env,
+        groups_by_parent={
+            # gruppo container (non-admin) senza action dirette -> ramo else
+            "root": [
+                {"rec_name": "container", "label": "Container", "admin": False},
+            ],
+            # figli: uno visibile, uno admin-only
+            "container": [
+                {"rec_name": "child_visible", "label": "Child", "admin": False},
+                {"rec_name": "child_admin", "label": "Child Admin", "admin": True},
+            ],
+        },
+        actions_by_group={
+            "container": [],
+            "child_visible": [nonsys_menu_action],
+            # child_admin avrebbe contenuto, ma non deve essere considerato
+            "child_admin": [
+                dict(
+                    nonsys_menu_action,
+                    menu_group="child_admin",
+                    rec_name="child_admin_menu",
+                )
+            ],
+        },
+    )
+
+    menu_list = asyncio.run(service._get_basic_menu_list(parent="root"))
+
+    assert len(menu_list) == 1
+    card = menu_list[0]
+    assert card["menu_group"] == "container"
+    assert card.get("dashboard") is True
+    # solo child_visible conteggiato, child_admin (admin-only) escluso
+    assert card["number"] == 1
+
+
+def test_dashboard_folder_excludes_admin_only_sub_menus_even_for_admin():
+    env = DummyEnv(
+        is_admin=True,
+        models={
+            "action": DummyModel("action"),
+            "menu_group": DummyModel("menu_group"),
+        },
+    )
+    nonsys_menu_action = {
+        "action_type": "menu",
+        "component_type": "form",
+        "menu_group": "child_visible",
+        "model": "orders",
+        "sys": False,
+        "rec_name": "child_visible_menu",
+    }
+    service = FolderDashboardService(
+        env,
+        groups_by_parent={
+            "root": [
+                {"rec_name": "container", "label": "Container", "admin": False},
+            ],
+            "container": [
+                {"rec_name": "child_visible", "label": "Child", "admin": False},
+                {"rec_name": "child_admin", "label": "Child Admin", "admin": True},
+            ],
+        },
+        actions_by_group={
+            "container": [],
+            "child_visible": [nonsys_menu_action],
+            "child_admin": [
+                dict(
+                    nonsys_menu_action,
+                    menu_group="child_admin",
+                    rec_name="child_admin_menu",
+                )
+            ],
+        },
+    )
+
+    menu_list = asyncio.run(service._get_basic_menu_list(parent="root"))
+
+    assert len(menu_list) == 1
+    # anche per admin, il sotto-menu admin-only e' escluso: solo child_visible
+    assert menu_list[0]["number"] == 1
 
 
 def test_make_menu_item_count_uses_model_domain_and_user_placeholders():
@@ -570,25 +784,23 @@ def test_action_get_does_not_expose_abandon_fields():
         rows_by_name=rows_by_name,
         rows=[rows_by_name["list_alt_ordine"], rows_by_name["list_ordine"]],
     )
-    env = DummyEnv(models={"action": action_model})
+    component_model = DummyComponentModel(
+        rows_by_name={
+            "ordine": {
+                "rec_name": "ordine",
+                "components": [{"key": "title"}],
+                "no_cancel": 0,
+            }
+        }
+    )
+    env = DummyEnv(models={"action": action_model, "component": component_model})
     service = Service(env)
-
-    async def fake_compo_by_name(model: str, name: str):
-        return types.SimpleNamespace(
-            content=ResponseObjectData(
-                mode="form",
-                model=name,
-                data={"rec_name": ""},
-                fields={},
-            )
-        )
-
-    service.compo_by_name = fake_compo_by_name
 
     res = asyncio.run(service.service_handle_action_get("form_form_ordine"))
 
     assert "abandon_action_name" not in res.fields
     assert "abandon_action" not in res.fields["action_sequence"]
+    assert res.fields["cancel_button"] is True
 
 
 def test_form_action_context_actions_hide_empty_context_button_mode():
@@ -701,6 +913,7 @@ def test_form_action_context_actions_hide_empty_context_button_mode():
     assert context_by_name["secondary_save_action"]["url_action"] == (
         "/action/secondary_save_action/secondary_save_action"
     )
+    assert res.fields["cancel_button"] is True
     assert "abandon_action_name" not in res.fields
 
 
@@ -761,6 +974,7 @@ def test_form_action_does_not_add_implicit_cancel_button():
 
     assert "abandon_action_name" not in res.fields
     assert "abandon_action" not in res.fields["action_sequence"]
+    assert res.fields["cancel_button"] is False
     assert "cancel" not in {item["rec_name"] for item in res.context_actions}
 
 
@@ -779,13 +993,14 @@ def test_list_action_uses_model_data_and_view_name_schema():
         }
     }
     action_model = DummyActionModel(rows_by_name=rows_by_name)
+    # view_name component fornisce solo lo schema (components): list_query /
+    # listOrderString NON sono campi del Component reale, quindi non sono una
+    # sorgente di default per la list. La sorgente e' sempre l'action.
     component_model = DummyComponentModel(
         rows_by_name={
             "documento_beni_servizi": {
                 "rec_name": "documento_beni_servizi",
                 "components": [{"key": "beni_servizi_schema"}],
-                "list_query": {"from_component": True},
-                "listOrderString": "name:asc",
             }
         }
     )
@@ -819,17 +1034,17 @@ def test_list_action_uses_model_data_and_view_name_schema():
     )
 
     assert called["model_name"] == "documento"
-    assert called["query"] == {
-        "$and": [{"from_component": True}, {"runtime": True}]
-    }
-    assert called["order"] == "name:asc"
+    # action.list_query == "{}" (vuoto) -> solo la runtime query
+    assert called["query"] == {"runtime": True}
+    # action.listOrderString == "" -> nessun order
+    assert called["order"] == ""
     assert res.model == "documento"
     assert res.schema == [{"key": "beni_servizi_schema"}]
     assert res.data == [{"rec_name": "DOC-1"}]
     assert "next_action_name" not in (res.fields if isinstance(res.fields, dict) else {})
 
 
-def test_list_action_uses_action_query_and_order_over_component_defaults():
+def test_list_action_uses_action_query_and_order():
     rows_by_name = {
         "list_documento": {
             "rec_name": "list_documento",
@@ -849,8 +1064,6 @@ def test_list_action_uses_action_query_and_order_over_component_defaults():
             "documento_beni_servizi": {
                 "rec_name": "documento_beni_servizi",
                 "components": [{"key": "beni_servizi_schema"}],
-                "list_query": {"from_component": True},
-                "listOrderString": "name:asc",
             }
         }
     )
@@ -886,7 +1099,7 @@ def test_list_action_uses_action_query_and_order_over_component_defaults():
     assert called["order"] == "created_at:desc"
 
 
-def test_list_action_ignores_non_string_action_order_and_uses_component_order():
+def test_list_action_ignores_non_string_action_order():
     rows_by_name = {
         "list_documento": {
             "rec_name": "list_documento",
@@ -907,16 +1120,16 @@ def test_list_action_ignores_non_string_action_order_and_uses_component_order():
             "documento_beni_servizi": {
                 "rec_name": "documento_beni_servizi",
                 "components": [{"key": "beni_servizi_schema"}],
-                "listOrderString": "name:asc",
             }
         }
     )
     env = DummyEnv(models={"action": action_model, "component": component_model})
     service = Service(env)
 
-    called = {"order": None}
+    called = {"query": None, "order": None}
 
     async def fake_list_records(model_name, query, order, skip, limit):
+        called["query"] = query
         called["order"] = order
         return types.SimpleNamespace(
             content=ResponseObjectData(
@@ -936,7 +1149,10 @@ def test_list_action_ignores_non_string_action_order_and_uses_component_order():
         )
     )
 
-    assert called["order"] == "name:asc"
+    # listOrderString non-stringa -> ignorato, nessun fallback component
+    assert called["order"] == ""
+    # action.list_query resta la sola sorgente di query
+    assert called["query"] == {"from_action": True}
 
 
 def test_component_list_action_filters_builder_temporary_names():

@@ -241,6 +241,7 @@ Typical result:
 Additional metadata in `response.fields`:
 - `submit_action_name`
 - `next_action_name` (only for `mode = form`, explicit alias of submit action)
+- `cancel_button` (only for `mode = form`, `true` when the form should show the abandon/cancel button; derived from `component.no_cancel`)
 - `abandon_action_name`
 - `action_sequence` (`current_action`, `submit_action`, `submit_next_action`, `abandon_action`)
 

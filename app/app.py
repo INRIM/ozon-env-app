@@ -9,6 +9,7 @@ from ozon_env_api.core.serviceapi import OzonEnvApiService
 from app.api.action_router import router as action_router
 from app.api.auth_routes import router as auth_router
 from app.api.filter_router import router as filter_router
+from app.api.message_queue_router import router as message_queue_router
 from app.api.routes import router
 from app.app_settings import build_api_settings
 from app.app_settings import get_env_settings
@@ -57,8 +58,9 @@ app = FastAPI(
         (
             "Authentication uses a single token via "
             "`Authorization: Bearer <token>`.\n\n"
-            "`app_code` is fixed server-side from `APP_CODE`/`OZON_APP_CODE` "
-            "and is not accepted from client input."
+            "`app_code` can be selected per request via the `app_code` query "
+            "parameter, otherwise the backend uses the `app_code` cookie and "
+            "finally falls back to `APP_CODE`/`OZON_APP_CODE`."
         )
         if auth_mode != AUTH_MODE_KEYCLOAK
         else (
@@ -78,6 +80,7 @@ app.include_router(auth_router)
 app.include_router(router)
 app.include_router(action_router)
 app.include_router(filter_router)
+app.include_router(message_queue_router)
 
 
 def custom_openapi() -> dict:
@@ -132,8 +135,10 @@ def custom_openapi() -> dict:
                     "app_code": {
                         "type": "string",
                         "description": (
-                            "Fixed server app code from APP_CODE/OZON_APP_CODE "
-                            f"(current: `{configured_app_code}`)."
+                            "Resolved app code for the current request. "
+                            "Precedence: `?app_code=` query parameter, "
+                            "`app_code` cookie, then APP_CODE/OZON_APP_CODE "
+                            f"(default: `{configured_app_code}`)."
                         ),
                     },
                     "sso_refresh": {

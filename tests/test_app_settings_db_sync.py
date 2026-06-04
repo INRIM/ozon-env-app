@@ -1,6 +1,7 @@
 import asyncio
 from types import SimpleNamespace
 
+from app.app_settings import AppSettings
 from app.app_settings import EnvSettings
 from app.deps import app_env
 
@@ -65,6 +66,19 @@ class _FakeSettingsModel:
         return _FakeRecord(payload)
 
 
+class _FakeSettingsModelWithLoad(_FakeSettingsModel):
+    async def load(self, query):
+        self.load_calls.append(query.copy())
+        for doc in self.docs:
+            if all(doc.get(key) == value for key, value in query.items()):
+                self.status.fail = False
+                self.status.msg = ""
+                return _FakeRecord(doc)
+        self.status.fail = True
+        self.status.msg = "Not found"
+        return _FakeRecord({})
+
+
 class _FakeEnv:
     def __init__(self, settings_model, app_settings=None):
         self.orm = SimpleNamespace(
@@ -123,6 +137,7 @@ def test_sync_runtime_app_settings_bootstraps_public_record(monkeypatch):
     assert "camunda_client_secret" not in saved
     assert "runtime_internal_token" not in saved
     assert "mongo_pass" not in saved
+    assert isinstance(env.orm.app_settings, AppSettings)
     assert env.orm.app_settings.app_code == "demo"
     assert env.orm.app_settings.module_label == "Demo Label"
 
@@ -156,14 +171,50 @@ def test_sync_runtime_app_settings_reads_existing_db_record(monkeypatch):
 
     asyncio.run(app_env._sync_runtime_app_settings(env))
 
-    assert settings_model.load_calls == ["demo", "demo", "demo"]
+    # Per-request sync: single DB read, no writes (DB is authoritative).
+    assert settings_model.load_calls == ["demo"]
     assert settings_model.new_calls == []
     assert settings_model.insert_calls == []
-    assert len(settings_model.update_calls) == 1
-    assert settings_model.update_calls[0]["app_code"] == "demo"
+    assert settings_model.update_calls == []
+    # DB values override env for public fields; env value for non-public (app_code).
     assert env.orm.app_settings.app_code == "demo"
     assert env.orm.app_settings.module_label == "DB Label"
     assert env.orm.app_settings.description == "DB description"
+    assert env.orm.app_settings.admins == ["db-admin"]
+
+
+def test_sync_runtime_app_settings_reads_db_record_by_app_code(monkeypatch):
+    monkeypatch.setattr(
+        app_env,
+        "settings",
+        EnvSettings(
+            app_code="demo",
+            app_name="Demo App",
+            module_label="Env Label",
+            admins=["env-admin"],
+        ),
+    )
+    settings_model = _FakeSettingsModelWithLoad(
+        [
+            {
+                "rec_name": "settings_demo",
+                "app_code": "demo",
+                "module_label": "DB Label",
+                "admins": ["db-admin"],
+                "active": True,
+                "deleted": 0,
+            }
+        ]
+    )
+    env = _FakeEnv(settings_model)
+
+    asyncio.run(app_env._sync_runtime_app_settings(env))
+
+    assert settings_model.load_calls == [{"app_code": "demo"}]
+    assert settings_model.update_calls == []
+    assert isinstance(env.orm.app_settings, AppSettings)
+    assert env.orm.app_settings.rec_name == "settings_demo"
+    assert env.orm.app_settings.app_code == "demo"
     assert env.orm.app_settings.admins == ["db-admin"]
 
 
@@ -194,8 +245,9 @@ def test_sync_runtime_app_settings_backfills_admins_when_db_empty(monkeypatch):
 
     asyncio.run(app_env._sync_runtime_app_settings(env))
 
+    # Per-request: read-only, no backfill. DB admins=[] stays as-is.
+    # Startup sync (_ensure_startup_identity_fields) handles the backfill.
     assert settings_model.new_calls == []
     assert settings_model.insert_calls == []
-    assert len(settings_model.update_calls) == 1
-    assert settings_model.update_calls[0]["admins"] == ["env-admin"]
-    assert env.orm.app_settings.admins == ["env-admin"]
+    assert settings_model.update_calls == []
+    assert env.orm.app_settings.admins == []

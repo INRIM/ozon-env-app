@@ -75,7 +75,7 @@ async def build_keycloak_session(
     app_code: str,
 ) -> AppSession:
     remote_user = _extract_remote_user(request, settings)
-    admins = list(settings.admins or [])
+    admins = _get_app_admins(ozon_env)
     user_record = await _get_or_create_user(ozon_env, remote_user, admins)
     user_dict = _model_to_dict(user_record)
 
@@ -409,6 +409,15 @@ def _extract_remote_user(request: Request, settings: EnvSettings) -> str:
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail=f"Missing trusted user header '{header_name}'",
     )
+
+
+def _get_app_admins(ozon_env: OzonEnv) -> list[str]:
+    app_settings = getattr(getattr(ozon_env, "orm", None), "app_settings", None)
+    return [
+        str(uid).strip()
+        for uid in list(getattr(app_settings, "admins", []) or [])
+        if str(uid).strip()
+    ]
 
 
 async def _get_or_create_user(

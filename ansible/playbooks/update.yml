@@ -1,0 +1,10 @@
+---
+- name: Update ozon-env-app stack
+  hosts: ozonapp
+  gather_facts: false
+  vars:
+    ozonapp_action: update
+    ozonapp_update_service: "{{ ozonapp_update_service | default('app') }}"
+    ozonapp_repo_root: "{{ playbook_dir | dirname | dirname }}"
+  roles:
+    - role: ozonapp_deploy

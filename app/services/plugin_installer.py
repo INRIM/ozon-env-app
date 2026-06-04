@@ -77,9 +77,14 @@ class PluginInstaller:
             rec_name = record.get("rec_name")
             if not rec_name:
                 continue
+            # `_id` non deve MAI finire in un $set: i seed JSON lo portano come
+            # stringa hex, ma i doc creati dall'ORM hanno _id ObjectId -> il $set
+            # su _id (immutabile) fallisce a ogni boot (code 66). Le relazioni
+            # usano rec_name, non _id: lo si scarta e Mongo gestisce _id.
+            payload = {k: v for k, v in record.items() if k != "_id"}
             await coll.update_one(
                 {"rec_name": rec_name},
-                {"$set": record},
+                {"$set": payload},
                 upsert=True,
             )
             count += 1

@@ -759,7 +759,7 @@ def test_get_remote_data_select(monkeypatch):
     app.dependency_overrides.clear()
 
 
-def test_openapi_documents_security_scheme_and_fixed_app_code():
+def test_openapi_documents_security_scheme_and_request_app_code():
     from app.app_settings import get_env_settings
     from app.services.session_auth import AUTH_MODE_KEYCLOAK, normalize_auth_mode
 
@@ -785,6 +785,6 @@ def test_openapi_documents_security_scheme_and_fixed_app_code():
     )
     assert "app_code" in get_session_schema["properties"]
     assert (
-        "Fixed server app code"
+        "Resolved app code for the current request"
         in get_session_schema["properties"]["app_code"]["description"]
     )

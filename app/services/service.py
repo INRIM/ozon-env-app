@@ -13,6 +13,7 @@ from .action_runtime import _is_enabled_flag
 from .common import *
 from .formio import get_formio_select_options
 from app.core.models import FieldAclOperation
+from app.services.message_queue import maybe_enqueue_on_save
 from app.ozon_env_acl import CompiledFieldAcl
 from app.ozon_env_acl import compile_field_acl_policies
 from app.ozon_env_acl import enforce_write_acl
@@ -76,6 +77,18 @@ def _merge_query(
     return {"$and": [base_query.copy(), extra_query.copy()]}
 
 
+def _record_to_dict(record: Any) -> dict[str, Any]:
+    if isinstance(record, dict):
+        return record.copy()
+    if hasattr(record, "get_dict"):
+        return record.get_dict()
+    if hasattr(record, "model_dump"):
+        return record.model_dump(mode="python")
+    if hasattr(record, "dict"):
+        return record.dict()
+    return {}
+
+
 class Service:
     def __init__(self, env: OzonEnv):
         self.env = env
@@ -86,6 +99,21 @@ class Service:
         logger.info(
             "service initialized app_code=%s",
             self.session.app_code,
+        )
+
+    def _get_model(self, model_name: str):
+        normalized = str(model_name or "").strip()
+        candidates = [normalized]
+        lower = normalized[:1].lower() + normalized[1:] if normalized else ""
+        if lower and lower not in candidates:
+            candidates.append(lower)
+        for candidate in candidates:
+            model = self.env.get(candidate)
+            if model is not None:
+                return model
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model '{model_name}' not found",
         )
 
     async def get_models(self, query: dict = None):
@@ -214,7 +242,7 @@ class Service:
             limit,
             resp_stream,
         )
-        record_model = self.env.get(model_name)
+        record_model = self._get_model(model_name)
         domain = record_model.get_domain(query)
         total_count = await record_model.count(domain=domain)
         acl = await self._get_compiled_field_acl()
@@ -287,7 +315,7 @@ class Service:
             model_name,
             rec_name,
         )
-        record_model = self.env.get(model_name)
+        record_model = self._get_model(model_name)
         operation = await self._resolve_write_operation(record_model, rec_name, data)
         acl = await self._get_compiled_field_acl()
         await enforce_write_acl(
@@ -311,11 +339,20 @@ class Service:
                 and sync_component_runtime
         ):
             await self._sync_component_runtime(
-                record.get_dict(),
+                _record_to_dict(record),
                 generate_defaults=(
                     generate_component_defaults
                     and operation == FieldAclOperation.INSERT.value
                 ),
+            )
+        if record is not None:
+            # Auto-enqueue mail se il component del model lo richiede
+            # (component.properties.send_mail_create/update). Best-effort.
+            await maybe_enqueue_on_save(
+                self,
+                model_name,
+                getattr(record, "rec_name", "") or rec_name,
+                operation,
             )
         return make_response_object(record_model, mode="form", data=record)
 
@@ -374,10 +411,8 @@ class Service:
                 status_code=422,
                 detail="fast_search only valid on list actions",
             )
-        schema_model = action.view_name or action_model
-        schema_record = await self._get_component_record(schema_model)
         resolved_query, resolved_order = (
-            self.action_runtime._resolve_list_defaults(action, schema_record)
+            self.action_runtime._resolve_list_defaults(action)
         )
         effective_order = order.strip() or resolved_order
         if query_fields:
@@ -398,7 +433,7 @@ class Service:
             self, model_name: str, domain: dict, in_execution=False
     ) -> Union[None, ResponseObject]:
         logger.info("service.load model=%s domain=%s", model_name, domain)
-        record_model = self.env.get(model_name)
+        record_model = self._get_model(model_name)
         record = await record_model.load(domain)
         return make_response_object(record_model, mode="form", data=record)
 
@@ -406,7 +441,7 @@ class Service:
             self, model: str, rec_name: str
     ) -> Union[None, ResponseObject]:
         logger.info("service.load_record model=%s rec_name=%s", model, rec_name)
-        record_model = self.env.get(model)
+        record_model = self._get_model(model)
         record = await record_model.by_name(rec_name)
         acl = await self._get_compiled_field_acl()
         record, obfuscate_fields = acl.apply_read(
@@ -566,6 +601,8 @@ class Service:
             try:
                 model = self.env.get(model_name)
             except Exception:
+                continue
+            if model is None:
                 continue
             try:
                 domain = model.get_domain({"active": True, "deleted": 0})
@@ -808,15 +845,13 @@ class Service:
         return True, _has_non_system_records(menu_actions)
 
     async def _get_basic_menu_list(self, parent: str = "") -> list[dict[str, Any]]:
-        is_admin = bool(getattr(self.session, "is_admin", False))
         menu_group_model = self.env.get("menu_group")
         action_model = self.env.get("action")
 
-        group_base = (
-            {"parent": parent}
-            if is_admin
-            else {"$and": [{"admin": False}, {"parent": parent}]}
-        )
+        # I menu_group admin-only appartengono al menu admin in alto
+        # (generato dal layout via service_get_menu), quindi NON devono mai
+        # diventare card della dashboard, nemmeno per gli utenti admin.
+        group_base = {"$and": [{"admin": False}, {"parent": parent}]}
         menu_groups_query = await self._default_query(
             menu_group_model,
             group_base,
@@ -864,6 +899,13 @@ class Service:
                     menu_group_model,
                     query=sub_menu_query,
                 )
+                # Sotto-menu admin-only non devono comparire (ne' contare)
+                # nella card folder della dashboard, per nessun utente.
+                sub_menus = [
+                    sub
+                    for sub in sub_menus
+                    if not _is_admin_only_menu_group(sub)
+                ]
                 if sub_menus:
                     sub_groups = [
                         sub.rec_name or ""
@@ -890,6 +932,13 @@ class Service:
         return menu_list
 
     async def service_get_layout(self, name: str = "") -> ResponseObjectData:
+        logger.info(
+            "service_get_layout: start name=%s app_code=%s uid=%s is_admin=%s",
+            name,
+            getattr(self.session, "app_code", None),
+            getattr(self.session, "uid", None),
+            getattr(self.session, "is_admin", None),
+        )
         component_model = self.env.get("component")
         layout_name = name or ""
         schema = {}
@@ -899,11 +948,20 @@ class Service:
             record = await self._get_component_record(layout_name)
             schema = record.get_dict() if record else {}
             layout_query = {"rec_name": layout_name}
+            logger.info(
+                "service_get_layout: explicit layout name=%s found=%s",
+                layout_name,
+                bool(record),
+            )
 
         if not schema:
             layout_query = await self._default_query(
                 component_model,
                 {"type": "layout"},
+            )
+            logger.info(
+                "service_get_layout: fallback query=%s",
+                layout_query,
             )
             layouts = await self._find_base(
                 component_model,
@@ -913,8 +971,19 @@ class Service:
             if layouts:
                 schema = layouts[0].get_dict()
                 layout_name = layouts[0].rec_name or layout_name
+            logger.info(
+                "service_get_layout: fallback layouts found=%d layout_name=%s",
+                len(layouts) if isinstance(layouts, list) else 0,
+                layout_name,
+            )
 
         menu_data = await self.service_get_menu()
+        logger.info(
+            "service_get_layout: done layout_name=%s schema_keys=%d menu_items=%d",
+            layout_name,
+            len(schema) if isinstance(schema, dict) else 0,
+            len(menu_data.data) if isinstance(menu_data.data, list) else 0,
+        )
         return ResponseObjectData(
             mode="layout",
             query=layout_query,
@@ -938,8 +1007,16 @@ class Service:
         )
 
     async def service_get_menu(self, parent: str = "") -> ResponseObjectData:
-        is_admin = bool(getattr(self.session, "is_admin", False))
+        is_admin = self.session.is_admin
+        logger.info(
+            "service_get_menu: start parent=%s app_code=%s uid=%s is_admin=%s",
+            parent,
+            getattr(self.session, "app_code", None),
+            getattr(self.session, "uid", None),
+            is_admin,
+        )
         if not is_admin:
+            logger.info("service_get_menu: non-admin, returning empty menu")
             return ResponseObjectData(
                 mode="menu",
                 data=[{}],
@@ -961,6 +1038,11 @@ class Service:
             menu_group_model,
             query=menu_group_query,
         )
+        logger.info(
+            "service_get_menu: menu_group_query=%s groups_found=%d",
+            menu_group_query,
+            len(menu_groups) if isinstance(menu_groups, list) else 0,
+        )
 
         grouped: dict[str, list[dict[str, Any]]] = {}
         for menu_group in menu_groups:
@@ -974,6 +1056,11 @@ class Service:
                 action_model, {"$and": menu_query_user}
             )
             menu_actions = await self._find_base(action_model, query=menu_query)
+            logger.info(
+                "service_get_menu: group=%s actions_found=%d",
+                group_name,
+                len(menu_actions) if isinstance(menu_actions, list) else 0,
+            )
             if not menu_actions:
                 continue
 
@@ -983,6 +1070,11 @@ class Service:
                 grouped[label].append(self._make_button_main_menu(rec_item))
 
         data = [grouped] if grouped else [{}]
+        logger.info(
+            "service_get_menu: done labels=%d total_buttons=%d",
+            len(grouped),
+            sum(len(v) for v in grouped.values()),
+        )
         return ResponseObjectData(mode="menu", data=data, query=menu_group_query)
 
     async def service_get_dashboard(self, parent: str = "") -> ResponseObjectData:

@@ -12,6 +12,7 @@
       "global_params",
       "fast_search_config",
       "mail_server_out",
+      "message_queue",
       "standard",
       "design"
     ]

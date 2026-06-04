@@ -1,0 +1,20 @@
+[project]
+name = "mail-sender"
+version = "0.1.0"
+description = "Worker pull che svuota la coda message_queue inviando email via SMTP"
+readme = "README.md"
+requires-python = ">=3.14,<4.0"
+dependencies = [
+    "ozon-env",
+    "jinja2>=3.1",
+]
+
+[tool.uv.sources]
+ozon-env = { git = "https://github.com/inrim/ozon-env.git", rev = "4.0.0" }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mail_sender"]

@@ -7,6 +7,7 @@ from ozon_env_api.settings import OzonEnvApiSettings
 from ozonenv.core.BaseModels import Settings as OzonSettings
 from pydantic import ValidationError
 
+from app.app_settings import AppSettings
 from app.app_settings import build_public_db_settings_payload
 from app.app_settings import build_api_settings
 from app.app_settings import EnvSettings
@@ -154,6 +155,25 @@ def test_env_settings_extends_ozon_settings_and_exposes_urls():
     assert settings.runtime_admin_roles == {"admin", "manager"}
 
 
+def test_app_settings_is_db_settings_model_and_parses_admins():
+    settings = AppSettings(
+        rec_name="settings_mci",
+        app_code="mci",
+        admins="admin.one, admin.two",
+    )
+
+    assert isinstance(settings, OzonSettings)
+    assert settings.rec_name == "settings_mci"
+    assert settings.app_code == "mci"
+    assert settings.admins == ["admin.one", "admin.two"]
+
+
+def test_env_settings_parses_seed_admins_for_bootstrap_only():
+    settings = EnvSettings(app_code="demo", ADMINS="seed.one,seed.two")
+
+    assert settings.admins == ["seed.one", "seed.two"]
+
+
 def test_env_settings_rejects_fail_closed_stream_limit_smaller_than_upload_limit():
     with pytest.raises(ValidationError):
         EnvSettings(
@@ -253,8 +273,9 @@ def test_merge_public_db_settings_only_overrides_public_fields():
     assert merged.module_label == "DB Label"
     assert merged.description == "DB description"
     assert merged.admins == ["db-admin"]
-    assert merged.session_secret == "env-session-secret"
-    assert merged.keycloak_client_secret == "env-kc-secret"
+    assert isinstance(merged, AppSettings)
+    assert not hasattr(merged, "session_secret")
+    assert not hasattr(merged, "keycloak_client_secret")
 
 
 def test_field_acl_read_masks_and_compiles_on_session():

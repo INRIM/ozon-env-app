@@ -2,7 +2,7 @@ import json
 import logging
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import StreamingResponse
@@ -116,9 +116,23 @@ async def healthcheck() -> dict[str, Any]:
 
 @router.get("/get_session")
 async def get_session(
+    request: Request,
     ozon_env: Annotated[OzonEnv, Depends(get_ozon_env)],
+    app_code: str = Query(
+        default="",
+        description=(
+            "Optional app code override for the current request. "
+            "When provided, it takes precedence over the `app_code` cookie "
+            "and the server default APP_CODE."
+        ),
+    ),
 ) -> dict[str, Any]:
-    logger.info("get session request received")
+    requested_app_code = app_code or request.cookies.get("app_code", "")
+    logger.info(
+        "get session request received requested_app_code=%s resolved_app_code=%s",
+        requested_app_code,
+        getattr(ozon_env.user_session, "app_code", ""),
+    )
     session_data = _safe_encode_payload(ozon_env.user_session)
     logger.info("get session response ready")
     return session_data

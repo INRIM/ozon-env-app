@@ -20,3 +20,5 @@ database/scripts/init_db.js
 .env
 .claude
 .ozonenv
+# ansible local tmp
+.ansible/
