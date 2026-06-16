@@ -1,7 +1,9 @@
 import asyncio
 
+from mail_sender import sender as sender_mod
 from mail_sender.ozon_gateway import OzonGateway
 from mail_sender.renderer import MailRenderer
+from mail_sender.sender import SmtpSender
 from mail_sender.worker import MailWorker, build_context
 
 BASE = "<base app={{ app_name }}>{{ html|safe }}</base>"
@@ -276,3 +278,82 @@ def test_gateway_mark_error_updates_via_model_update():
     assert mq.updated[0] is rec
     assert rec.stato == "in_errore"
     assert rec.logs == "boom"
+
+
+# ------------------------------- smtp sender -------------------------------
+
+class FakeSmtp:
+    """Stub smtplib client: registra login/send senza rete."""
+
+    instances = []
+
+    def __init__(self, host, port, **kw):
+        self.host = host
+        self.port = port
+        self.logins = []
+        self.sent = []
+        FakeSmtp.instances.append(self)
+
+    def starttls(self, context=None):
+        pass
+
+    def login(self, user, password):
+        self.logins.append((user, password))
+
+    def send_message(self, message):
+        self.sent.append(message)
+
+    def quit(self):
+        pass
+
+
+def _patch_smtp(monkeypatch):
+    FakeSmtp.instances = []
+    monkeypatch.setattr(sender_mod.smtplib, "SMTP_SSL", FakeSmtp)
+    monkeypatch.setattr(sender_mod.smtplib, "SMTP", FakeSmtp)
+
+
+_SERVER = {
+    "MAIL_SERVER": "smtp.gmail.com",
+    "MAIL_FROM": "notifiche@inrim.it",
+    "MAIL_SSL": True,
+    "port": "465",
+    "mailServerUser": "notifiche@inrim.it",
+    "MAIL_PASSWORD": "secret",
+}
+
+
+def test_sender_login_when_use_credentials_true(monkeypatch):
+    _patch_smtp(monkeypatch)
+    server = {**_SERVER, "USE_CREDENTIALS": True}
+
+    SmtpSender().send(server, "S", ["a@x.it"], "<p>hi</p>")
+
+    client = FakeSmtp.instances[0]
+    assert client.logins == [("notifiche@inrim.it", "secret")]
+    assert client.sent
+
+
+def test_sender_login_when_creds_present_flag_false(monkeypatch):
+    """USE_CREDENTIALS dimenticato a false ma user+password presenti: login
+    deve partire comunque (era il caso del 530 con Gmail)."""
+    _patch_smtp(monkeypatch)
+    server = {**_SERVER, "USE_CREDENTIALS": False}
+
+    SmtpSender().send(server, "S", ["a@x.it"], "<p>hi</p>")
+
+    client = FakeSmtp.instances[0]
+    assert client.logins == [("notifiche@inrim.it", "secret")]
+
+
+def test_sender_no_login_without_credentials(monkeypatch):
+    _patch_smtp(monkeypatch)
+    server = {k: v for k, v in _SERVER.items()
+              if k not in {"mailServerUser", "MAIL_PASSWORD"}}
+    server["USE_CREDENTIALS"] = False
+
+    SmtpSender().send(server, "S", ["a@x.it"], "<p>hi</p>")
+
+    client = FakeSmtp.instances[0]
+    assert client.logins == []
+    assert client.sent

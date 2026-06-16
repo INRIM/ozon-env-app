@@ -5,6 +5,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from app.core.models import AppUser
+
 logger = logging.getLogger("uvicorn.error")
 
 _SKIP_COLLECTIONS: frozenset[str] = frozenset({"user"})
@@ -19,7 +21,7 @@ class PluginInstaller:
         from app.core.OzonEnvApp import AppOzonEnv
 
         env = AppOzonEnv(cfg=self.cfg)
-        await env.init_env()
+        await env.init_env(local_model={"user":AppUser})
         try:
             db = env.orm.db
             for plugin_dir in plugins:

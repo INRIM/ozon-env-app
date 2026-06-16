@@ -350,7 +350,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "jinja2", specifier = ">=3.1" },
-    { name = "ozon-env", git = "https://github.com/inrim/ozon-env.git?rev=4.0.0" },
+    { name = "ozon-env", git = "https://github.com/inrim/ozon-env.git?rev=4.0.1" },
 ]
 
 [[package]]
@@ -415,8 +415,8 @@ wheels = [
 
 [[package]]
 name = "ozon-env"
-version = "4.0.0"
-source = { git = "https://github.com/inrim/ozon-env.git?rev=4.0.0#7cbc07efcf6688aef11168e13a670591b111297d" }
+version = "4.0.1"
+source = { git = "https://github.com/inrim/ozon-env.git?rev=4.0.1#0f99fe86790cc1710b49ad93ed2902f9b997d170" }
 dependencies = [
     { name = "aiofiles" },
     { name = "aiopathlib" },

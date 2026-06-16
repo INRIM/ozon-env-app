@@ -15,7 +15,7 @@ app/
   core/
     OzonModelApp.py   # OzonModel override: session_model come attributo di istanza
     session.py        # AppSession(User) — DTO sessione, estende User di ozon-env
-    models.py         # User, MailTemplate, AttachmentMetadata, FieldAclPolicy
+    models.py         # User, MailTemplate, AttachmentScanStatus, FieldAclPolicy
   deps/
     app_env.py        # FastAPI dependencies: get_ozon_env, client_session, ClientSession
   services/

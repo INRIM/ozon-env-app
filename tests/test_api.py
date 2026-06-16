@@ -1,6 +1,5 @@
 import json
 import types
-from typing import Any
 
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
@@ -10,7 +9,7 @@ from app.app import app
 from app.deps.app_env import get_authed_env
 from app.deps.app_env import get_ozon_env
 from app.deps.app_env import get_service
-from app.services.common import ResponseObject, ResponseObjectData
+from app.services.common import ResponseObject
 from app.services.service import Service
 
 # --- MOCK MODELS ---
@@ -57,6 +56,23 @@ class FakeService:
 
     async def get_models(self, query: dict = None):
         return ["customer", "order"]
+
+    async def run_calendar_task(self, rec_name: str, payload: dict = None):
+        if self.factory is not None:
+            self.factory.last_calendar_run_call = {
+                "rec_name": rec_name,
+                "payload": dict(payload or {}),
+            }
+        return {
+            "status": "ok",
+            "rec_name": rec_name,
+            "task": "update_model_access",
+            "task_record_name": "",
+            "run_id": (payload or {}).get("run_id", ""),
+            "started_at": "2026-06-15T10:00:00+02:00",
+            "finished_at": "2026-06-15T10:00:01+02:00",
+            "message": "",
+        }
 
     async def compo_by_name(self, model: str, name: str):
         record = FakeComponentRecord(name)
@@ -185,6 +201,7 @@ class Factory:
         self.calls = 0
         self._ozon_factory = OzonEnvFactory()
         self.last_upsert_call = None
+        self.last_calendar_run_call = None
 
     async def dep(self):
         self.calls += 1
@@ -217,6 +234,34 @@ def test_models_distinct(monkeypatch):
     data = response.json()["content"]["data"]
     assert "customer" in data
     assert "order" in data
+
+
+def test_calendar_task_run_endpoint():
+    factory = Factory()
+    client = make_client(factory)
+    response = client.post(
+        "/client/run/calendar_tasks/update_model_access",
+        headers={"Authorization": "Bearer ok-token"},
+        json={
+            "run_id": "run-1",
+            "scheduled_time": "2026-06-15T10:00:00+02:00",
+            "trigger": "scheduler",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["rec_name"] == "update_model_access"
+    assert factory.last_calendar_run_call == {
+        "rec_name": "update_model_access",
+        "payload": {
+            "run_id": "run-1",
+            "scheduled_time": "2026-06-15T10:00:00+02:00",
+            "trigger": "scheduler",
+        },
+    }
+    app.dependency_overrides.clear()
 
 
 def test_get_session():

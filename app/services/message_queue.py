@@ -3,14 +3,10 @@ from __future__ import annotations
 import logging
 import uuid
 from typing import Any
-from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
 
 from app.core.models import FieldAclOperation
-
-if TYPE_CHECKING:
-    from app.services.service import Service
 
 logger = logging.getLogger("uvicorn.error")
 

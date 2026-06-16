@@ -66,11 +66,13 @@ class SmtpSender:
         try:
             if not use_ssl and use_tls:
                 client.starttls(context=context)
-            if _flag(server.get("USE_CREDENTIALS")):
-                client.login(
-                    str(server.get("mailServerUser") or ""),
-                    str(server.get("MAIL_PASSWORD") or ""),
-                )
+            # Auth se richiesta dal flag o se le credenziali sono comunque
+            # presenti: i server reali (Gmail/SMTP) la pretendono sempre, e
+            # un USE_CREDENTIALS dimenticato a false dava 530 con creds valide.
+            user = str(server.get("mailServerUser") or "")
+            password = str(server.get("MAIL_PASSWORD") or "")
+            if _flag(server.get("USE_CREDENTIALS")) or (user and password):
+                client.login(user, password)
             client.send_message(message)
         finally:
             try:

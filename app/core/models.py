@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 from typing import Any
-from typing import Optional
 
 from bson import Decimal128
 from ozonenv.core.BaseModels import BasicModel
-from ozonenv.core.BaseModels import CoreModel
-from pydantic import AliasChoices
+from ozonenv.core.BaseModels import CoreModel, User
 from pydantic import Field
 
 
@@ -26,30 +23,6 @@ class AttachmentScanStatus(StrEnum):
     SKIPPED = "skipped"
     INFECTED = "infected"
     ERROR = "error"
-
-
-class AttachmentMetadata(CoreModel):
-    entity_kind: str = "request"
-    entity_id: str = Field(
-        default="",
-        validation_alias=AliasChoices("entity_id", "request_id"),
-    )
-    attachment_type: str
-    original_name: str
-    stored_name: str
-    content_type: str
-    size_bytes: int
-    sha256: str = ""
-    uploaded_by_uid: str
-    uploaded_at: datetime
-    scan_status: AttachmentScanStatus = AttachmentScanStatus.CLEAN
-    scan_signature: str = ""
-    scanned_at: Optional[datetime] = None
-    scanner_engine: str = ""
-
-    @property
-    def request_id(self) -> str:
-        return self.entity_id
 
 
 class FieldAclOperation(StrEnum):
@@ -76,3 +49,7 @@ class FieldAclPolicy(BasicModel):
     effect: FieldAclEffect = FieldAclEffect.ALLOW
     reason: str = ""
     priority: int | Decimal | Decimal128 = 100
+
+
+class AppUser(User):
+    avatar_url: str = ""

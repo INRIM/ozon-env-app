@@ -21,7 +21,6 @@ from app.services.cookie_auth import sign_token
 from app.services.cookie_auth import verify_token
 from app.services.session_auth import build_keycloak_session_from_tokens
 from ozonenv.OzonEnv import OzonEnv
-from ozonenv.core.auth import KeycloakAuthManager
 
 logger = logging.getLogger("uvicorn.error")
 

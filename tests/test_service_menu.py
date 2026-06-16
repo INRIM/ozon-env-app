@@ -1314,6 +1314,75 @@ def test_post_action_with_view_name_writes_on_model():
     assert res.model == "documento"
 
 
+def test_run_calendar_task_executes_configured_action_and_updates_state():
+    class CalendarTaskModel(DummyModel):
+        def __init__(self):
+            super().__init__("calendar")
+            self.rows_by_name = {
+                "job1": {
+                    "rec_name": "job1",
+                    "tipo": "task",
+                    "deleted": 0,
+                    "periodico": False,
+                    "stato": "progress",
+                    "task": "do_action",
+                    "task_record_name": "target1",
+                }
+            }
+            self.upserts = []
+
+        async def by_name(self, name: str):
+            return _make_dummy_record(self.rows_by_name.get(name))
+
+        async def upsert(
+            self,
+            data=None,
+            rec_name="",
+            data_value=None,
+            trnf_config=None,
+            fields_parser=None,
+        ):
+            self.upserts.append({"rec_name": rec_name, "data": dict(data or {})})
+            return _make_dummy_record({"rec_name": rec_name, **dict(data or {})})
+
+    calendar_model = CalendarTaskModel()
+    env = DummyEnv(models={"calendar": calendar_model})
+    service = Service(env)
+    called = {}
+
+    async def fake_action_post(action_name, data, rec_name=""):
+        called["action_name"] = action_name
+        called["data"] = data
+        called["rec_name"] = rec_name
+        return ResponseObjectData(
+            mode="action",
+            model="action",
+            data={"status": "ok"},
+        )
+
+    service.service_handle_action_post = fake_action_post
+
+    result = asyncio.run(
+        service.run_calendar_task(
+            "job1",
+            payload={
+                "run_id": "run-1",
+                "trigger": "scheduler",
+                "scheduled_time": "2026-06-15T10:00:00+02:00",
+            },
+        )
+    )
+
+    assert result["status"] == "ok"
+    assert result["task"] == "do_action"
+    assert called["action_name"] == "do_action"
+    assert called["rec_name"] == "target1"
+    assert called["data"]["calendar_task"] == "job1"
+    assert calendar_model.upserts[-1]["rec_name"] == "job1"
+    assert calendar_model.upserts[-1]["data"]["stato"] == "done"
+    assert calendar_model.upserts[-1]["data"]["active"] is False
+
+
 def test_builder_component_post_enables_runtime_sync():
     rows_by_name = {
         "save_edit_mode_resource": {

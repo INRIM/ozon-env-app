@@ -3,6 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
+from pydantic import BaseModel
+from pydantic import Field
 
 from app.services.service import Service
 
@@ -71,6 +73,11 @@ class _ListModel:
 
 
 class _UpsertModel(_ListModel):
+    def __init__(self, data_model: str, rows=None):
+        super().__init__(data_model, rows=rows)
+        self.last_upsert_data = None
+        self.upserted_data = []
+
     async def upsert(
         self,
         data=None,
@@ -80,6 +87,8 @@ class _UpsertModel(_ListModel):
         fields_parser=None,
     ):
         record = dict(data or {})
+        self.last_upsert_data = record.copy()
+        self.upserted_data.append(record.copy())
         if rec_name:
             record["rec_name"] = rec_name
         return record
@@ -130,6 +139,33 @@ class _ComponentHookEnv(_MissingModelEnv):
 
     async def insert_update_component(self, schema):
         self.inserted_components.append(schema.copy())
+
+
+class _ComponentMenuDashboardEnv(_ComponentHookEnv):
+    def __init__(self, rows=None, action_rows=None):
+        super().__init__(rows=rows)
+        self._models.update(
+            {
+                "action": _UpsertModel("action", rows=action_rows or []),
+                "menu_group": _UpsertModel("menu_group"),
+            }
+        )
+
+
+class _MailServerOutSchema(BaseModel):
+    rec_name: str = ""
+    port: str | None = Field("", title="Port")
+
+
+class _MailServerOutEnv(_MissingModelEnv):
+    def __init__(self):
+        super().__init__()
+        model = _UpsertModel("mail_server_out")
+        model.model = _MailServerOutSchema
+        self._models = {"mail_server_out": model}
+
+    def get(self, model_name: str):
+        return self._models.get(model_name)
 
 
 def test_list_records_missing_model_raises_http_404():
@@ -216,6 +252,99 @@ def test_component_upsert_does_not_sync_runtime_by_default():
     assert synced == []
 
 
+def test_component_upsert_create_menu_dashboard_generates_defaults_from_payload():
+    env = _ComponentHookEnv()
+    service = Service(env)
+    synced = []
+
+    async def fake_make_default_actions(schema):
+        synced.append(schema.copy())
+
+    service._make_default_actions_for_component = fake_make_default_actions
+
+    asyncio.run(
+        service.upsert(
+            model_name="component",
+            data={
+                "rec_name": "demo_component",
+                "type": "resource",
+                "create_menu_dashboard": True,
+            },
+            rec_name="demo_component",
+        )
+    )
+
+    expected = {
+        "rec_name": "demo_component",
+        "type": "resource",
+    }
+    assert env.inserted_components == []
+    assert synced == [expected]
+
+
+def test_component_upsert_create_menu_dashboard_scopes_menu_group_by_apps():
+    env = _ComponentMenuDashboardEnv()
+    service = Service(env)
+
+    asyncio.run(
+        service.upsert(
+            model_name="component",
+            data={
+                "rec_name": "demo_component",
+                "type": "form",
+                "title": "Demo Component",
+                "create_menu_dashboard": True,
+            },
+            rec_name="demo_component",
+        )
+    )
+
+    menu_group_model = env.get("menu_group")
+    assert menu_group_model.upserted_data == [
+        {
+            "rec_name": "demo_component",
+            "label": "Demo Component",
+            "admin": False,
+            "active": True,
+            "deleted": 0,
+            "apps": ["demo"],
+        }
+    ]
+    assert "app_code" not in menu_group_model.upserted_data[0]
+
+
+def test_component_upsert_normalizes_empty_string_boolean_fields():
+    env = _ComponentHookEnv()
+    service = Service(env)
+
+    asyncio.run(
+        service.upsert(
+            model_name="component",
+            data={"rec_name": "demo_component", "type": "resource", "sys": ""},
+            rec_name="demo_component",
+        )
+    )
+
+    component_model = env.get("component")
+    assert component_model.last_upsert_data["sys"] is False
+
+
+def test_upsert_normalizes_scalar_values_for_optional_string_fields():
+    env = _MailServerOutEnv()
+    service = Service(env)
+
+    asyncio.run(
+        service.upsert(
+            model_name="mail_server_out",
+            data={"rec_name": "smtp", "port": 465},
+            rec_name="smtp",
+        )
+    )
+
+    mail_server_model = env.get("mail_server_out")
+    assert mail_server_model.last_upsert_data["port"] == "465"
+
+
 def test_component_upsert_syncs_runtime_without_generating_defaults_by_default():
     env = _ComponentHookEnv()
     service = Service(env)
@@ -294,6 +423,42 @@ def test_component_upsert_does_not_generate_defaults_on_update():
     }
     assert env.inserted_components == [expected]
     assert synced == []
+
+
+def test_component_upsert_create_menu_dashboard_generates_defaults_on_update():
+    env = _ComponentHookEnv(
+        rows=[{"rec_name": "demo_component", "type": "resource"}]
+    )
+    service = Service(env)
+    synced = []
+
+    async def fake_make_default_actions(schema):
+        synced.append(schema.copy())
+
+    service._make_default_actions_for_component = fake_make_default_actions
+
+    asyncio.run(
+        service.upsert(
+            model_name="component",
+            data={
+                "rec_name": "demo_component",
+                "type": "resource",
+                "title": "Updated",
+                "create_menu_dashboard": "true",
+            },
+            rec_name="demo_component",
+            sync_component_runtime=True,
+            generate_component_defaults=False,
+        )
+    )
+
+    expected = {
+        "rec_name": "demo_component",
+        "type": "resource",
+        "title": "Updated",
+    }
+    assert env.inserted_components == [expected]
+    assert synced == [expected]
 
 
 def test_component_upsert_skips_runtime_sync_for_builder_temporary_name():

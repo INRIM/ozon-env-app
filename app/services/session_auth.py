@@ -258,33 +258,6 @@ async def ensure_sso_token_fresh(
     return session
 
 
-async def load_session_by_token(
-    ozon_env: OzonEnv,
-    token: str,
-    app_code: str,
-    settings: EnvSettings,
-) -> AppSession:
-    """Load session from user collection by internal UUID token (BFF cookie path)."""
-    user_model = ozon_env.get("user")
-    record = await user_model.load({"token": token, "active": True, "deleted": 0})
-    if not record:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session not found or expired",
-        )
-    data = _model_to_dict(record)
-    data["app_code"] = app_code
-    session = AppSession(**data)
-
-    ozon_env.user_session = session
-    ozon_env.session_token = session.token
-    if not getattr(ozon_env, "upload_folder", ""):
-        ozon_env.upload_folder = getattr(
-            getattr(ozon_env.orm, "app_settings", None), "upload_folder", ""
-        )
-    return session
-
-
 async def persist_user_session(ozon_env: OzonEnv, session: AppSession) -> None:
     """Persist session data to user collection via ORM."""
     user_model = ozon_env.get("user")

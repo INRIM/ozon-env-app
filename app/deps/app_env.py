@@ -22,7 +22,7 @@ from app.app_settings import merge_public_db_settings
 from app.core.OzonEnvApp import AppOzonEnv
 from app.core.OzonModelApp import OzonModelApp
 from app.core.models import FieldAclPolicy
-from app.core.models import MailTemplate
+from app.core.models import MailTemplate, AppUser
 from app.services.cookie_auth import sign_token
 from app.services.cookie_auth import verify_token
 from app.services.service import Service
@@ -341,7 +341,7 @@ async def sync_app_settings_startup(source_settings: Any = None) -> None:
     )
     env_ready = False
     try:
-        await env.init_env()
+        await env.init_env(local_model={"user":AppUser})
         env_ready = True
         # Startup-only: backfill admins from env if DB record has none.
         await _ensure_startup_identity_fields(env, effective_settings)
@@ -372,7 +372,7 @@ async def get_ozon_env(request: Request) -> AsyncGenerator[AppOzonEnv, None]:
     )
     logger.info("ozon env init start app_code=%s", current_app_code)
     try:
-        await env.init_env()
+        await env.init_env(local_model={"user":AppUser})
     except Exception as exc:
         logger.exception("ozon env init failed app_code=%s", current_app_code)
         raise HTTPException(

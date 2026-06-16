@@ -108,6 +108,20 @@ def _coerce_body_dict(payload: Any) -> dict[str, Any]:
     ])
 
 
+async def _read_optional_body_dict(request: Request) -> dict[str, Any]:
+    try:
+        payload = await request.json()
+    except Exception:
+        return {}
+    if isinstance(payload, dict):
+        return payload.copy()
+    if isinstance(payload, str):
+        parsed = check_parse_json(payload)
+        if isinstance(parsed, dict):
+            return parsed.copy()
+    return {}
+
+
 @router.get("/")
 async def healthcheck() -> dict[str, Any]:
     logger.info("healthcheck request received")
@@ -146,6 +160,22 @@ async def get_models_distinct(
     data = await service.get_models()
     logger.info("list models request completed count=%s", len(data))
     return make_response_object(data=data, mode="list")
+
+
+@router.post("/client/run/calendar_tasks/{rec_name}")
+async def post_run_calendar_task(
+    rec_name: str,
+    request: Request,
+    service: Annotated[Service, Depends(get_service)],
+) -> dict[str, Any]:
+    payload = await _read_optional_body_dict(request)
+    logger.info(
+        "calendar task run request rec_name=%s trigger=%s",
+        rec_name,
+        payload.get("trigger", ""),
+    )
+    return await service.run_calendar_task(rec_name, payload=payload)
+
 
 @router.post("/models/distinct")
 async def post_models_distinct(
@@ -276,7 +306,6 @@ async def post_update_record(
 ) -> ResponseObject:
     payload = _coerce_body_dict(payload_raw)
     logger.info("record upsert request model=%s rec_name=%s", model, rec_name)
-    logger.info(payload)
     resp_data = await service.upsert(model, payload, rec_name=rec_name)
     if not resp_data:
         logger.warning("record upsert failed model=%s rec_name=%s", model, rec_name)

@@ -1,0 +1,14 @@
+services:
+  keycloak-manager:
+    image: keycloak-manager:latest
+    build:
+      context: .
+    container_name: keycloak-manager
+    env_file:
+      - .env
+    # interattivo: pipeline passo-passo
+    stdin_open: true
+    tty: true
+    volumes:
+      # kc-env.var generato qui sull'host
+      - ./out:/out

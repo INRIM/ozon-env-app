@@ -1,7 +1,4 @@
 from datetime import datetime, timedelta
-import logging
-import uuid
-from typing import Union
 from zoneinfo import ZoneInfo
 
 from ozonenv.core.BaseModels import CoreModel
@@ -10,9 +7,7 @@ from ozonenv.core.OzonOrm import OzonModel, OzonOrm
 
 from app.app_settings import AppSettings
 from app.app_settings import EnvSettings
-from app.core.session import AppSession
 
-logger = logging.getLogger("uvicorn.error")
 
 class DateEngineApp(DateEngine):
 
@@ -31,6 +26,7 @@ class DateEngineApp(DateEngine):
             max_hours_delata_date_to
         )
         return min, max
+
 
 class OzonModelApp(OzonModel):
     def __init__(
@@ -59,35 +55,3 @@ class OzonModelApp(OzonModel):
             or getattr(app_settings, "app_code", "")
             or ""
         )
-        self.dte = DateEngineApp(TZ=self.setting_app.tz)
-
-    async def update_create_session(
-        self, record: CoreModel = None, user: dict = None
-    ) -> Union[AppSession, None]:
-        logger.info("update/create session start app_code=%s", self.app_code)
-        if self.session_model:
-            collection = self.db.engine.get_collection("user")
-            session = record
-            if user:
-                self.token = str(uuid.uuid4())
-                min_dt, max_dt = self.dte.gen_datetime_min_max_hours(
-                    max_hours_delata_date_to=self.settings.session_expire_hours
-                )
-                session = AppSession(
-                    token=self.token,
-                    uid=user["uid"],
-                    user=user.copy(),
-                    create_datetime=min_dt,
-                    expire_datetime=max_dt,
-                    app_code=self.app_code,
-                )
-            session.last_update = datetime.now().timestamp()
-            new_session = await collection.replace_one(
-                {"uid": session.uid},
-                session.model_dump(),
-                upsert=True,
-            )
-            logger.info("update/create session completed app_code=%s", self.app_code)
-            return new_session
-        logger.warning("update/create session skipped session_model=False")
-        return None

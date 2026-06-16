@@ -13,6 +13,10 @@ models/
 .venv
 dump/servicemci
 mdbdata
+scheduler_data
+manager/keycloak-manager/.env
+manager/keycloak-manager/out/
+kc-env.var
 da_importare
 test_token_exchange.sh
 test_nob
@@ -22,3 +26,4 @@ database/scripts/init_db.js
 .ozonenv
 # ansible local tmp
 .ansible/
+attivita/

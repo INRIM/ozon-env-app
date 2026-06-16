@@ -18,8 +18,19 @@ if [ $# -ge 1 ] && [[ "${1}" != -* ]]; then
 fi
 
 export ANSIBLE_CONFIG="${ANSIBLE_CONFIG:-${ROOT_DIR}/ansible.cfg}"
-export ANSIBLE_LOCAL_TEMP="${ANSIBLE_LOCAL_TEMP:-${ROOT_DIR}/.ansible/tmp}"
-mkdir -p "${ANSIBLE_LOCAL_TEMP}"
+if [ -z "${ANSIBLE_LOCAL_TEMP:-}" ]; then
+  REPO_ANSIBLE_TMP="${ROOT_DIR}/.ansible/tmp"
+  if mkdir -p "${REPO_ANSIBLE_TMP}" 2>/dev/null && [ -w "${REPO_ANSIBLE_TMP}" ]; then
+    ANSIBLE_LOCAL_TEMP="${REPO_ANSIBLE_TMP}"
+  else
+    ANSIBLE_LOCAL_TEMP="$(mktemp -d "${TMPDIR:-/tmp}/ozon-env-app-ansible.XXXXXX")"
+    trap 'rm -rf "${ANSIBLE_LOCAL_TEMP}"' EXIT
+  fi
+  export ANSIBLE_LOCAL_TEMP
+else
+  export ANSIBLE_LOCAL_TEMP
+  mkdir -p "${ANSIBLE_LOCAL_TEMP}"
+fi
 
 INVENTORY="${ANSIBLE_INVENTORY:-${ROOT_DIR}/ansible/inventories/${STAGE}/hosts.yml}"
 

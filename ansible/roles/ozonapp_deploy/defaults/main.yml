@@ -32,8 +32,8 @@ ozonapp_dotenv_content: ""
 # --- Build -------------------------------------------------------------------
 # uv lock richiede la VPN (ozon-env-api da gitlab): opt-in, default off.
 ozonapp_uv_lock: false
-# build_imges.sh costruisce ozonapp.db + ozonapp.app + ozonapp.mail_sender
-# (richiede VPN, --network host).
+# build_imges.sh costruisce ozonapp.db + ozonapp.app + ozonapp.mail_sender +
+# ozonapp.calendar_scheduler (richiede VPN, --network host).
 ozonapp_build_images: true
 
 # --- Deploy (setup-db + bootstrap) ------------------------------------------
@@ -43,6 +43,9 @@ ozonapp_admin_uid: ""
 ozonapp_bootstrap_base_only: false
 # In deploy ricostruisce le immagini prima di setup/bootstrap (richiede VPN).
 ozonapp_deploy_build: false
+
+# Nota: la configurazione keycloak NON e' piu' nel deploy. Vedi il servizio
+# interattivo dedicato manager/keycloak-manager (genera kc-env.var).
 
 # --- Update ------------------------------------------------------------------
 ozonapp_update_service: app

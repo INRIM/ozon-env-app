@@ -199,6 +199,10 @@
     - ozonapp_action == 'deploy'
     - ozonapp_run_bootstrap | bool
 
+# Nota: la configurazione keycloak (service client M2M + audience) NON e' piu'
+# nel deploy. E' un servizio interattivo dedicato: manager/keycloak-manager
+# (genera kc-env.var, da incollare nell'.env del consumer).
+
 - name: "[deploy] Recreate and start full stack"
   ansible.builtin.command:
     argv:

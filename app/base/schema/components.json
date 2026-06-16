@@ -6143,7 +6143,11 @@
                         },
                         {
                           "label": "Pausa",
-                          "value": "remove"
+                          "value": "pause"
+                        },
+                        {
+                          "label": "Riprendi",
+                          "value": "resume"
                         },
                         {
                           "label": "Rimuovi",

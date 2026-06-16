@@ -10,7 +10,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-ozon-env = { git = "https://github.com/inrim/ozon-env.git", rev = "4.0.0" }
+ozon-env = { git = "https://github.com/inrim/ozon-env.git", rev = "4.0.2" }
 
 [build-system]
 requires = ["hatchling"]

@@ -43,6 +43,27 @@ services:
         max-size: 10m
         max-file: "3"
 
+  calendar_scheduler:
+    image: ozonapp.calendar_scheduler:latest
+    build:
+      context: ./services/calendar_scheduler
+    container_name: ozon-env-calendar-scheduler
+    env_file:
+      - .env
+    depends_on:
+      - app
+      - ozonenv_app_db
+    volumes:
+      - ./models:/models
+      - ./scheduler_data:/data
+    restart: unless-stopped
+    networks:
+      - ozn-network
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
   ozonenv_app_db:
     stdin_open: true  # -i
     tty: true

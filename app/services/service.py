@@ -1,7 +1,12 @@
 import logging
 import re
+from datetime import datetime
+from types import UnionType
 from typing import Any
 from typing import Union
+from typing import get_args
+from typing import get_origin
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 from ozonenv.OzonEnv import OzonEnv
@@ -20,8 +25,23 @@ from app.ozon_env_acl import enforce_write_acl
 
 logger = logging.getLogger("uvicorn.error")
 _COMPONENT_RUNTIME_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
-
-
+_BOOLEAN_PAYLOAD_KEYS: frozenset[str] = frozenset(
+    {
+        "active",
+        "admin",
+        "builder_enabled",
+        "create_menu_dashboard",
+        "default",
+        "demo",
+        "force_domain_query",
+        "handle_global_change",
+        "make_virtual_model",
+        "no_cancel",
+        "no_public_user",
+        "sys",
+        "write_access",
+    }
+)
 def _normalize_order(order: str) -> str:
     """
     Normalizza la sintassi dell'ordinamento verso il formato ozon-env:
@@ -87,6 +107,81 @@ def _record_to_dict(record: Any) -> dict[str, Any]:
     if hasattr(record, "dict"):
         return record.dict()
     return {}
+
+
+def _normalize_boolean_payload_values(
+    data: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(data, dict):
+        return data
+    normalized = data.copy()
+    for key in _BOOLEAN_PAYLOAD_KEYS:
+        if normalized.get(key, None) == "":
+            normalized[key] = False
+    return normalized
+
+
+def _annotation_accepts_string(annotation: Any) -> bool:
+    if annotation is str:
+        return True
+    origin = get_origin(annotation)
+    if origin in {Union, UnionType}:
+        return any(_annotation_accepts_string(arg) for arg in get_args(annotation))
+    return False
+
+
+def _string_payload_keys(record_model: Any) -> set[str]:
+    model = getattr(record_model, "model", None)
+    model_fields = getattr(model, "model_fields", None)
+    if isinstance(model_fields, dict):
+        return {
+            str(key)
+            for key, field in model_fields.items()
+            if _annotation_accepts_string(getattr(field, "annotation", None))
+        }
+    legacy_fields = getattr(model, "__fields__", None)
+    if isinstance(legacy_fields, dict):
+        return {
+            str(key)
+            for key, field in legacy_fields.items()
+            if _annotation_accepts_string(
+                getattr(field, "outer_type_", None)
+                or getattr(field, "type_", None)
+            )
+        }
+    return set()
+
+
+def _normalize_string_payload_values(
+    data: dict[str, Any] | None,
+    record_model: Any,
+) -> dict[str, Any] | None:
+    if not isinstance(data, dict):
+        return data
+    string_keys = _string_payload_keys(record_model)
+    if not string_keys:
+        return data
+    normalized = data.copy()
+    for key in string_keys:
+        value = normalized.get(key, None)
+        if value is not None and not isinstance(value, str):
+            if isinstance(value, (bool, int, float)):
+                normalized[key] = str(value)
+    return normalized
+
+
+def _normalize_payload_values(
+    data: dict[str, Any] | None,
+    record_model: Any,
+) -> dict[str, Any] | None:
+    data = _normalize_boolean_payload_values(data)
+    return _normalize_string_payload_values(data, record_model)
+
+
+def _payload_requests_menu_dashboard(data: dict[str, Any] | None) -> bool:
+    if not isinstance(data, dict):
+        return False
+    return _is_enabled_flag(data.get("create_menu_dashboard", False))
 
 
 class Service:
@@ -316,6 +411,7 @@ class Service:
             rec_name,
         )
         record_model = self._get_model(model_name)
+        data = _normalize_payload_values(data, record_model)
         operation = await self._resolve_write_operation(record_model, rec_name, data)
         acl = await self._get_compiled_field_acl()
         await enforce_write_acl(
@@ -326,6 +422,12 @@ class Service:
             operation=operation,
             payload=data if isinstance(data, dict) else {},
         )
+        create_menu_dashboard = (
+            model_name == "component"
+            and _payload_requests_menu_dashboard(data)
+        )
+        if isinstance(data, dict):
+            data.pop("create_menu_dashboard", None)
         record = await record_model.upsert(
             data=data,
             rec_name=rec_name,
@@ -341,10 +443,15 @@ class Service:
             await self._sync_component_runtime(
                 _record_to_dict(record),
                 generate_defaults=(
-                    generate_component_defaults
-                    and operation == FieldAclOperation.INSERT.value
+                    create_menu_dashboard
+                    or (
+                        generate_component_defaults
+                        and operation == FieldAclOperation.INSERT.value
+                    )
                 ),
             )
+        elif model_name == "component" and record is not None and create_menu_dashboard:
+            await self._create_menu_dashboard_for_component(_record_to_dict(record))
         if record is not None:
             # Auto-enqueue mail se il component del model lo richiede
             # (component.properties.send_mail_create/update). Best-effort.
@@ -382,13 +489,28 @@ class Service:
                 model_name,
             )
         if generate_defaults:
-            try:
-                await self._make_default_actions_for_component(schema)
-            except Exception:
-                logger.exception(
-                    "component hook: make_default_actions failed rec_name=%s",
-                    model_name,
-                )
+            await self._create_menu_dashboard_for_component(schema)
+
+    async def _create_menu_dashboard_for_component(
+            self,
+            schema: dict[str, Any],
+    ) -> None:
+        if not isinstance(schema, dict) or not schema:
+            return
+        model_name = str(schema.get("rec_name", "") or "").strip()
+        if not _is_runtime_component_name(model_name):
+            logger.info(
+                "component hook: skip menu dashboard invalid rec_name=%s",
+                model_name,
+            )
+            return
+        try:
+            await self._make_default_actions_for_component(schema)
+        except Exception:
+            logger.exception(
+                "component hook: make_default_actions failed rec_name=%s",
+                model_name,
+            )
 
     async def fast_search_list(
             self,
@@ -453,6 +575,155 @@ class Service:
         response.content.obfucated_fields = obfuscate_fields
         return response
 
+    async def run_calendar_task(
+            self,
+            rec_name: str,
+            *,
+            payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        run_payload = payload.copy() if isinstance(payload, dict) else {}
+        calendar_model = self._get_model("calendar")
+        record = await calendar_model.by_name(rec_name)
+        if not record:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Calendar task '{rec_name}' not found",
+            )
+
+        task_data = _record_to_dict(record)
+        if str(task_data.get("tipo", "")).lower() != "task":
+            return {
+                "status": "error",
+                "rec_name": rec_name,
+                "message": "Calendar record is not a task",
+            }
+        if task_data.get("deleted", 0) != 0:
+            return {
+                "status": "error",
+                "rec_name": rec_name,
+                "message": "Calendar task is deleted",
+            }
+
+        trigger = str(run_payload.get("trigger", "") or "manual")
+        if (
+            trigger != "manual"
+            and not _is_enabled_flag(task_data.get("periodico", False))
+            and str(task_data.get("stato", "")).lower() == "done"
+        ):
+            return {
+                "status": "skipped",
+                "rec_name": rec_name,
+                "message": "One-shot calendar task already completed",
+            }
+
+        action_name = str(task_data.get("task", "") or "").strip()
+        if not action_name:
+            await self._write_calendar_fields(
+                calendar_model,
+                rec_name,
+                task_data,
+                {"stato": "erroreConfigurazione"},
+            )
+            return {
+                "status": "error",
+                "rec_name": rec_name,
+                "message": "Calendar task action is empty",
+            }
+
+        target_rec_name = str(task_data.get("task_record_name", "") or "").strip()
+        action_payload = {
+            "rec_name": target_rec_name,
+            "calendar_task": rec_name,
+            "run_id": run_payload.get("run_id", ""),
+            "scheduled_time": run_payload.get("scheduled_time", ""),
+            "trigger": trigger,
+        }
+
+        started_at = datetime.now(ZoneInfo("Europe/Rome"))
+        try:
+            result = await self.service_handle_action_post(
+                action_name=action_name,
+                data=action_payload,
+                rec_name=target_rec_name,
+            )
+        except Exception as exc:
+            finished_at = datetime.now(ZoneInfo("Europe/Rome"))
+            await self._write_calendar_fields(
+                calendar_model,
+                rec_name,
+                task_data,
+                {
+                    "stato": "errore",
+                    "last": finished_at,
+                    "message": str(exc),
+                },
+            )
+            return {
+                "status": "error",
+                "rec_name": rec_name,
+                "task": action_name,
+                "task_record_name": target_rec_name,
+                "run_id": run_payload.get("run_id", ""),
+                "started_at": started_at.isoformat(),
+                "finished_at": finished_at.isoformat(),
+                "message": str(exc),
+            }
+
+        finished_at = datetime.now(ZoneInfo("Europe/Rome"))
+        result_data = result.data if result is not None else {}
+        failed = (
+            isinstance(result_data, dict)
+            and str(result_data.get("status", "")).lower() == "error"
+        )
+        next_state = (
+            "errore"
+            if failed
+            else (
+                "progress"
+                if _is_enabled_flag(task_data.get("periodico", False))
+                else "done"
+            )
+        )
+        update_data: dict[str, Any] = {
+            "stato": next_state,
+            "last": finished_at,
+        }
+        if next_state == "done":
+            update_data["active"] = False
+        await self._write_calendar_fields(
+            calendar_model, rec_name, task_data, update_data
+        )
+
+        return {
+            "status": "error" if failed else "ok",
+            "rec_name": rec_name,
+            "task": action_name,
+            "task_record_name": target_rec_name,
+            "run_id": run_payload.get("run_id", ""),
+            "started_at": started_at.isoformat(),
+            "finished_at": finished_at.isoformat(),
+            "message": (
+                str(result_data.get("message", ""))
+                if isinstance(result_data, dict)
+                else ""
+            ),
+        }
+
+    async def _write_calendar_fields(
+            self,
+            calendar_model: Any,
+            rec_name: str,
+            base: dict[str, Any],
+            changes: dict[str, Any],
+    ) -> None:
+        # L'ORM ozon-env diffa il record completo: un upsert parziale
+        # cancellerebbe i campi non passati (get_dict NON esclude i default).
+        # Scriviamo il record intero (base appena letto + changes) per un $set
+        # minimale. Vedi memoria ozon-env-upsert-partial-wipe.
+        full = dict(base)
+        full.update(changes)
+        await calendar_model.upsert(data=full, rec_name=rec_name)
+
     async def _make_default_actions_for_component(
             self,
             schema: dict[str, Any],
@@ -503,7 +774,7 @@ class Service:
                         getattr(self.session, "app_code", "") or ""
                     ).strip()
                     if app_code:
-                        group_data["app_code"] = [app_code]
+                        group_data["apps"] = [app_code]
                 await menu_group_model.upsert(
                     data=group_data, rec_name=model_name
                 )

@@ -1,4 +1,3 @@
-import asyncio
 import socket
 import uuid
 
@@ -10,7 +9,7 @@ from app.core.OzonModelApp import OzonModelApp
 from app.deps.app_env import _build_ozon_cfg
 from app.deps.app_env import _model_to_dict
 from app.deps.app_env import sync_app_settings_startup
-
+from app.core.models import AppUser
 
 def _localhost_mongo_available(host: str = "127.0.0.1", port: int = 22222) -> bool:
     try:
@@ -68,7 +67,7 @@ async def test_sync_app_settings_startup_persists_public_record_real_mongo(
     )
 
     env = OzonEnv(cfg=cfg, cls_model=OzonModelApp)
-    await env.init_env()
+    await env.init_env(local_model={"user":AppUser})
     settings_model = env.get("settings")
     existing = await _load_settings_record(settings_model, temp_app_code)
     if existing:
