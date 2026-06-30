@@ -39,6 +39,9 @@
     },
     {
       "fast_search_config": "/data/fast_search_config.json"
+    },
+    {
+      "calendar": "/data/calendar.json"
     }
   ],
   "dbviews": []

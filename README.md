@@ -22,7 +22,7 @@ Build / deploy / update via Ansible. Primo argomento = target env
 
 ```bash
 ./build.sh  [local|dev|prod]              # build immagini (default local)
-./deploy.sh [local|dev|prod] <admin_uid>  # setup-db + bootstrap + avvia stack
+./deploy.sh [local|dev|prod]              # build + docker compose up -d
 ./update.sh [local|dev|prod] [service]    # ricrea un servizio (default app)
 ./stop.sh                                 # ferma lo stack locale
 ```
@@ -32,17 +32,97 @@ Esempi:
 ```bash
 ./build.sh                  # local
 ./build.sh prod
-./deploy.sh a.gerace        # local (admin uid = a.gerace)
-./deploy.sh prod a.gerace
+./deploy.sh                 # local
+./deploy.sh prod
 ./update.sh dev app
 ```
 
 | Script | Cosa fa | Note |
 |--------|---------|------|
-| `build.sh` | `uv lock` (opt) + `build_imges.sh` → immagini `ozonapp.db` + `ozonapp.app` + `ozonapp.mail_sender` | **solo immagini, non avvia** lo stack. `uv lock`/build richiedono **VPN** (`--network host`). |
-| `deploy.sh` | assert env+admin → `setup_db.sh` → `bootstrap.sh <uid>` → `up -d --force-recreate` → health check | richiede `ozonapp.app:latest` gia buildata (o `-e ozonapp_deploy_build=true`). `bootstrap` idempotente. |
+| `build.sh` | `uv lock` (opt) + `build_imges.sh` → immagini `ozonapp.db` + `ozonapp.app` | **solo immagini, non avvia** lo stack. `uv lock`/build richiedono **VPN** (`--network host`). |
+| `deploy.sh` | build immagini `ozonapp.db` + `ozonapp.app` → `docker compose up -d` | non esegue setup-db, bootstrap o health check. |
 | `update.sh` | ricrea il servizio del compose (default `app`) | `-e ozonapp_update_build=true` per rebuild immagini prima. |
 | `stop.sh` | `docker compose stop` (locale) | |
+
+### Services Registry core
+
+I companion (`mail_sender`, `calendar_scheduler`) non sono piu' nel compose
+principale. Ogni companion ha un `manifest.json` e un `docker-compose.yml`
+autonomo sotto `services/<name>/`, collegato alla rete esterna `ozn-network`.
+
+Il registro e' una funzione del core applicativo, non un servizio separato:
+usa i modelli `service_registry` e `service_registry_repo` ed espone API sotto
+`/services/registry`. Il build globale crea solo `ozonapp.db` e `ozonapp.app`;
+i companion vengono buildati dal loro compose autonomo quando il registry li
+avvia.
+
+### Core Webhooks
+
+`ozon-env-app` puo' chiamare servizi esterni per integrare logiche specifiche
+di ACL, gestione utenti e sincronizzazioni senza spostare la competenza dei
+dati fuori dal core applicativo.
+
+Variabili:
+
+```bash
+CORE_WEBHOOKS_ENABLED=true
+CORE_WEBHOOKS_JSON='[{"url":"http://acl-service:8000/webhooks","events":["data.before_write","user.before_create"]}]'
+CORE_WEBHOOKS_FAIL_MODE=open
+CORE_WEBHOOKS_TIMEOUT_SECONDS=5
+CORE_WEBHOOKS_SIGNING_SECRET=...
+```
+
+Eventi supportati:
+
+- `data.before_write`: prima di ACL locale e upsert; puo' negare con
+  `{"allow": false}` o riscrivere il payload con `{"payload": {...}}`.
+- `data.after_write`: dopo upsert.
+- `data.after_read`: dopo lettura record.
+- `data.after_list`: dopo lettura lista.
+- `user.before_create`: prima della creazione utente.
+- `user.after_create`: dopo creazione utente.
+- `user.session.persist`: dopo persistenza sessione utente.
+
+### Camunda E2E Test
+
+Il test reale Camunda e' opt-in e non gira nella suite default. Usa il BPMN
+`attivita/test_request.bpmn`, i job type con typo contrattuali
+(`ckeck_user`, `sed_message_approved`, `sed_message_refused`) e pilota il flusso
+tramite gli endpoint app `/gateway/camunda/...`.
+
+Il compose di test usa Camunda senza auth (`CAMUNDA_AUTH_ENABLED=false`):
+nessun `CAMUNDA_OAUTH_*`, `CAMUNDA_CLIENT_*` o token Camunda e' richiesto.
+`APP_CODE` e' il codice app/model (`test_request` di default). `APP_TOKEN` e'
+invece la sessione dell'app `ozon-env-app` necessaria per chiamare gli endpoint
+applicativi: non e' `APP_CODE` e non viene salvato nel repository.
+
+```bash
+APP_TOKEN=<token-sessione-app> ./run_camunda_integration_test.sh
+```
+
+Opzioni utili:
+
+```bash
+APP_TOKEN=<token-sessione-app> BUILD_IMAGES=1 ./run_camunda_integration_test.sh
+./run_camunda_integration_test.sh logs
+./run_camunda_integration_test.sh down
+```
+
+Lo script genera `tests/camunda_e2e/.env` runtime, avvia lo stack
+`docker-compose-test.yml` e lancia il runner pytest nel compose. Il gateway non
+aggiunge header OAuth a Tasklist e apre Zeebe senza interceptor bearer nel
+profilo di test.
+- `calendar.task.completed`: dopo run di un calendar task con esito ok.
+- `calendar.task.failed`: dopo run di un calendar task con esito errore.
+
+> `calendar.task.*` sono **notifiche di esito** (post-run), non policy: emessi
+> fail-safe (un errore della webhook non blocca la run, a prescindere da
+> `FAIL_MODE`). Payload: `{rec_name, task, task_record_name, status, run_id,
+> started_at, finished_at, message}`.
+
+Il match degli `events` è esatto (o `*` per tutti): per ricevere la famiglia
+calendar elencare entrambi gli eventi, es. `"events":
+["calendar.task.completed","calendar.task.failed"]`.
 
 ### Target env
 
@@ -51,23 +131,22 @@ Esempi:
   clone/aggiornamento in `ozonapp_project_root` (`ozonapp_sync_sources=true`).
 - `ANSIBLE_INVENTORY=...` resta come override esplicito dell'inventory.
 
-Il primo argomento e' interpretato come env solo se ∈ `{local,dev,prod}`:
-`./deploy.sh a.gerace` resta local con admin `a.gerace`.
+Il primo argomento e' interpretato come env solo se ∈ `{local,dev,prod}`.
 
 ### Opzioni utili
 
 ```bash
 ./build.sh -e ozonapp_uv_lock=true          # esegue uv lock (VPN)
-./deploy.sh prod a.gerace -e ozonapp_deploy_build=true   # rebuild prima del deploy
-./deploy.sh a.gerace -e ozonapp_verify_endpoint=false    # salta health check
+./deploy.sh prod                            # build + docker compose up -d
+./deploy.sh -e ozonapp_deploy_build=false   # solo docker compose up -d
 ```
 
 ### Gestione `.env`
 
 Precedenza: `OZONAPP_DOTENV_CONTENT` (raw CI) → `OZONAPP_ENV_VARS` (mappa CI,
 template) → fallback `.env.example`. **Un `.env` esistente non viene mai
-sovrascritto** (contiene segreti reali). Chiavi obbligatorie in deploy:
-`APP_CODE`, `MONGO_USER`, `MONGO_PASS`, `MONGO_DB`, `SESSION_SECRET`.
+sovrascritto** (contiene segreti reali). La validazione delle chiavi `.env`
+in deploy e' opt-in con `-e ozonapp_validate_deploy_env=true`.
 
 ## Installation
 

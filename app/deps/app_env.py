@@ -493,6 +493,22 @@ async def get_authed_env(
         admins,
     )
 
+    # ACL row-level: allowed_users al login (admin -> admins di default; altrimenti
+    # dalle ACL). Vedi app/ozon_env_acl.apply_session_allowed_users.
+    try:
+        from app.ozon_env_acl import apply_session_allowed_users
+
+        allowed_users = apply_session_allowed_users(session, admins)
+        logger.info(
+            "session allowed_users uid=%s count=%d",
+            session_uid,
+            len(allowed_users),
+        )
+    except Exception:
+        logger.exception(
+            "failed to set allowed_users uid=%s", session_uid
+        )
+
     # BFF cookie mode: refresh cookie if ozon-env rotated tokens internally
     if cookie_val:
         fresh_token_data = getattr(ozon_env, "current_token_data", None)
@@ -516,6 +532,82 @@ async def get_authed_env(
         ozon_env.user_session.uid,
     )
     return ozon_env
+
+
+class WsAuthError(Exception):
+    """Auth fallita in contesto WebSocket (niente HTTPException sul WS)."""
+
+
+async def build_authed_env_from_token(
+    token: Any,
+    app_code: str = "",
+) -> AppOzonEnv:
+    """Costruisce un AppOzonEnv autenticato a partire da un token, fuori dal
+    ciclo HTTP (usato dal router WebSocket).
+
+    Replica il nucleo di `get_authed_env` senza Request/Response/CSRF: init env,
+    sync settings, `current_token`, `session_app()`, patch di
+    `app_code`/`is_admin`. In caso di fallimento chiude l'env e solleva
+    `WsAuthError`. Il chiamante è responsabile di chiudere l'env restituito.
+    """
+    if not token:
+        raise WsAuthError("Missing token")
+    effective_settings = _clone_settings_with_app_code(settings, app_code)
+    current_app_code = str(
+        getattr(effective_settings, "app_code", "") or ""
+    ).strip()
+    if not current_app_code:
+        raise WsAuthError("Missing APP_CODE configuration")
+
+    env = AppOzonEnv(
+        cfg=_build_ozon_cfg(effective_settings),
+        cls_model=OzonModelApp,
+    )
+    await env.init_env(local_model={"user": AppUser})
+    try:
+        try:
+            await _sync_runtime_app_settings(env, effective_settings)
+        except Exception:
+            logger.exception(
+                "ws app settings sync failed app_code=%s", current_app_code
+            )
+            _apply_runtime_app_settings(env, effective_settings)
+        await _register_static_models(env)
+
+        params = dict(env.params) if isinstance(env.params, dict) else {}
+        params["current_token"] = token
+        params.pop("ozon_admin_token", None)
+        env.params = params
+        if isinstance(getattr(env, "config_system", None), dict):
+            env.config_system.pop("ozon_admin_token", None)
+
+        try:
+            result = await env.session_app()
+        except (
+            TokenExpiredError,
+            TokenRefreshError,
+            TokenVerificationError,
+        ) as exc:
+            raise WsAuthError(str(exc) or "Token expired or invalid") from exc
+        if result.fail or not env.user_session:
+            raise WsAuthError(result.msg or "Invalid session")
+
+        session = env.user_session
+        admins = _get_app_admins(env)
+        session_uid = str(getattr(session, "uid", "") or "").strip()
+        resolved_app_code = _current_env_app_code(env, settings)
+        try:
+            session.app_code = resolved_app_code
+            session.is_admin = session_uid in admins
+        except Exception:
+            logger.exception(
+                "failed to patch ws session app_code/is_admin uid=%s",
+                session_uid,
+            )
+        return env
+    except Exception:
+        await env.close_env()
+        raise
 
 
 async def get_service(

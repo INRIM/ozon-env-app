@@ -32,6 +32,10 @@ class _ListModel:
         self.table_columns = {"rec_name": "Name"}
         self.rows = list(rows or [])
         self.last_domain = None
+        self.file_dump_mode = ""
+
+    def set_file_dump_mode(self, mode: str):
+        self.file_dump_mode = mode
 
     def get_domain(self, query):
         self.last_domain = query
@@ -213,7 +217,8 @@ def test_load_record_missing_model_raises_http_404():
 
 
 def test_list_records_resolves_title_case_model_name():
-    service = Service(_AliasEnv())
+    env = _AliasEnv()
+    service = Service(env)
 
     response = asyncio.run(
         service.list_records(
@@ -228,6 +233,21 @@ def test_list_records_resolves_title_case_model_name():
     assert response.content.model == "user"
     assert response.content.total_count == 1
     assert response.content.data == [{"rec_name": "john"}]
+    assert env.get("user").file_dump_mode == ""
+
+
+def test_get_model_uses_optional_file_dump_mode_from_settings(monkeypatch):
+    env = _AliasEnv()
+    service = Service(env)
+    monkeypatch.setattr(
+        "app.services.service.get_env_settings",
+        lambda: SimpleNamespace(model_file_dump_mode="url"),
+    )
+
+    model = service._get_model("User")
+
+    assert model is env.get("user")
+    assert model.file_dump_mode == "url"
 
 
 def test_component_upsert_does_not_sync_runtime_by_default():
@@ -329,7 +349,7 @@ def test_component_upsert_normalizes_empty_string_boolean_fields():
     assert component_model.last_upsert_data["sys"] is False
 
 
-def test_upsert_normalizes_scalar_values_for_optional_string_fields():
+def test_upsert_does_not_normalize_scalar_values_for_non_component_models():
     env = _MailServerOutEnv()
     service = Service(env)
 
@@ -342,7 +362,7 @@ def test_upsert_normalizes_scalar_values_for_optional_string_fields():
     )
 
     mail_server_model = env.get("mail_server_out")
-    assert mail_server_model.last_upsert_data["port"] == "465"
+    assert mail_server_model.last_upsert_data["port"] == 465
 
 
 def test_component_upsert_syncs_runtime_without_generating_defaults_by_default():

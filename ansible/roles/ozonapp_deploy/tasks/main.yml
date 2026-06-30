@@ -93,7 +93,9 @@
   ansible.builtin.slurp:
     src: "{{ ozonapp_app_dir }}/.env"
   register: _ozonapp_deployed_env
-  when: ozonapp_action == 'deploy'
+  when:
+    - ozonapp_action == 'deploy'
+    - ozonapp_validate_deploy_env | bool
 
 - name: Validate required env keys for deploy
   ansible.builtin.assert:
@@ -103,16 +105,9 @@
   vars:
     _ozonapp_dotenv_decoded: "{{ _ozonapp_deployed_env.content | b64decode }}"
   loop: "{{ ozonapp_required_deploy_env }}"
-  when: ozonapp_action == 'deploy'
-
-- name: Validate admin uid for bootstrap
-  ansible.builtin.assert:
-    that:
-      - (ozonapp_admin_uid | default('') | length) > 0
-    fail_msg: "ozonapp_admin_uid e' obbligatorio per il bootstrap (es: -e ozonapp_admin_uid=a.gerace)."
   when:
     - ozonapp_action == 'deploy'
-    - ozonapp_run_bootstrap | bool
+    - ozonapp_validate_deploy_env | bool
 
 # ============================================================================
 # BUILD
@@ -128,7 +123,7 @@
     - ozonapp_action == 'build'
     - ozonapp_uv_lock | bool
 
-- name: "[build] Build images (ozonapp.db + ozonapp.app + ozonapp.mail_sender)"
+- name: "[build] Build images (ozonapp.db + ozonapp.app)"
   ansible.builtin.command:
     argv:
       - ./build_imges.sh
@@ -138,14 +133,10 @@
     - ozonapp_action == 'build'
     - ozonapp_build_images | bool
 
-# build NON porta su lo stack: init_db.js (gitignored) e generato da setup_db.sh
-# in fase di deploy; un `up` su checkout fresco creerebbe una dir vuota al posto
-# del bind-mount. Lo stack viene avviato da deploy (setup_db -> bootstrap -> up).
-
 # ============================================================================
-# DEPLOY (= setup-db + bootstrap)
+# DEPLOY (= build immagini ozon-env-app + docker compose up)
 # ============================================================================
-- name: "[deploy] Rebuild images before deploy (richiede VPN)"
+- name: "[deploy] Build ozon-env-app images"
   ansible.builtin.command:
     argv:
       - ./build_imges.sh
@@ -155,55 +146,21 @@
     - ozonapp_action == 'deploy'
     - ozonapp_deploy_build | bool
 
-# bootstrap.sh fa `docker compose run --rm app ...`: l'immagine app deve esistere.
-- name: "[deploy] Check app image present"
+- name: "[deploy] Ensure external docker network exists"
   ansible.builtin.command:
     argv:
       - docker
-      - image
-      - inspect
-      - ozonapp.app:latest
-  register: _ozonapp_app_image
-  changed_when: false
-  failed_when: false
+      - network
+      - create
+      - "{{ ozonapp_docker_network }}"
+  register: _ozonapp_network_create
+  changed_when: _ozonapp_network_create.rc == 0
+  failed_when:
+    - _ozonapp_network_create.rc != 0
+    - "'already exists' not in (_ozonapp_network_create.stderr | default(''))"
   when: ozonapp_action == 'deploy'
 
-- name: "[deploy] Assert app image exists"
-  ansible.builtin.assert:
-    that:
-      - _ozonapp_app_image.rc == 0
-    fail_msg: "Immagine ozonapp.app:latest assente. Esegui prima ./build.sh (o -e ozonapp_deploy_build=true)."
-  when: ozonapp_action == 'deploy'
-
-- name: "[deploy] setup-db (build immagine db + init_db.js)"
-  ansible.builtin.command:
-    argv:
-      - ./setup_db.sh
-  args:
-    chdir: "{{ ozonapp_app_dir }}"
-  when:
-    - ozonapp_action == 'deploy'
-    - ozonapp_run_setup_db | bool
-
-# bootstrap.sh: avvia il db, attende il ping, esegue bootstrap.py --admin <uid>.
-- name: "[deploy] bootstrap (plugin + seed settings/admin)"
-  ansible.builtin.command:
-    argv: >-
-      {{
-        ['./bootstrap.sh', ozonapp_admin_uid]
-        + (['--base-only'] if (ozonapp_bootstrap_base_only | bool) else [])
-      }}
-  args:
-    chdir: "{{ ozonapp_app_dir }}"
-  when:
-    - ozonapp_action == 'deploy'
-    - ozonapp_run_bootstrap | bool
-
-# Nota: la configurazione keycloak (service client M2M + audience) NON e' piu'
-# nel deploy. E' un servizio interattivo dedicato: manager/keycloak-manager
-# (genera kc-env.var, da incollare nell'.env del consumer).
-
-- name: "[deploy] Recreate and start full stack"
+- name: "[deploy] Start docker compose"
   ansible.builtin.command:
     argv:
       - docker
@@ -212,7 +169,6 @@
       - "{{ ozonapp_compose_file_name }}"
       - up
       - -d
-      - --force-recreate
   args:
     chdir: "{{ ozonapp_app_dir }}"
   when: ozonapp_action == 'deploy'

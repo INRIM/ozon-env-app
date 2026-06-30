@@ -1,0 +1,34 @@
+{
+  "code": "calendar_scheduler",
+  "kind": "scheduler",
+  "network": "ozn-network",
+  "shared_volumes": [
+    {
+      "name": "models",
+      "target": "/models"
+    },
+    {
+      "name": "scheduler_data",
+      "target": "/data"
+    }
+  ],
+  "env_requires": [
+    "APP_CODE",
+    "MONGO_USER",
+    "MONGO_PASS",
+    "MONGO_DB",
+    "SCHEDULER_RUN_BASE_URL",
+    "SCHEDULER_OAUTH_TOKEN_URL",
+    "SCHEDULER_OAUTH_CLIENT_ID",
+    "SCHEDULER_OAUTH_CLIENT_SECRET"
+  ],
+  "endpoint": "",
+  "image": "ozonapp.calendar_scheduler:latest",
+  "build_context": ".",
+  "repo": "",
+  "version": "local",
+  "compose_file": "docker-compose.yml",
+  "health": {
+    "type": "docker-healthcheck"
+  }
+}

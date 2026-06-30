@@ -17,7 +17,12 @@ from .action_runtime import ActionRuntime
 from .action_runtime import _is_enabled_flag
 from .common import *
 from .formio import get_formio_select_options
+from app.app_settings import get_env_settings
 from app.core.models import FieldAclOperation
+from app.core.service_manager import ServiceManagerCore
+from app.core.service_registry import ServiceRegistryCore
+from app.core.OzonEnvApp import normalize_component_properties
+from app.core.webhooks import WebhookDispatcher
 from app.services.message_queue import maybe_enqueue_on_save
 from app.ozon_env_acl import CompiledFieldAcl
 from app.ozon_env_acl import compile_field_acl_policies
@@ -42,12 +47,15 @@ _BOOLEAN_PAYLOAD_KEYS: frozenset[str] = frozenset(
         "write_access",
     }
 )
+
+
 def _normalize_order(order: str) -> str:
     """
     Normalizza la sintassi dell'ordinamento verso il formato ozon-env:
     - `field:asc|desc` (gia valido)
     - `-field` -> `field:desc`
     - `+field` / `field` -> `field:asc`
+    - `field asc|desc` o `field+asc|desc` -> `field:asc|desc`
     Supporta piu campi separati da virgola.
     """
 
@@ -56,6 +64,14 @@ def _normalize_order(order: str) -> str:
     tokens = [token.strip() for token in order.split(",") if token.strip()]
     normalized: list[str] = []
     for token in tokens:
+        token_clean = token.replace("+", " ").strip()
+        if " " in token_clean:
+            parts = [p.strip() for p in token_clean.split(" ") if p.strip()]
+            if len(parts) == 2:
+                field, direction = parts[0], parts[1].lower()
+                if direction in ("asc", "desc"):
+                    normalized.append(f"{field}:{direction}")
+                    continue
         if ":" in token:
             normalized.append(token)
             continue
@@ -88,7 +104,7 @@ def _is_runtime_component_name(name: Any) -> bool:
 
 
 def _merge_query(
-        base_query: dict[str, Any], extra_query: dict[str, Any]
+    base_query: dict[str, Any], extra_query: dict[str, Any]
 ) -> dict[str, Any]:
     if not base_query:
         return extra_query.copy() if isinstance(extra_query, dict) else {}
@@ -126,7 +142,9 @@ def _annotation_accepts_string(annotation: Any) -> bool:
         return True
     origin = get_origin(annotation)
     if origin in {Union, UnionType}:
-        return any(_annotation_accepts_string(arg) for arg in get_args(annotation))
+        return any(
+            _annotation_accepts_string(arg) for arg in get_args(annotation)
+        )
     return False
 
 
@@ -190,6 +208,9 @@ class Service:
         self.session = env.user_session
         self.settings = env.orm.app_settings
         self.action_runtime = ActionRuntime(self)
+        self.service_manager = ServiceManagerCore(env)
+        self.service_registry = ServiceRegistryCore(env)
+        self.webhooks = WebhookDispatcher.from_settings(get_env_settings())
         self._compiled_field_acl: CompiledFieldAcl | None = None
         logger.info(
             "service initialized app_code=%s",
@@ -205,6 +226,10 @@ class Service:
         for candidate in candidates:
             model = self.env.get(candidate)
             if model is not None:
+                file_dump_mode = get_env_settings().model_file_dump_mode.strip()
+                set_file_dump_mode = getattr(model, "set_file_dump_mode", None)
+                if file_dump_mode and callable(set_file_dump_mode):
+                    set_file_dump_mode(file_dump_mode)
                 return model
         raise HTTPException(
             status_code=404,
@@ -222,15 +247,19 @@ class Service:
         static: list[str] = list(self.env.models.keys())
         # static first, dynamic appended (deduplication via dict.fromkeys)
         merged = list(dict.fromkeys(static + dynamic))
-        logger.info("service.get_models static=%d dynamic=%d total=%d",
-                    len(static), len(dynamic), len(merged))
+        logger.info(
+            "service.get_models static=%d dynamic=%d total=%d",
+            len(static),
+            len(dynamic),
+            len(merged),
+        )
         return merged
 
     async def get_distinct(
-            self,
-            model: str,
-            query: dict = None,
-            compute_label: str = "",
+        self,
+        model: str,
+        query: dict = None,
+        compute_label: str = "",
     ):
         logger.info(
             "service.get_distinct model=%s query=%s compute_label=%s",
@@ -247,10 +276,10 @@ class Service:
         )
 
     async def get_select_options(
-            self,
-            field_key,
-            curr_model,
-            schema_type: str = "formio",
+        self,
+        field_key,
+        curr_model,
+        schema_type: str = "formio",
     ):
         logger.info(
             "service.get_select_options field=%s model=%s schema_type=%s",
@@ -276,22 +305,425 @@ class Service:
         compo_model = self.env.get(model)
         return await compo_model.by_name(name)
 
+    async def register_service_repo(
+        self,
+        *,
+        url: str,
+        version: str = "main",
+        manifest_path: str = "manifest.json",
+        active: bool = True,
+    ) -> dict[str, Any]:
+        return await self.service_registry.register_repo(
+            url=url,
+            version=version,
+            manifest_path=manifest_path,
+            active=active,
+        )
+
+    async def register_service_manifest(
+        self,
+        manifest_data: dict[str, Any],
+        *,
+        manifest_path: str = "",
+        source_path: str = "",
+    ) -> dict[str, Any]:
+        return await self.service_registry.register_manifest(
+            manifest_data,
+            manifest_path=manifest_path,
+            source_path=source_path,
+        )
+
+    async def list_registered_services(
+        self,
+        query: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        return await self.service_registry.list_services(query=query)
+
+    async def up_registered_service(
+        self,
+        code: str,
+        *,
+        build: bool = True,
+    ) -> dict[str, Any]:
+        return await self.service_registry.up(code, build=build)
+
+    async def down_registered_service(self, code: str) -> dict[str, Any]:
+        return await self.service_registry.down(code)
+
+    def _camunda_gateway(self):
+        from app.app_settings import get_env_settings
+        from app.services.camunda import CamundaGateway
+
+        return CamundaGateway(get_env_settings())
+
+    async def start_camunda_gateway_process(
+        self,
+        process_key: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        update_data: bool = False,
+        process_model: str = "",
+    ) -> dict[str, Any]:
+        async def save_form_record(
+            model_name: str,
+            record_payload: dict[str, Any],
+        ) -> dict[str, Any]:
+            response = await self.upsert(
+                model_name,
+                record_payload,
+                rec_name=str(record_payload.get("rec_name", "") or ""),
+            )
+            saved = getattr(getattr(response, "content", None), "data", None)
+            return _record_to_dict(saved)
+
+        start_payload = payload or {}
+        model_name = ""
+        if update_data:
+            _, process = await self.service_manager.load_process(process_key)
+            configured_model = str(process.model or "").strip()
+            requested_model = str(process_model or "").strip()
+            if (
+                configured_model
+                and requested_model
+                and configured_model != requested_model
+            ):
+                raise ValueError(
+                    f"Camunda process '{process.rec_name}' is configured for model "
+                    f"'{configured_model}', not '{requested_model}'"
+                )
+            model_name = requested_model or configured_model
+            if not model_name:
+                raise ValueError(
+                    f"Camunda process '{process.rec_name}' has no model configured"
+                )
+            start_payload = await save_form_record(model_name, start_payload)
+
+        result = await self.service_manager.start_camunda_process(
+            process_key,
+            start_payload,
+            gateway=self._camunda_gateway(),
+        )
+
+        process_id = str(result.get("process_id", "") or "")
+        if update_data and process_id:
+            process_payload = start_payload.copy()
+            process_payload["process_id"] = process_id
+            saved_with_process = await save_form_record(
+                model_name,
+                process_payload,
+            )
+            result["form"] = saved_with_process
+
+        # Attende il primo avanzamento: se il task successivo e' uno user task,
+        # risponde "self" -> il form rletto (il client resta sul form, ora col
+        # processo avviato). Errore dell'external task -> risposta d'errore.
+        if process_id:
+            rec_name = str(
+                (result.get("form") or {}).get("rec_name")
+                or start_payload.get("rec_name")
+                or ""
+            ).strip()
+            client_resp = await self._camunda_after_start_response(
+                process_id, model=model_name, rec_name=rec_name
+            )
+            if client_resp is not None:
+                return client_resp
+
+        return result
+
+    async def _camunda_after_start_response(
+        self, process_id: str, *, model: str = "", rec_name: str = ""
+    ) -> Any:
+        """Dopo lo start: attende il settle e costruisce la risposta client.
+        - errore dell'external task -> risposta d'errore (dalla struct);
+        - task successivo = user task -> "self": il form rletto (mode=form), cosi
+          il client resta sul form col processo avviato (non redirige altrove).
+        None se non c'e' nulla da gestire."""
+        settings = get_env_settings()
+        wait_seconds = float(
+            getattr(settings, "camunda_complete_wait_seconds", 0) or 0
+        )
+        if wait_seconds <= 0:
+            return None
+        gateway = self._camunda_gateway()
+        try:
+            settle = await gateway.wait_until_settled(
+                process_id,
+                timeout_seconds=wait_seconds,
+                interval_seconds=float(
+                    getattr(settings, "camunda_poll_interval_seconds", 0.5)
+                    or 0.5
+                ),
+            ) or {}
+        except Exception:  # noqa: BLE001 - l'attesa non deve rompere lo start
+            logger.exception(
+                "camunda wait_until_settled (start) failed process=%s",
+                process_id,
+            )
+            return None
+
+        process_vars = settle.get("variables") or {}
+        client_resp = self._camunda_client_response(process_vars, model=model)
+        if client_resp is not None:
+            return client_resp
+
+        history_loader = getattr(gateway, "get_process_history_variables", None)
+        if callable(history_loader):
+            try:
+                history_vars = await history_loader(process_id)
+            except Exception:  # noqa: BLE001 - fallback best-effort
+                logger.exception(
+                    "camunda history variables failed process=%s", process_id
+                )
+                history_vars = {}
+            client_resp = self._camunda_client_response(
+                history_vars or {}, model=model
+            )
+        if client_resp is not None:
+            return client_resp
+
+        # task successivo = user task -> "self" = reload della pagina corrente
+        # (mode=redirect next_page="#"): il client ricarica e mostra il form col
+        # processo avviato / il nuovo task.
+        if settle.get("reason") == "user_task":
+            model_obj = self._get_model(model) if model else None
+            return make_response_object(
+                model_obj, mode="redirect", data={"next_page": "#"}
+            )
+        return None
+
+    async def get_camunda_gateway_status(
+        self,
+        process_id: str,
+    ) -> dict[str, Any]:
+        return await self.service_manager.camunda_status(
+            process_id,
+            gateway=self._camunda_gateway(),
+        )
+
+    async def complete_camunda_gateway_task(
+        self,
+        process_id: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        decision: str = "",
+    ) -> Any:
+        payload = payload or {}
+        gateway = self._camunda_gateway()
+        form = payload.get("form") if isinstance(payload.get("form"), dict) else {}
+        variables = (
+            payload.get("variables")
+            if isinstance(payload.get("variables"), dict)
+            else {}
+        )
+        model = str(
+            form.get("model")
+            or variables.get("model")
+            or payload.get("model")
+            or ""
+        ).strip()
+        rec_name = str(
+            form.get("rec_name")
+            or variables.get("rec_name")
+            or payload.get("rec_name")
+            or ""
+        ).strip()
+        data = form or variables
+
+        # 1) salva le modifiche dell'utente sul form PRIMA del complete (cosi il
+        #    record riflette lo stato dell'utente; l'eventuale worker external lo
+        #    aggiornera' poi). Va fatto prima dell'attesa per evitare la race in
+        #    cui sovrascriverebbe quanto scritto dal worker.
+        if model and rec_name:
+            await self.upsert(model, data, rec_name)
+
+        # 2) completa il task camunda (manda le variabili a Camunda).
+        complete_result = await self.service_manager.complete_camunda_task(
+            process_id,
+            payload,
+            gateway=gateway,
+            decision=decision,
+        )
+
+        # 3) attende che il flow avanzi oltre gli eventuali service/external task
+        #    (fino al prossimo user task o alla fine del processo) prima di
+        #    rispondere: il click "completa" torna solo dopo che l'external task
+        #    ha risposto. Best-effort col timeout configurato.
+        settings = get_env_settings()
+        wait_seconds = float(
+            getattr(settings, "camunda_complete_wait_seconds", 0) or 0
+        )
+        settle: dict[str, Any] = {}
+        if wait_seconds > 0 and process_id:
+            try:
+                settle = await gateway.wait_until_settled(
+                    process_id,
+                    exclude_task_key=str(
+                        complete_result.get("completed_task_key") or ""
+                    ),
+                    timeout_seconds=wait_seconds,
+                    interval_seconds=float(
+                        getattr(
+                            settings, "camunda_poll_interval_seconds", 0.5
+                        )
+                        or 0.5
+                    ),
+                ) or {}
+            except Exception:  # noqa: BLE001 - l'attesa non deve rompere il complete
+                logger.exception(
+                    "camunda wait_until_settled failed process=%s", process_id
+                )
+
+        # 4) risposta dal risultato dell'external task: la variabile col nome
+        #    dell'ultimo task (variables["last_task"]) contiene la struttura con
+        #    next_action/next_page/error. Costruisce la risposta client
+        #    (redirect/errore); fallback al form rletto se non disponibile.
+        client_resp = self._camunda_client_response(
+            settle.get("variables") or {}, model=model, rec_name=rec_name
+        )
+        if client_resp is not None:
+            return client_resp
+        if model and rec_name:
+            return await self.load_record(model, rec_name)
+        if model:
+            return make_response_object(
+                self._get_model(model), mode="form", data={}
+            )
+        return {"stato": {"process_id": process_id}, "variables": variables}
+
+    def _camunda_client_response(
+        self,
+        process_vars: dict[str, Any],
+        *,
+        model: str = "",
+        rec_name: str = "",
+    ) -> Any:
+        """Costruisce la risposta client dalla struttura prodotta dall'external
+        task (chiavi legacy ProcessServiceCamunda). Ritorna None se non c'e' una
+        struttura usabile (il caller fa fallback al form).
+
+        Sempre envelope ResponseObject (mai dict grezzo): error -> form con
+        status=error+message; redirect -> mode=redirect con next_page.
+        """
+        last_task = str(process_vars.get("last_task") or "").strip()
+        ctx = process_vars.get(last_task) if last_task else None
+        if not isinstance(ctx, dict):
+            return None
+        ctx_model = str(ctx.get("model") or model or "").strip()
+        model_obj = self._get_model(ctx_model) if ctx_model else None
+
+        if bool(ctx.get("error")):
+            message = str(
+                ctx.get("msg") or f"Errore nel task {last_task}"
+            )
+            return make_response_object(
+                model_obj,
+                mode="form",
+                data={"status": "error", "message": message},
+            )
+
+        if ctx.get("next_action") == "redirect":
+            next_page = str(ctx.get("next_page") or "self")
+            if next_page in ("", "self"):
+                # "self" -> reload della pagina corrente (pattern legacy
+                # ProcessServiceCamunda: url "self" -> "#"). Il client su "#"
+                # ricarica la vista, mostrando il nuovo stato/task.
+                next_page = "#"
+            return make_response_object(
+                model_obj, mode="redirect", data={"next_page": next_page}
+            )
+
+        return None
+
+    async def complete_many_camunda_gateway_tasks(
+        self,
+        payload: dict[str, Any] | None = None,
+        *,
+        decision: str = "",
+    ) -> dict[str, Any]:
+        """Batch: per ogni rec_name nella lista esegue il task singolo
+        (complete/approved/refused). Il process_id di ciascuno e' letto dal
+        record (campo `process_id`, salvato allo start). Ritorna un riepilogo
+        per rec_name (non si ferma al primo errore)."""
+        payload = payload or {}
+        model = str(payload.get("model") or "").strip()
+        rec_names = payload.get("rec_names") or payload.get("rec_name") or []
+        if isinstance(rec_names, str):
+            rec_names = [rec_names]
+        # variabili/form comuni a tutti (senza le chiavi di batch).
+        common = {
+            k: v
+            for k, v in payload.items()
+            if k not in ("rec_names", "rec_name")
+        }
+        results: list[dict[str, Any]] = []
+        for rec_name in rec_names:
+            rec_name = str(rec_name or "").strip()
+            if not rec_name or not model:
+                results.append(
+                    {
+                        "rec_name": rec_name,
+                        "status": "error",
+                        "message": "missing model/rec_name",
+                    }
+                )
+                continue
+            try:
+                record = await self._get_model(model).by_name(rec_name)
+                process_id = str(
+                    getattr(record, "process_id", "") or ""
+                ).strip()
+                if not process_id:
+                    raise ValueError(
+                        f"record '{rec_name}' senza process_id"
+                    )
+                item_payload = {
+                    **common,
+                    "model": model,
+                    "rec_name": rec_name,
+                }
+                await self.complete_camunda_gateway_task(
+                    process_id, item_payload, decision=decision
+                )
+                results.append({"rec_name": rec_name, "status": "ok"})
+            except Exception as exc:  # noqa: BLE001 - un record non blocca il batch
+                logger.exception(
+                    "complete_many: errore rec_name=%s", rec_name
+                )
+                results.append(
+                    {
+                        "rec_name": rec_name,
+                        "status": "error",
+                        "message": str(exc),
+                    }
+                )
+        ok = sum(1 for r in results if r["status"] == "ok")
+        return {
+            "stato": {
+                "status": "ok" if ok == len(results) else "partial",
+                "decision": decision,
+                "total": len(results),
+                "completed": ok,
+            },
+            "results": results,
+        }
+
     async def compo_by_name(self, model: str, name: str) -> ResponseObject:
         logger.info("service.compo_by_name model=%s name=%s", model, name)
         compo_model = self.env.get(model)
         if name == "component":
-            record = await compo_model.new({"rec_name":"", "app_code":""})
+            record = await compo_model.new({"rec_name": "", "app_code": ""})
         else:
             record = await compo_model.by_name(name)
         return make_response_object(compo_model, mode="form", data=record)
 
     async def stream_record(
-            self,
-            envelope: ResponseObject,
-            order: str,
-            skip: int,
-            limit: int,
-            pipeline_items: list[dict] = None,
+        self,
+        envelope: ResponseObject,
+        order: str,
+        skip: int,
+        limit: int,
+        pipeline_items: list[dict] = None,
     ):
         normalized_order = _normalize_order(order)
         logger.info(
@@ -315,17 +747,17 @@ class Service:
         )
 
     async def list_records(
-            self,
-            model_name: str,
-            query: dict,
-            order: str,
-            skip: int,
-            limit: int,
-            pipeline_items: list[dict] = None,
-            obfuscate_fields: list[str] = None,
-            fields: list[str] = None,
-            resp_stream: bool = False,
-            batch_size: int = 500,
+        self,
+        model_name: str,
+        query: dict,
+        order: str,
+        skip: int,
+        limit: int,
+        pipeline_items: list[dict] = None,
+        obfuscate_fields: list[str] = None,
+        fields: list[str] = None,
+        resp_stream: bool = False,
+        batch_size: int = 500,
     ) -> Union[ResponseObject]:
         normalized_order = _normalize_order(order)
         logger.info(
@@ -345,7 +777,9 @@ class Service:
             model_key=model_name,
             app_key=str(getattr(self.session, "app_code", "")),
         )
-        read_mask_fields = sorted(set(denied_read_fields + obfuscate_read_fields))
+        read_mask_fields = sorted(
+            set(denied_read_fields + obfuscate_read_fields)
+        )
         logger.info(
             "service.list_records total_count=%s domain=%s",
             total_count,
@@ -382,6 +816,17 @@ class Service:
             app_key=str(getattr(self.session, "app_code", "")),
             data=data,
         )
+        list_hook = await self.webhooks.emit(
+            "data.after_list",
+            context=self._webhook_context(model_name=model_name),
+            payload={"records": data if isinstance(data, list) else []},
+        )
+        if isinstance(list_hook.data, list):
+            data = list_hook.data
+        elif isinstance(list_hook.payload, dict) and isinstance(
+            list_hook.payload.get("records"), list
+        ):
+            data = list_hook.payload["records"]
         response = make_response_object(
             model=record_model,
             mode="list",
@@ -395,15 +840,15 @@ class Service:
         return response
 
     async def upsert(
-            self,
-            model_name: str,
-            data: Union[dict] = None,
-            rec_name="",
-            data_value: dict = None,
-            trnf_config: dict = None,
-            fields_parser: dict = None,
-            sync_component_runtime: bool = False,
-            generate_component_defaults: bool = False,
+        self,
+        model_name: str,
+        data: Union[dict] = None,
+        rec_name="",
+        data_value: dict = None,
+        trnf_config: dict = None,
+        fields_parser: dict = None,
+        sync_component_runtime: bool = False,
+        generate_component_defaults: bool = False,
     ) -> Union[None, ResponseObject]:
         logger.info(
             "service.upsert model=%s rec_name=%s",
@@ -411,8 +856,23 @@ class Service:
             rec_name,
         )
         record_model = self._get_model(model_name)
-        data = _normalize_payload_values(data, record_model)
-        operation = await self._resolve_write_operation(record_model, rec_name, data)
+        if model_name == "component":
+            data = _normalize_payload_values(data, record_model)
+            normalize_component_properties(data)
+        operation = await self._resolve_write_operation(
+            record_model, rec_name, data
+        )
+        write_hook = await self.webhooks.emit(
+            "data.before_write",
+            context=self._webhook_context(
+                model_name=model_name,
+                rec_name=rec_name,
+                operation=operation,
+            ),
+            payload=data if isinstance(data, dict) else {},
+        )
+        if isinstance(write_hook.payload, dict):
+            data = write_hook.payload
         acl = await self._get_compiled_field_acl()
         await enforce_write_acl(
             acl,
@@ -436,9 +896,9 @@ class Service:
             fields_parser=fields_parser,
         )
         if (
-                model_name == "component"
-                and record is not None
-                and sync_component_runtime
+            model_name == "component"
+            and record is not None
+            and sync_component_runtime
         ):
             await self._sync_component_runtime(
                 _record_to_dict(record),
@@ -450,8 +910,14 @@ class Service:
                     )
                 ),
             )
-        elif model_name == "component" and record is not None and create_menu_dashboard:
-            await self._create_menu_dashboard_for_component(_record_to_dict(record))
+        elif (
+            model_name == "component"
+            and record is not None
+            and create_menu_dashboard
+        ):
+            await self._create_menu_dashboard_for_component(
+                _record_to_dict(record)
+            )
         if record is not None:
             # Auto-enqueue mail se il component del model lo richiede
             # (component.properties.send_mail_create/update). Best-effort.
@@ -461,12 +927,21 @@ class Service:
                 getattr(record, "rec_name", "") or rec_name,
                 operation,
             )
+            await self.webhooks.emit(
+                "data.after_write",
+                context=self._webhook_context(
+                    model_name=model_name,
+                    rec_name=getattr(record, "rec_name", "") or rec_name,
+                    operation=operation,
+                ),
+                payload=_record_to_dict(record),
+            )
         return make_response_object(record_model, mode="form", data=record)
 
     async def _sync_component_runtime(
-            self,
-            schema: dict[str, Any],
-            generate_defaults: bool = False,
+        self,
+        schema: dict[str, Any],
+        generate_defaults: bool = False,
     ) -> None:
         if not isinstance(schema, dict) or not schema:
             return
@@ -492,8 +967,8 @@ class Service:
             await self._create_menu_dashboard_for_component(schema)
 
     async def _create_menu_dashboard_for_component(
-            self,
-            schema: dict[str, Any],
+        self,
+        schema: dict[str, Any],
     ) -> None:
         if not isinstance(schema, dict) or not schema:
             return
@@ -513,12 +988,12 @@ class Service:
             )
 
     async def fast_search_list(
-            self,
-            action_name: str,
-            query_fields: list[dict[str, Any]],
-            skip: int = 0,
-            limit: int = 100,
-            order: str = "",
+        self,
+        action_name: str,
+        query_fields: list[dict[str, Any]],
+        skip: int = 0,
+        limit: int = 100,
+        order: str = "",
     ) -> ResponseObject:
         action = await self.action_runtime.get_action_record(action_name)
         if not action:
@@ -552,7 +1027,7 @@ class Service:
         )
 
     async def load(
-            self, model_name: str, domain: dict, in_execution=False
+        self, model_name: str, domain: dict, in_execution=False
     ) -> Union[None, ResponseObject]:
         logger.info("service.load model=%s domain=%s", model_name, domain)
         record_model = self._get_model(model_name)
@@ -560,9 +1035,11 @@ class Service:
         return make_response_object(record_model, mode="form", data=record)
 
     async def load_record(
-            self, model: str, rec_name: str
+        self, model: str, rec_name: str
     ) -> Union[None, ResponseObject]:
-        logger.info("service.load_record model=%s rec_name=%s", model, rec_name)
+        logger.info(
+            "service.load_record model=%s rec_name=%s", model, rec_name
+        )
         record_model = self._get_model(model)
         record = await record_model.by_name(rec_name)
         acl = await self._get_compiled_field_acl()
@@ -571,15 +1048,79 @@ class Service:
             app_key=str(getattr(self.session, "app_code", "")),
             data=record,
         )
+        read_hook = await self.webhooks.emit(
+            "data.after_read",
+            context=self._webhook_context(model_name=model, rec_name=rec_name),
+            payload=_record_to_dict(record),
+        )
+        if isinstance(read_hook.payload, dict):
+            record = read_hook.payload
         response = make_response_object(record_model, mode="form", data=record)
         response.content.obfucated_fields = obfuscate_fields
         return response
 
+    def _webhook_context(
+        self,
+        *,
+        model_name: str = "",
+        rec_name: str = "",
+        operation: str = "",
+    ) -> dict[str, Any]:
+        return {
+            "app_code": str(getattr(self.session, "app_code", "") or ""),
+            "uid": str(getattr(self.session, "uid", "") or ""),
+            "model": model_name,
+            "rec_name": rec_name,
+            "operation": operation,
+        }
+
+    async def _emit_calendar_task_event(
+        self,
+        rec_name: str,
+        result: dict[str, Any],
+    ) -> None:
+        """Emette l'esito della run di un calendar task come webhook outbound.
+
+        Notifica post-facto: NON deve mai rompere la run, quindi è fail-safe
+        (swallow di ogni errore, indipendente dal fail_mode configurato).
+        Evento `calendar.task.completed` se ok, altrimenti
+        `calendar.task.failed`.
+        """
+        status_value = str(result.get("status", "") or "")
+        event = (
+            "calendar.task.completed"
+            if status_value == "ok"
+            else "calendar.task.failed"
+        )
+        try:
+            await self.webhooks.emit(
+                event,
+                context=self._webhook_context(
+                    model_name="calendar", rec_name=rec_name
+                ),
+                payload={
+                    "rec_name": rec_name,
+                    "task": result.get("task", ""),
+                    "task_record_name": result.get("task_record_name", ""),
+                    "status": status_value,
+                    "run_id": result.get("run_id", ""),
+                    "started_at": result.get("started_at", ""),
+                    "finished_at": result.get("finished_at", ""),
+                    "message": result.get("message", ""),
+                },
+            )
+        except Exception:
+            logger.exception(
+                "calendar webhook emit failed rec_name=%s event=%s",
+                rec_name,
+                event,
+            )
+
     async def run_calendar_task(
-            self,
-            rec_name: str,
-            *,
-            payload: dict[str, Any] | None = None,
+        self,
+        rec_name: str,
+        *,
+        payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         run_payload = payload.copy() if isinstance(payload, dict) else {}
         calendar_model = self._get_model("calendar")
@@ -591,20 +1132,20 @@ class Service:
             )
 
         task_data = _record_to_dict(record)
-        if str(task_data.get("tipo", "")).lower() != "task":
+        if record.tipo != "task":
             return {
                 "status": "error",
                 "rec_name": rec_name,
                 "message": "Calendar record is not a task",
             }
-        if task_data.get("deleted", 0) != 0:
+        if record.deleted  != 0:
             return {
                 "status": "error",
                 "rec_name": rec_name,
                 "message": "Calendar task is deleted",
             }
 
-        trigger = str(run_payload.get("trigger", "") or "manual")
+        trigger = str(run_payload.get("trigger", "manual") or "manual")
         if (
             trigger != "manual"
             and not _is_enabled_flag(task_data.get("periodico", False))
@@ -616,7 +1157,7 @@ class Service:
                 "message": "One-shot calendar task already completed",
             }
 
-        action_name = str(task_data.get("task", "") or "").strip()
+        action_name = record.task or ""
         if not action_name:
             await self._write_calendar_fields(
                 calendar_model,
@@ -630,7 +1171,60 @@ class Service:
                 "message": "Calendar task action is empty",
             }
 
-        target_rec_name = str(task_data.get("task_record_name", "") or "").strip()
+        if action_name == "clean_expired_deleted":
+            logger.info("Clean all record")
+            started_at = datetime.now(ZoneInfo("Europe/Rome"))
+            try:
+                deleted_count = await self.clean_expired_deleted_records()
+                logger.info(f"Clean {deleted_count} records")
+                finished_at = datetime.now(ZoneInfo("Europe/Rome"))
+                next_state = (
+                    "progress" if record.periodico else "done"
+                )
+                update_data = {
+                    "stato": next_state,
+                    "last": finished_at,
+                    "message": f"Successfully deleted {deleted_count} expired records",
+                }
+                if next_state == "done":
+                    update_data["active"] = False
+                await self._write_calendar_fields(
+                    calendar_model, rec_name, task_data, update_data
+                )
+                result = {
+                    "status": "ok",
+                    "rec_name": rec_name,
+                    "task": action_name,
+                    "started_at": started_at.isoformat(),
+                    "finished_at": finished_at.isoformat(),
+                    "message": f"Successfully deleted {deleted_count} expired records",
+                }
+                await self._emit_calendar_task_event(rec_name, result)
+                return result
+            except Exception as exc:
+                finished_at = datetime.now(ZoneInfo("Europe/Rome"))
+                await self._write_calendar_fields(
+                    calendar_model,
+                    rec_name,
+                    task_data,
+                    {
+                        "stato": "errore",
+                        "last": finished_at,
+                        "message": str(exc),
+                    },
+                )
+                result = {
+                    "status": "error",
+                    "rec_name": rec_name,
+                    "task": action_name,
+                    "started_at": started_at.isoformat(),
+                    "finished_at": finished_at.isoformat(),
+                    "message": str(exc),
+                }
+                await self._emit_calendar_task_event(rec_name, result)
+                return result
+
+        target_rec_name = record.task_record_name
         action_payload = {
             "rec_name": target_rec_name,
             "calendar_task": rec_name,
@@ -658,7 +1252,7 @@ class Service:
                     "message": str(exc),
                 },
             )
-            return {
+            result = {
                 "status": "error",
                 "rec_name": rec_name,
                 "task": action_name,
@@ -668,6 +1262,8 @@ class Service:
                 "finished_at": finished_at.isoformat(),
                 "message": str(exc),
             }
+            await self._emit_calendar_task_event(rec_name, result)
+            return result
 
         finished_at = datetime.now(ZoneInfo("Europe/Rome"))
         result_data = result.data if result is not None else {}
@@ -694,7 +1290,7 @@ class Service:
             calendar_model, rec_name, task_data, update_data
         )
 
-        return {
+        result_out = {
             "status": "error" if failed else "ok",
             "rec_name": rec_name,
             "task": action_name,
@@ -708,13 +1304,38 @@ class Service:
                 else ""
             ),
         }
+        await self._emit_calendar_task_event(rec_name, result_out)
+        return result_out
+
+    async def clean_expired_deleted_records(self) -> int:
+        import time
+        # logger.info("clean_expired_deleted_records")
+        current_time = int(time.time())
+        collections = self.env.models
+        logger.info(f"clean_expired_deleted_records {len(collections)}")
+        total_deleted = 0
+        for model_name in collections:
+            try:
+                model_obj = self.env.get(model_name)
+                if model_obj and not model_obj.virtual:
+                    domain = {"deleted": {"$gt": 0, "$lte": current_time}}
+                    logger.info(f"Try Remove model {model_name} @ {domain}")
+                    count = await model_obj.remove_all(domain)
+                    total_deleted += count or 0
+            except Exception as exc:
+                logger.exception(
+                    "failed to clean expired deleted for model %s: %s",
+                    model_name,
+                    exc,
+                )
+        return total_deleted
 
     async def _write_calendar_fields(
-            self,
-            calendar_model: Any,
-            rec_name: str,
-            base: dict[str, Any],
-            changes: dict[str, Any],
+        self,
+        calendar_model: Any,
+        rec_name: str,
+        base: dict[str, Any],
+        changes: dict[str, Any],
     ) -> None:
         # L'ORM ozon-env diffa il record completo: un upsert parziale
         # cancellerebbe i campi non passati (get_dict NON esclude i default).
@@ -725,8 +1346,8 @@ class Service:
         await calendar_model.upsert(data=full, rec_name=rec_name)
 
     async def _make_default_actions_for_component(
-            self,
-            schema: dict[str, Any],
+        self,
+        schema: dict[str, Any],
     ) -> None:
         model_name = str(schema.get("rec_name", "") or "").strip()
         if not model_name:
@@ -753,7 +1374,11 @@ class Service:
         )
         logger.info(
             "component hook: found %s template actions for model=%s",
-            len(template_actions) if isinstance(template_actions, list) else "?",
+            (
+                len(template_actions)
+                if isinstance(template_actions, list)
+                else "?"
+            ),
             model_name,
         )
 
@@ -782,7 +1407,9 @@ class Service:
                     "component hook: menu_group created model=%s", model_name
                 )
 
-        for template in template_actions if isinstance(template_actions, list) else []:
+        for template in (
+            template_actions if isinstance(template_actions, list) else []
+        ):
             data = template.get_dict()
             data.pop("_id", None)
             data.pop("id", None)
@@ -794,16 +1421,18 @@ class Service:
                 "_action", f"_{model_name}"
             )
 
-            data.update({
-                "rec_name": action_rec_name,
-                "next_action_name": next_action,
-                "model": model_name,
-                "sys": comp_sys,
-                "admin": comp_sys,
-                "active": True,
-                "deleted": 0,
-                "action_root_path": "/action",
-            })
+            data.update(
+                {
+                    "rec_name": action_rec_name,
+                    "next_action_name": next_action,
+                    "model": model_name,
+                    "sys": comp_sys,
+                    "admin": comp_sys,
+                    "active": True,
+                    "deleted": 0,
+                    "action_root_path": "/action",
+                }
+            )
             if not comp_sys:
                 data["user_function"] = "user"
             if data.get("component_type"):
@@ -811,12 +1440,14 @@ class Service:
             if data.get("action_type") == "menu":
                 data["title"] = comp_title
                 data_value = dict(data.get("data_value") or {})
-                data_value.update({
-                    "title": comp_title,
-                    "model": comp_title,
-                    "data_model": model_name,
-                    "rec_name": action_rec_name,
-                })
+                data_value.update(
+                    {
+                        "title": comp_title,
+                        "model": comp_title,
+                        "data_model": model_name,
+                        "rec_name": action_rec_name,
+                    }
+                )
                 if comp_type == "resource":
                     data["menu_group"] = "risorse_app"
                     data_value["menu_group"] = "Risorse Apps"
@@ -833,10 +1464,10 @@ class Service:
             )
 
     async def _resolve_write_operation(
-            self,
-            record_model: OzonModelBase,
-            rec_name: str,
-            data: dict[str, Any] | None,
+        self,
+        record_model: OzonModelBase,
+        rec_name: str,
+        data: dict[str, Any] | None,
     ) -> str:
         target_rec_name = rec_name or (
             data.get("rec_name", "") if isinstance(data, dict) else ""
@@ -868,7 +1499,11 @@ class Service:
         return compiled
 
     async def _load_field_acl_policies(self) -> list[Any]:
-        for model_name in ("field_acl_policy", "fieldaclpolicy", "FieldAclPolicy"):
+        for model_name in (
+            "field_acl_policy",
+            "fieldaclpolicy",
+            "FieldAclPolicy",
+        ):
             try:
                 model = self.env.get(model_name)
             except Exception:
@@ -892,13 +1527,11 @@ class Service:
                 return []
         return []
 
-    async def _get_action_record(
-            self, action_name: str
-    ) -> CoreModel | None:
+    async def _get_action_record(self, action_name: str) -> CoreModel | None:
         return await self.action_runtime.get_action_record(action_name)
 
     async def _get_component_record(
-            self, component_name: str
+        self, component_name: str
     ) -> CoreModel | None:
         if not component_name:
             return None
@@ -930,7 +1563,9 @@ class Service:
     def _parse_query_dict(self, query_value: Any) -> dict[str, Any]:
         if isinstance(query_value, dict):
             return query_value.copy()
-        parsed = check_parse_json(query_value if query_value is not None else "{}")
+        parsed = check_parse_json(
+            query_value if query_value is not None else "{}"
+        )
         if isinstance(parsed, dict):
             return parsed
         return {}
@@ -965,11 +1600,11 @@ class Service:
         return ""
 
     async def _default_query(
-            self,
-            model: OzonModelBase,
-            query: dict[str, Any] | None,
-            parent: str = "",
-            model_type: str = "",
+        self,
+        model: OzonModelBase,
+        query: dict[str, Any] | None,
+        parent: str = "",
+        model_type: str = "",
     ) -> dict[str, Any]:
         q = query.copy() if isinstance(query, dict) else {}
         model_name = self._model_name(model).lower()
@@ -1003,27 +1638,29 @@ class Service:
         return q
 
     async def _make_query_user(
-            self, base_query: list[dict[str, Any]] | None = None
+        self, base_query: list[dict[str, Any]] | None = None
     ) -> list[dict[str, Any]]:
         return list(base_query or [])
 
     async def _find_base(
-            self,
-            model: OzonModelBase,
-            query: dict[str, Any],
-            sort: str = "list_order:asc,rec_name:asc",
-            limit: int = 0,
+        self,
+        model: OzonModelBase,
+        query: dict[str, Any],
+        sort: str = "list_order:asc,rec_name:asc",
+        limit: int = 0,
     ) -> list[Any]:
         return await model.find(domain=query, sort=sort, limit=limit)
 
-    async def _count_base(self, model: OzonModelBase, query: dict[str, Any]) -> int:
+    async def _count_base(
+        self, model: OzonModelBase, query: dict[str, Any]
+    ) -> int:
         domain = query
         if hasattr(model, "get_domain") and callable(model.get_domain):
             domain = model.get_domain(query)
         return await model.count(domain=domain)
 
     async def _make_menu_item(
-            self, card: dict[str, Any], rec_b: CoreModel
+        self, card: dict[str, Any], rec_b: CoreModel
     ) -> dict[str, Any] | bool:
         action_model_name = rec_b.model
         cc_model = self.env.get(action_model_name)
@@ -1081,8 +1718,8 @@ class Service:
         }
 
     async def _get_dashboard_menu_flags(
-            self,
-            group_names: list[str],
+        self,
+        group_names: list[str],
     ) -> tuple[bool, bool]:
         normalized_groups = [
             str(group_name).strip()
@@ -1098,9 +1735,7 @@ class Service:
                 "menu_group": normalized_groups[0]
             }
         else:
-            menu_group_filter = {
-                "menu_group": {"$in": normalized_groups}
-            }
+            menu_group_filter = {"menu_group": {"$in": normalized_groups}}
 
         q_menu_user = await self._make_query_user(
             [
@@ -1115,7 +1750,9 @@ class Service:
             return False, False
         return True, _has_non_system_records(menu_actions)
 
-    async def _get_basic_menu_list(self, parent: str = "") -> list[dict[str, Any]]:
+    async def _get_basic_menu_list(
+        self, parent: str = ""
+    ) -> list[dict[str, Any]]:
         menu_group_model = self.env.get("menu_group")
         action_model = self.env.get("action")
 
@@ -1142,7 +1779,9 @@ class Service:
             action_query = await self._default_query(
                 action_model, {"$and": q_user}
             )
-            found_item = await self._find_base(action_model, query=action_query)
+            found_item = await self._find_base(
+                action_model, query=action_query
+            )
 
             if found_item:
                 has_menu_actions, has_non_system_menu = (
@@ -1179,12 +1818,10 @@ class Service:
                 ]
                 if sub_menus:
                     sub_groups = [
-                        sub.rec_name or ""
-                        for sub in sub_menus
-                        if sub.rec_name
+                        sub.rec_name or "" for sub in sub_menus if sub.rec_name
                     ]
-                    _, has_non_system_menu = await self._get_dashboard_menu_flags(
-                        sub_groups
+                    _, has_non_system_menu = (
+                        await self._get_dashboard_menu_flags(sub_groups)
                     )
                     if has_non_system_menu:
                         menu_list.append(
@@ -1326,7 +1963,9 @@ class Service:
             menu_query = await self._default_query(
                 action_model, {"$and": menu_query_user}
             )
-            menu_actions = await self._find_base(action_model, query=menu_query)
+            menu_actions = await self._find_base(
+                action_model, query=menu_query
+            )
             logger.info(
                 "service_get_menu: group=%s actions_found=%d",
                 group_name,
@@ -1346,9 +1985,13 @@ class Service:
             len(grouped),
             sum(len(v) for v in grouped.values()),
         )
-        return ResponseObjectData(mode="menu", data=data, query=menu_group_query)
+        return ResponseObjectData(
+            mode="menu", data=data, query=menu_group_query
+        )
 
-    async def service_get_dashboard(self, parent: str = "") -> ResponseObjectData:
+    async def service_get_dashboard(
+        self, parent: str = ""
+    ) -> ResponseObjectData:
         action_model = self.env.get("action")
         menu_list = await self._get_basic_menu_list(parent=parent)
         list_cards: list[dict[str, Any]] = []
@@ -1358,14 +2001,22 @@ class Service:
                 q_menu_user = await self._make_query_user(
                     [
                         {"action_type": "menu"},
-                        {"component_type": {"$in": ["form", "resource", "layout"]}},
+                        {
+                            "component_type": {
+                                "$in": ["form", "resource", "layout"]
+                            }
+                        },
                         {"$and": [{"menu_group": card.get("menu_group", "")}]},
                     ]
                 )
                 q_user = await self._make_query_user(
                     [
                         {"action_type": {"$in": ["window", "process_task"]}},
-                        {"component_type": {"$in": ["form", "resource", "layout"]}},
+                        {
+                            "component_type": {
+                                "$in": ["form", "resource", "layout"]
+                            }
+                        },
                         {"$and": [{"menu_group": card.get("menu_group", "")}]},
                     ]
                 )
@@ -1375,7 +2026,9 @@ class Service:
                 )
                 q = await self._default_query(action_model, {"$and": q_user})
 
-                menu_actions = await self._find_base(action_model, query=q_menu)
+                menu_actions = await self._find_base(
+                    action_model, query=q_menu
+                )
                 if menu_actions and not _has_non_system_records(menu_actions):
                     continue
                 act_list = await self._find_base(action_model, query=q)
@@ -1417,13 +2070,13 @@ class Service:
         )
 
     async def service_handle_action_get(
-            self,
-            action_name: str,
-            rec_name: str = "",
-            query: dict[str, Any] = None,
-            order: str = "",
-            skip: int = 0,
-            limit: int = 100,
+        self,
+        action_name: str,
+        rec_name: str = "",
+        query: dict[str, Any] = None,
+        order: str = "",
+        skip: int = 0,
+        limit: int = 100,
     ) -> ResponseObjectData:
         return await self.action_runtime.handle_get(
             action_name=action_name,
@@ -1435,9 +2088,9 @@ class Service:
         )
 
     async def service_get_next_action_redirect(
-            self,
-            curr_action: str,
-            rec_name: str = "",
+        self,
+        curr_action: str,
+        rec_name: str = "",
     ) -> str:
         logger.info(
             "service.next_action_redirect curr_action=%s rec_name=%s",
@@ -1476,10 +2129,10 @@ class Service:
         return target
 
     async def service_handle_action_post(
-            self,
-            action_name: str,
-            data: dict[str, Any],
-            rec_name: str = "",
+        self,
+        action_name: str,
+        data: dict[str, Any],
+        rec_name: str = "",
     ) -> ResponseObjectData:
         return await self.action_runtime.handle_post(
             action_name=action_name,
@@ -1488,10 +2141,10 @@ class Service:
         )
 
     async def service_handle_action_delete(
-            self,
-            action_name: str,
-            rec_name: str,
-            data: dict[str, Any] = None,
+        self,
+        action_name: str,
+        rec_name: str,
+        data: dict[str, Any] = None,
     ) -> ResponseObjectData:
         return await self.action_runtime.handle_delete(
             action_name=action_name,

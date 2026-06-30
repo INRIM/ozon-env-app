@@ -74,8 +74,12 @@ keycloak_token_url: ${KEYCLOAK_TOKEN_URL}
 camunda_enabled: ${CAMUNDA_ENABLED}
 camunda_web_url: ${CAMUNDA_WEB_URL}
 camunda_api_url: ${CAMUNDA_API_URL}
+# gRPC Zeebe gateway: usare host:porta, es. orchestration:26500.
+# Compatibile anche con alias NOB CAMUNDA_CLIENT_GRPCADDRESS.
 camunda_zeebe_address: ${CAMUNDA_ZEEBE_ADDRESS}
 camunda_zeebe_secure: ${CAMUNDA_ZEEBE_SECURE}
+# REST base: es. http://orchestration:8080.
+# Compatibile anche con alias NOB CAMUNDA_CLIENT_RESTADDRESS.
 camunda_tasklist_url: ${CAMUNDA_TASKLIST_URL}
 camunda_oauth_token_url: ${CAMUNDA_OAUTH_TOKEN_URL}
 camunda_client_id: ${CAMUNDA_CLIENT_ID}
@@ -104,6 +108,7 @@ upload_folder: ${UPLOAD_ROOT}
 upload_root: ${UPLOAD_ROOT}
 tmp_upload_folder: /tmp
 max_upload_size_mb: ${MAX_UPLOAD_SIZE_MB}
+model_file_dump_mode: ${MODEL_FILE_DUMP_MODE}
 
 # ── ClamAV ───────────────────────────────────────────────────────────────────
 

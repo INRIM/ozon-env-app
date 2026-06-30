@@ -3,6 +3,7 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 from ozon_env_api.settings import OzonEnvApiSettings
@@ -45,6 +46,7 @@ def _load_yaml_config() -> dict[str, Any]:
         return {}
     try:
         import yaml
+
         raw = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
         return _expand_yaml_data(raw)
     except Exception:
@@ -68,6 +70,7 @@ _APP_SETTINGS_FIELDS = frozenset(
         "upload_folder",
         "web_concurrency",
         "delete_record_after_days",
+        "delete_retention_hours",
         "token_expire_hours",
         "session_expire_hours",
         "theme",
@@ -123,6 +126,31 @@ def _parse_admins_value(value: Any) -> list[str]:
     return []
 
 
+def _normalize_camunda_grpc_address(value: Any) -> str:
+    address = str(value or "").strip()
+    if not address:
+        return address
+
+    parsed = urlparse(address)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        address = parsed.netloc
+        parsed_port = parsed.port
+        if parsed_port in {8080, 8081}:
+            raise ValueError(
+                "CAMUNDA_ZEEBE_ADDRESS must point to the Camunda gRPC gateway, "
+                "not the REST/web URL. Use host:26500 or "
+                "CAMUNDA_CLIENT_GRPCADDRESS."
+            )
+    elif "://" in address:
+        raise ValueError(
+            "CAMUNDA_ZEEBE_ADDRESS must be a gRPC target like host:26500."
+        )
+
+    if address.endswith("/"):
+        address = address.rstrip("/")
+    return address
+
+
 class AppSettings(OzonSettings):
     """Runtime settings record stored in the DB `settings` model."""
 
@@ -132,6 +160,9 @@ class AppSettings(OzonSettings):
         validation_alias=AliasChoices("ADMINS", "APP_ADMINS"),
     )
     session_expire_hours: int = Field(default=12)
+    # ore prima della cancellazione definitiva di un record soft-deleted
+    # (usato da action_runtime per il timestamp di delete differito).
+    delete_retention_hours: int = Field(default=24)
     server_datetime_mask: str = Field(default="%Y-%m-%dT%H:%M:%S")
     server_date_mask: str = Field(default="%Y-%m-%dT%H:%M:%S")
     ui_datetime_mask: str = Field(default="%d/%m/%Y %H:%M:%S")
@@ -166,6 +197,10 @@ class EnvSettings(OzonEnvCoreSettings):
     @classmethod
     def _parse_seed_admins(cls, v: Any) -> list[str]:
         return _parse_admins_value(v)
+
+    delete_retention_hours: int = Field(
+        default=24, validation_alias="DELETE_RETENTION_HOURS"
+    )
 
     app_name: str = Field(
         default="ozon-env-api", validation_alias="OZON_APP_NAME"
@@ -209,6 +244,11 @@ class EnvSettings(OzonEnvCoreSettings):
     csrf_cookie_name: str = Field(
         default="ozon_csrf", validation_alias="CSRF_COOKIE_NAME"
     )
+    # Origin allowlist per l'handshake WebSocket (CSWSH). CSV; vuota = nessun
+    # controllo (coerente con assenza di CORS app-wide + cookie SameSite=Lax).
+    ws_allowed_origins: str = Field(
+        default="", validation_alias="WS_ALLOWED_ORIGINS"
+    )
     auth_state_cookie_name: str = Field(
         default="ozon_state", validation_alias="AUTH_STATE_COOKIE_NAME"
     )
@@ -251,7 +291,11 @@ class EnvSettings(OzonEnvCoreSettings):
     )
     camunda_zeebe_address: str = Field(
         default="camunda.example.internal:443",
-        validation_alias="CAMUNDA_ZEEBE_ADDRESS",
+        validation_alias=AliasChoices(
+            "CAMUNDA_ZEEBE_ADDRESS",
+            "CAMUNDA_CLIENT_GRPCADDRESS",
+            "ORCHESTRATION_GRPC_COMPOSE_URL",
+        ),
     )
     camunda_zeebe_secure: bool = Field(
         default=True,
@@ -260,26 +304,52 @@ class EnvSettings(OzonEnvCoreSettings):
 
     camunda_tasklist_url_override: str | None = Field(
         default=None,
-        validation_alias="CAMUNDA_TASKLIST_URL",
+        validation_alias=AliasChoices(
+            "CAMUNDA_TASKLIST_URL",
+            "CAMUNDA_CLIENT_RESTADDRESS",
+            "ORCHESTRATION_COMPOSE_URL",
+        ),
     )
     camunda_oauth_token_url_override: str | None = Field(
         default=None,
-        validation_alias="CAMUNDA_OAUTH_TOKEN_URL",
+        validation_alias=AliasChoices(
+            "CAMUNDA_OAUTH_TOKEN_URL",
+            "CAMUNDA_CLIENT_AUTH_ISSUERURL",
+        ),
     )
 
     camunda_client_id: str = Field(
         default="nob-service-client",
-        validation_alias="CAMUNDA_CLIENT_ID",
+        validation_alias=AliasChoices(
+            "CAMUNDA_CLIENT_ID",
+            "CAMUNDA_CLIENT_AUTH_CLIENTID",
+        ),
     )
     camunda_client_secret: str = Field(
         default="change-me",
-        validation_alias="CAMUNDA_CLIENT_SECRET",
+        validation_alias=AliasChoices(
+            "CAMUNDA_CLIENT_SECRET",
+            "CAMUNDA_CLIENT_AUTH_CLIENTSECRET",
+        ),
+    )
+    camunda_auth_enabled: bool = Field(
+        default=True,
+        validation_alias="CAMUNDA_AUTH_ENABLED",
     )
     camunda_tenant_id: str = Field(
         default="", validation_alias="CAMUNDA_TENANT_ID"
     )
     camunda_process_id: str = Field(
         default="", validation_alias="CAMUNDA_PROCESS_ID"
+    )
+    # Dopo il complete di uno user task, attende che il flow avanzi oltre gli
+    # eventuali service/external task (fino al prossimo user task o alla fine
+    # del processo) prima di rispondere. 0 = nessuna attesa.
+    camunda_complete_wait_seconds: float = Field(
+        default=30.0, validation_alias="CAMUNDA_COMPLETE_WAIT_SECONDS"
+    )
+    camunda_poll_interval_seconds: float = Field(
+        default=0.5, validation_alias="CAMUNDA_POLL_INTERVAL_SECONDS"
     )
 
     runtime_default_process_id: str = Field(
@@ -327,6 +397,11 @@ class EnvSettings(OzonEnvCoreSettings):
         default=True, validation_alias="CAMUNDA_ENABLED"
     )
 
+    @field_validator("camunda_zeebe_address", mode="before")
+    @classmethod
+    def _normalize_camunda_zeebe_address(cls, v: Any) -> str:
+        return _normalize_camunda_grpc_address(v)
+
     workflow_wait_timeout_seconds: float = Field(
         default=5.0,
         validation_alias="WORKFLOW_WAIT_TIMEOUT_SECONDS",
@@ -345,6 +420,13 @@ class EnvSettings(OzonEnvCoreSettings):
     )
     max_upload_size_mb: int = Field(
         default=25, validation_alias="MAX_UPLOAD_SIZE_MB"
+    )
+    model_file_dump_mode: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "MODEL_FILE_DUMP_MODE",
+            "",
+        ),
     )
 
     clamav_host: str = Field(default="clamav", validation_alias="CLAMAV_HOST")
@@ -446,14 +528,18 @@ class EnvSettings(OzonEnvCoreSettings):
         payload = json.loads(self.runtime_action_process_map_json or "{}")
         if not isinstance(payload, dict):
             return {}
-        return {str(key): str(value) for key, value in payload.items() if value}
+        return {
+            str(key): str(value) for key, value in payload.items() if value
+        }
 
     @property
     def runtime_function_process_map(self) -> dict[str, str]:
         payload = json.loads(self.runtime_function_process_map_json or "{}")
         if not isinstance(payload, dict):
             return {}
-        return {str(key): str(value) for key, value in payload.items() if value}
+        return {
+            str(key): str(value) for key, value in payload.items() if value
+        }
 
     @property
     def runtime_admin_roles(self) -> set[str]:

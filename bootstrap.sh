@@ -15,6 +15,9 @@ if [[ -z "$ADMIN_UID" ]]; then
     exit 1
 fi
 
+echo "→ preparo rete docker ozn-network..."
+docker network inspect ozn-network >/dev/null 2>&1 || docker network create ozn-network >/dev/null
+
 echo "→ avvio DB se non attivo..."
 docker compose up -d ozonenv_app_db
 

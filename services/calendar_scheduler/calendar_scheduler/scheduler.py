@@ -189,6 +189,7 @@ class CalendarScheduler:
             )
             return
         try:
+            logger.info(f"Run task {run_id}")
             await self.gateway.run_task(
                 rec_name,
                 app_code,

@@ -19,6 +19,36 @@ def is_runtime_model_name(name: Any) -> bool:
     return bool(_RUNTIME_MODEL_NAME_RE.fullmatch(normalized))
 
 
+def normalize_component_properties(schema: Any) -> None:
+    if not isinstance(schema, dict):
+        return
+    properties = schema.get("properties")
+    if isinstance(properties, str):
+        import json
+        try:
+            properties = json.loads(properties)
+            schema["properties"] = properties
+        except Exception:
+            pass
+
+    if isinstance(properties, dict):
+        # 1. query -> queryformeditable
+        query_val = properties.get("query")
+        if query_val is not None:
+            import json
+            if isinstance(query_val, (dict, list)):
+                properties["queryformeditable"] = json.dumps(query_val)
+            else:
+                properties["queryformeditable"] = str(query_val)
+
+        # 2. Orderby/orderby -> sort
+        orderby_val = properties.get("Orderby")
+        if orderby_val is None:
+            orderby_val = properties.get("orderby")
+        if orderby_val is not None:
+            properties["sort"] = str(orderby_val)
+
+
 class _RuntimeModelGuardMixin:
     def _filter_runtime_model_names(
         self,
@@ -107,6 +137,7 @@ class AppOzonEnv(OzonEnv):
         return AppOzonOrm
 
     async def insert_update_component(self, schema):
+        normalize_component_properties(schema)
         c_model = self.get("component")
         model_name = str(schema.get("rec_name", "") or "").strip()
         component = await c_model.load({"rec_name": model_name})

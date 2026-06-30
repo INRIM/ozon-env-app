@@ -12,53 +12,15 @@ services:
       - ./tests:/app/tests
       - ./uv.lock:/app/uv.lock
       - ./plugins:/plugins
+      - ./uploads:/data/uploads
     restart: unless-stopped
-    networks:
-      - ozn-network
-    logging:
-      options:
-        max-size: 10m
-        max-file: "3"
-
-  mail_sender:
-    image: ozonapp.mail_sender:latest
-    build:
-      context: ./services/mail_sender
-    container_name: ozon-env-mail-sender
-    env_file:
-      - .env
-    environment:
-      # MODELS_FOLDER dedicato: il worker legge raw, ma ozon-env init genera
-      # comunque i modelli -> dir propria per evitare race con l'app su ./models
-      MODELS_FOLDER: /models_mail
+    # `up app` (anche da update.sh) tira su il db. Senza questo, update ricrea
+    # solo app e il db resta giu' se non gia' avviato.
     depends_on:
       - ozonenv_app_db
-    volumes:
-      - ./models:/models
-    restart: unless-stopped
     networks:
       - ozn-network
-    logging:
-      options:
-        max-size: 10m
-        max-file: "3"
-
-  calendar_scheduler:
-    image: ozonapp.calendar_scheduler:latest
-    build:
-      context: ./services/calendar_scheduler
-    container_name: ozon-env-calendar-scheduler
-    env_file:
-      - .env
-    depends_on:
-      - app
-      - ozonenv_app_db
-    volumes:
-      - ./models:/models
-      - ./scheduler_data:/data
-    restart: unless-stopped
-    networks:
-      - ozn-network
+      - camunda-8-local
     logging:
       options:
         max-size: 10m
@@ -92,5 +54,5 @@ services:
 
 networks:
   ozn-network:
-    external: false
     name: ozn-network
+  camunda-8-local:

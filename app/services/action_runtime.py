@@ -7,6 +7,7 @@ from ozonenv.core.BaseModels import CoreModel
 
 from app.core.OzonEnvApp import RUNTIME_MODEL_NAME_PATTERN
 from app.services.common import ResponseObjectData
+from app.services.common import make_response_object
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -271,14 +272,50 @@ class ActionRuntime:
         schema_model = action_view_name or action_model
         schema_record = await self.service._get_component_record(schema_model)
         payload_query = query.copy() if isinstance(query, dict) else {}
-        resolved_list_query: dict[str, Any] = {}
-        resolved_list_order: str = ""
-        if action_mode == "list":
-            resolved_list_query, resolved_list_order = self._resolve_list_defaults(
-                action,
-            )
+        
+        # 1. Read component properties
+        resolved_query = {}
+        resolved_sort = ""
+        
+        schema_properties = getattr(schema_record, "properties", None) or {}
+        if isinstance(schema_properties, str):
+            try:
+                import json
+                schema_properties = json.loads(schema_properties)
+            except Exception:
+                schema_properties = {}
+                
+        if isinstance(schema_properties, dict):
+            # query from queryformeditable
+            q_val = schema_properties.get("queryformeditable")
+            if q_val:
+                if isinstance(q_val, str):
+                    try:
+                        import json
+                        resolved_query = json.loads(q_val)
+                    except Exception:
+                        resolved_query = {}
+                elif isinstance(q_val, dict):
+                    resolved_query = q_val.copy()
+            # sort from sort
+            resolved_sort = str(schema_properties.get("sort") or "").strip()
+            
+        # 2. Read action
+        action_query_raw = getattr(action, "list_query", None)
+        if action_query_raw in (None, ""):
+            action_query_raw = getattr(action, "query", None)
+        action_query = self.service._parse_query_dict(action_query_raw)
+        if action_query:  # if configured on action, replace
+            resolved_query = action_query
+            
+        action_sort_raw = getattr(action, "listOrderString", None)
+        if action_sort_raw:  # if configured on action, replace
+            action_sort = _normalize_sort_string(action_sort_raw)
+            if action_sort:
+                resolved_sort = action_sort
+                
         runtime_order = order.strip() if isinstance(order, str) else ""
-        effective_order = runtime_order or resolved_list_order
+        effective_order = runtime_order or resolved_sort
 
         if record_type == "component" and action_component_type:
             component_base_query = {
@@ -294,7 +331,7 @@ class ActionRuntime:
             )
             component_query = _merge_query_flat(
                 component_base_query,
-                _merge_query(resolved_list_query, payload_query),
+                _merge_query(resolved_query, payload_query),
             )
             if action_mode == "list":
                 listed = await self.service.list_records(
@@ -315,7 +352,7 @@ class ActionRuntime:
                 res = loaded.content
         else:
             if action_mode == "list":
-                merged_query = _merge_query(resolved_list_query, payload_query)
+                merged_query = _merge_query(resolved_query, payload_query)
                 listed = await self.service.list_records(
                     model_name=target_model,
                     query=merged_query,
@@ -342,6 +379,15 @@ class ActionRuntime:
         )
         if isinstance(schema_components, list):
             res.schema = schema_components
+        schema_properties = getattr(schema_record, "properties", None) or {}
+        if isinstance(schema_properties, str):
+            try:
+                import json
+                schema_properties = json.loads(schema_properties)
+            except Exception:
+                schema_properties = {}
+        if isinstance(schema_properties, dict):
+            res.properties = schema_properties
         if target_model:
             res.model = target_model
 
@@ -373,6 +419,8 @@ class ActionRuntime:
         res.context_actions = await self._get_context_actions(
             action_model, action_mode, component_type=action_component_type
         )
+        res.query = resolved_query
+        res.sort = resolved_sort
         return res
 
     async def handle_post(
@@ -418,27 +466,12 @@ class ActionRuntime:
         next_action_url = f"/action/{next_action_name}" if next_action_name else ""
 
         if action_type == "delete":
-            if not target_rec_name:
-                return ResponseObjectData(
-                    mode="action",
-                    data={
-                        "status": "error",
-                        "message": "Missing rec_name for delete action",
-                    },
-                    readable=False,
-                    editable=False,
-                )
-            payload["deleted"] = 1
-            saved = await self.service.upsert(
-                target_model,
-                payload,
-                rec_name=target_rec_name,
-                sync_component_runtime=sync_component_runtime,
-                generate_component_defaults=generate_component_defaults,
+            result = await self.handle_delete(
+                action_name, target_rec_name, data=payload
             )
-            result = saved.content
             result.next_action_url = next_action_url
             return result
+
 
         if action_type == "copy":
             source_name = target_rec_name
@@ -452,21 +485,26 @@ class ActionRuntime:
                     readable=False,
                     editable=False,
                 )
-            source = await self.service.load_record(target_model, source_name)
-            source_data = source.content.data if source and source.content else {}
-            if not isinstance(source_data, dict):
-                source_data = source_data.get_dict()
-            clone_rec_name = payload.get("rec_name", f"{source_name}_copy")
-            source_data.pop("id", None)
-            source_data["rec_name"] = clone_rec_name
-            saved = await self.service.upsert(
-                target_model,
-                source_data,
-                rec_name=clone_rec_name,
-                sync_component_runtime=sync_component_runtime,
-                generate_component_defaults=generate_component_defaults,
-            )
-            result = saved.content
+            # duplica nativa ozon-env: clone con nuovo id + rec_name "_copy",
+            # NON salvato (l'originale non viene toccato). Il record torna nel
+            # form: si salva solo se l'utente fa submit -> niente record fantasma.
+            model_obj = self.service.env.get(target_model)
+            record = await model_obj.copy({"rec_name": source_name})
+            if record is None:
+                return ResponseObjectData(
+                    mode="action",
+                    data={
+                        "status": "error",
+                        "message": getattr(
+                            getattr(model_obj, "status", None), "msg", ""
+                        ) or f"Copy of '{source_name}' failed",
+                    },
+                    readable=False,
+                    editable=False,
+                )
+            result = make_response_object(
+                model_obj, mode="form", data=record
+            ).content
             result.next_action_url = next_action_url
             return result
 
@@ -487,10 +525,61 @@ class ActionRuntime:
             rec_name: str,
             data: dict[str, Any] = None,
     ) -> ResponseObjectData:
-        payload = data.copy() if isinstance(data, dict) else {}
-        payload["deleted"] = 1
-        return await self.handle_post(
-            action_name=action_name,
-            data=payload,
-            rec_name=rec_name,
+        action = await self.get_action_record(action_name)
+        if not action:
+            return ResponseObjectData(
+                mode="action",
+                data={
+                    "status": "error",
+                    "message": f"Action '{action_name}' not found",
+                },
+                readable=False,
+                editable=False,
+            )
+
+        target_model = action.model
+        if not target_model:
+            return ResponseObjectData(
+                mode="action",
+                data={
+                    "status": "error",
+                    "message": f"Action '{action_name}' has no target model",
+                },
+                readable=False,
+                editable=False,
+            )
+
+        if not rec_name:
+            return ResponseObjectData(
+                mode="action",
+                data={
+                    "status": "error",
+                    "message": "Missing rec_name for delete action",
+                },
+                readable=False,
+                editable=False,
+            )
+
+        model_obj = self.service.env.get(target_model)
+        record = await model_obj.by_name(rec_name)
+        if not record:
+            return ResponseObjectData(
+                mode="action",
+                data={
+                    "status": "error",
+                    "message": f"Record '{rec_name}' not found",
+                },
+                readable=False,
+                editable=False,
+            )
+
+        # soft delete nativo ozon-env (calcola il timestamp + update).
+        await model_obj.set_to_delete(record)
+
+        return ResponseObjectData(
+            mode="action",
+            model=target_model,
+            data={"status": "ok"},
+            readable=False,
+            editable=False,
         )

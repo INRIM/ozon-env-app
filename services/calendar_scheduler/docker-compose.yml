@@ -1,0 +1,26 @@
+services:
+  calendar_scheduler:
+    image: ozonapp.calendar_scheduler:latest
+    build:
+      context: .
+    container_name: ozon-env-calendar-scheduler
+    env_file:
+      # base generico dello stack, poi override specifico del service.
+      - ../../.env
+      - path: service.env
+        required: false
+    volumes:
+      - ../../models:/models
+      - ../../scheduler_data:/data
+    restart: unless-stopped
+    networks:
+      - ozn-network
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  ozn-network:
+    external: true
+    name: ozn-network

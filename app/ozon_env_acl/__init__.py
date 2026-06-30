@@ -78,6 +78,35 @@ def _session_actor(session: Any) -> dict[str, Any]:
     }
 
 
+def apply_session_allowed_users(
+    session: Any, admins: Any
+) -> list[str]:
+    """Popola `session.user.allowed_users` al login (sezione ACL row-level).
+
+    - utente admin: di default gli admin (la lista degli uid admin);
+    - utente non admin: i valori dalle ACL (catena responsabili gia' in
+      `user.allowed_users`, es. da people_sync) piu' il proprio uid.
+
+    Mutazione in-memory del dict annidato `user` (come il patch is_admin):
+    request-scoped, non persiste.
+    """
+    user = _field(session, "user", None)
+    if not isinstance(user, dict):
+        return []
+    admin_set = {str(a).strip() for a in (admins or []) if str(a).strip()}
+    is_admin = bool(_field(session, "is_admin", False) or user.get("is_admin"))
+    uid = str(_field(session, "uid", "") or user.get("uid") or "").strip()
+    if is_admin:
+        allowed = sorted(admin_set)
+    else:
+        acl_allowed = _as_set(user.get("allowed_users"))
+        if uid:
+            acl_allowed.add(uid)
+        allowed = sorted(acl_allowed)
+    user["allowed_users"] = allowed
+    return allowed
+
+
 def _selector_matches(selector: Any, actor: dict[str, Any]) -> bool:
     if selector in (None, "", {}, [], WILDCARD):
         return True

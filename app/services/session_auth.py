@@ -17,8 +17,10 @@ from ozonenv.OzonEnv import OzonEnv
 from ozonenv.core.BaseModels import BasicReturn, CoreModel
 
 from app.app_settings import EnvSettings
+from app.app_settings import get_env_settings
 from app.core.OzonModelApp import DateEngineApp
 from app.core.session import AppSession
+from app.core.webhooks import WebhookDispatcher
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -140,9 +142,7 @@ async def build_keycloak_session(
             "owner_personal_type": str(
                 user_snapshot.get("owner_personal_type") or ""
             ),
-            "owner_job_title": str(
-                user_snapshot.get("owner_job_title") or ""
-            ),
+            "owner_job_title": str(user_snapshot.get("owner_job_title") or ""),
             "is_admin": bool(user_snapshot.get("is_admin", False)),
             "use_auth": True,
             "is_api": True,
@@ -152,7 +152,8 @@ async def build_keycloak_session(
             "expire_datetime": expires_at,
             "user": user_snapshot,
             "sso_token": access_token or str(user_dict.get("sso_token") or ""),
-            "sso_refresh": refresh_token or str(user_dict.get("sso_refresh") or ""),
+            "sso_refresh": refresh_token
+            or str(user_dict.get("sso_refresh") or ""),
             "sso_expire": token_expire or user_dict.get("sso_expire"),
         }
     )
@@ -264,6 +265,11 @@ async def persist_user_session(ozon_env: OzonEnv, session: AppSession) -> None:
     data = session.model_dump(mode="python")
     data.setdefault("rec_name", session.uid)
     await user_model.upsert(data)
+    await _user_webhooks().emit(
+        "user.session.persist",
+        context=_user_context(ozon_env, session.uid),
+        payload=data,
+    )
 
 
 async def _refresh_keycloak_tokens(
@@ -300,7 +306,7 @@ def _resolve_expire_datetime(tokens: dict[str, Any]) -> datetime | None:
     raw_expires_in = tokens.get("expires_in")
     try:
         expires_in = int(raw_expires_in)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         expires_in = 0
     if expires_in > 0:
         return datetime.now(timezone.utc) + timedelta(seconds=expires_in)
@@ -311,7 +317,9 @@ def _extract_sso_tokens(
     request: Request,
     settings: EnvSettings,
 ) -> tuple[str, str]:
-    return _extract_access_token(request, settings), _extract_refresh_token(request)
+    return _extract_access_token(request, settings), _extract_refresh_token(
+        request
+    )
 
 
 def _extract_access_token(request: Request, settings: EnvSettings) -> str:
@@ -385,7 +393,9 @@ def _extract_remote_user(request: Request, settings: EnvSettings) -> str:
 
 
 def _get_app_admins(ozon_env: OzonEnv) -> list[str]:
-    app_settings = getattr(getattr(ozon_env, "orm", None), "app_settings", None)
+    app_settings = getattr(
+        getattr(ozon_env, "orm", None), "app_settings", None
+    )
     return [
         str(uid).strip()
         for uid in list(getattr(app_settings, "admins", []) or [])
@@ -416,6 +426,13 @@ async def _get_or_create_user(
         "active": True,
         "deleted": 0,
     }
+    before_create = await _user_webhooks().emit(
+        "user.before_create",
+        context=_user_context(ozon_env, uid),
+        payload=new_user,
+    )
+    if isinstance(before_create.payload, dict):
+        new_user = before_create.payload
     created = await user_model.upsert(new_user)
     if created is None:
         logger.error("failed to create user '%s': %s", uid, user_model.status)
@@ -423,8 +440,31 @@ async def _get_or_create_user(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create user '{uid}'",
         )
-    logger.info("created new user uid=%s is_admin=%s", uid, new_user["is_admin"])
+    logger.info(
+        "created new user uid=%s is_admin=%s",
+        uid,
+        new_user.get("is_admin", False),
+    )
+    await _user_webhooks().emit(
+        "user.after_create",
+        context=_user_context(ozon_env, uid),
+        payload=_model_to_dict(created),
+    )
     return created
+
+
+def _user_webhooks() -> WebhookDispatcher:
+    return WebhookDispatcher.from_settings(get_env_settings())
+
+
+def _user_context(ozon_env: OzonEnv, uid: str) -> dict[str, Any]:
+    app_settings = getattr(
+        getattr(ozon_env, "orm", None), "app_settings", None
+    )
+    return {
+        "app_code": str(getattr(app_settings, "app_code", "") or ""),
+        "uid": uid,
+    }
 
 
 def _make_user_snapshot(
@@ -454,7 +494,7 @@ def _full_name(user_snapshot: dict[str, Any]) -> str:
 def _int_value(value: Any) -> int:
     try:
         return int(value or 0)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0
 
 
@@ -476,7 +516,7 @@ def _session_window(ozon_env: OzonEnv) -> tuple[datetime, datetime]:
     tz = getattr(app_settings, "tz", "Europe/Rome")
     try:
         expire_hours = int(session_expire_hours or 12)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         expire_hours = 12
     dte = DateEngineApp(TZ=tz)
     return dte.gen_datetime_min_max_hours(

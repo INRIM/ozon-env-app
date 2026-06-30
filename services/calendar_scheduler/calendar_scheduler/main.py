@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 
@@ -17,6 +18,23 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 logger = logging.getLogger("calendar_scheduler")
+
+
+async def _init_env_with_retry(env, *, attempts: int, delay: float) -> None:
+    for attempt in range(1, attempts + 1):
+        try:
+            await env.init_env()
+            return
+        except Exception:
+            if attempt >= attempts:
+                raise
+            logger.exception(
+                "init ozon-env fallito, retry %s/%s tra %ss",
+                attempt,
+                attempts,
+                delay,
+            )
+            await asyncio.sleep(delay)
 
 
 async def _run(cfg: SchedulerConfig, env) -> None:
@@ -81,7 +99,11 @@ async def main() -> None:
     settings = OzonEnvCoreSettings.from_env()
     env = OzonEnv(cfg=settings.ozon_env_cfg())
     logger.info("init ozon-env...")
-    await env.init_env()
+    await _init_env_with_retry(
+        env,
+        attempts=int(os.getenv("SCHEDULER_INIT_RETRIES", "30")),
+        delay=float(os.getenv("SCHEDULER_INIT_RETRY_DELAY", "2")),
+    )
     try:
         await _run(cfg, env)
     finally:

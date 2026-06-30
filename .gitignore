@@ -24,6 +24,10 @@ database/scripts/init_db.js
 .env
 .claude
 .ozonenv
+.ozonenvbk
 # ansible local tmp
 .ansible/
 attivita/
+people_sync
+dist
+workers

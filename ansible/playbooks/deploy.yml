@@ -1,5 +1,5 @@
 ---
-- name: Deploy ozon-env-app stack (setup-db + bootstrap)
+- name: Deploy ozon-env-app stack
   hosts: ozonapp
   gather_facts: false
   vars:

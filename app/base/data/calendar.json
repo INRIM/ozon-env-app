@@ -1,0 +1,17 @@
+[
+  {
+    "active": true,
+    "deleted": 0,
+    "demo": false,
+    "sys": true,
+    "default": false,
+    "rec_name": "clean_expired_deleted",
+    "title": "Clean Expired Deleted Records",
+    "tipo": "task",
+    "calendar": "0 */6 * * *",
+    "periodico": true,
+    "task": "clean_expired_deleted",
+    "stato": "todo",
+    "type": "form"
+  }
+]

@@ -11,7 +11,9 @@ from typing import Any
 
 try:
     import grpc
-except ImportError:  # pragma: no cover - exercised only when Camunda is enabled
+except (
+    ImportError
+):  # pragma: no cover - exercised only when Camunda is enabled
     grpc = None
 
 
@@ -99,16 +101,22 @@ _interceptor_bases = (
 
 
 class BearerTokenInterceptor(*_interceptor_bases):
-    def __init__(self, token_provider: OAuthClientCredentialsTokenProvider) -> None:
+    def __init__(
+        self, token_provider: OAuthClientCredentialsTokenProvider
+    ) -> None:
         self.token_provider = token_provider
 
-    async def intercept_unary_unary(self, continuation, client_call_details, request):
+    async def intercept_unary_unary(
+        self, continuation, client_call_details, request
+    ):
         authenticated_call_details = await self._with_authorization(
             client_call_details
         )
         return await continuation(authenticated_call_details, request)
 
-    async def intercept_unary_stream(self, continuation, client_call_details, request):
+    async def intercept_unary_stream(
+        self, continuation, client_call_details, request
+    ):
         authenticated_call_details = await self._with_authorization(
             client_call_details
         )
@@ -116,11 +124,15 @@ class BearerTokenInterceptor(*_interceptor_bases):
 
     async def _with_authorization(self, client_call_details: Any) -> Any:
         if grpc is None:
-            raise RuntimeError("grpcio is required to use Camunda gRPC channels")
+            raise RuntimeError(
+                "grpcio is required to use Camunda gRPC channels"
+            )
 
         access_token = await self.token_provider.get_access_token()
         metadata = list(client_call_details.metadata or [])
-        metadata = [item for item in metadata if item[0].lower() != "authorization"]
+        metadata = [
+            item for item in metadata if item[0].lower() != "authorization"
+        ]
         metadata.append(("authorization", f"Bearer {access_token}"))
         return grpc.aio.ClientCallDetails(
             client_call_details.method,
@@ -139,32 +151,37 @@ def create_camunda_zeebe_channel(
     authorization_server: str,
     verify_tls: bool,
     secure: bool,
+    auth_enabled: bool = True,
     audience: str | None = None,
     scope: str | None = None,
     channel_options: Sequence[tuple[str, object]] | None = None,
 ):
     if grpc is None:
-        raise RuntimeError("grpcio is required to create a Camunda Zeebe channel")
+        raise RuntimeError(
+            "grpcio is required to create a Camunda Zeebe channel"
+        )
 
-    token_provider = OAuthClientCredentialsTokenProvider(
-        token_url=authorization_server,
-        client_id=client_id,
-        client_secret=client_secret,
-        verify_tls=verify_tls,
-        audience=audience,
-        scope=scope,
-    )
-    interceptor = BearerTokenInterceptor(token_provider)
+    interceptors = []
+    if auth_enabled:
+        token_provider = OAuthClientCredentialsTokenProvider(
+            token_url=authorization_server,
+            client_id=client_id,
+            client_secret=client_secret,
+            verify_tls=verify_tls,
+            audience=audience,
+            scope=scope,
+        )
+        interceptors.append(BearerTokenInterceptor(token_provider))
     if secure:
         return grpc.aio.secure_channel(
             target=grpc_address,
             credentials=grpc.ssl_channel_credentials(),
             options=channel_options,
-            interceptors=[interceptor],
+            interceptors=interceptors,
         )
 
     return grpc.aio.insecure_channel(
         target=grpc_address,
         options=channel_options,
-        interceptors=[interceptor],
+        interceptors=interceptors,
     )

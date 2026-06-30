@@ -16,6 +16,7 @@ ozonapp_service_branch: main
 ozonapp_compose_file_name: docker-compose.yml
 ozonapp_app_service: app
 ozonapp_db_service: ozonenv_app_db
+ozonapp_docker_network: ozn-network
 
 # --- Gestione .env -----------------------------------------------------------
 # 1) contenuto raw da CI (OZONAPP_DOTENV_CONTENT)
@@ -32,17 +33,13 @@ ozonapp_dotenv_content: ""
 # --- Build -------------------------------------------------------------------
 # uv lock richiede la VPN (ozon-env-api da gitlab): opt-in, default off.
 ozonapp_uv_lock: false
-# build_imges.sh costruisce ozonapp.db + ozonapp.app + ozonapp.mail_sender +
-# ozonapp.calendar_scheduler (richiede VPN, --network host).
+# build_imges.sh costruisce solo ozonapp.db + ozonapp.app. I companion vengono
+# buildati dai compose autonomi tramite Services Registry core.
 ozonapp_build_images: true
 
-# --- Deploy (setup-db + bootstrap) ------------------------------------------
-ozonapp_run_setup_db: true
-ozonapp_run_bootstrap: true
-ozonapp_admin_uid: ""
-ozonapp_bootstrap_base_only: false
-# In deploy ricostruisce le immagini prima di setup/bootstrap (richiede VPN).
-ozonapp_deploy_build: false
+# --- Deploy ------------------------------------------------------------------
+# Deploy minimale: build immagini ozon-env-app e docker compose up -d.
+ozonapp_deploy_build: true
 
 # Nota: la configurazione keycloak NON e' piu' nel deploy. Vedi il servizio
 # interattivo dedicato manager/keycloak-manager (genera kc-env.var).
@@ -59,10 +56,11 @@ ozonapp_required_deploy_env:
   - MONGO_PASS
   - MONGO_DB
   - SESSION_SECRET
+ozonapp_validate_deploy_env: false
 
 # --- Health check (opzionale) ------------------------------------------------
-# Endpoint pubblico non autenticato (/openapi.json), NON /dashboard (sotto auth).
-ozonapp_verify_endpoint: true
+# Disabilitato di default: deploy deve solo avviare docker compose.
+ozonapp_verify_endpoint: false
 ozonapp_app_port: 7999
 ozonapp_health_path: /openapi.json
 ozonapp_health_status_codes:

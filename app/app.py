@@ -8,9 +8,12 @@ from ozon_env_api.core.serviceapi import OzonEnvApiService
 
 from app.api.action_router import router as action_router
 from app.api.auth_routes import router as auth_router
+from app.api.camunda_router import router as camunda_router
 from app.api.filter_router import router as filter_router
 from app.api.message_queue_router import router as message_queue_router
 from app.api.routes import router
+from app.api.service_registry_router import router as service_registry_router
+from app.api.websocket_router import router as websocket_router
 from app.app_settings import build_api_settings
 from app.app_settings import get_env_settings
 from app.middleware.logging import LoggingMiddleware
@@ -81,6 +84,9 @@ app.include_router(router)
 app.include_router(action_router)
 app.include_router(filter_router)
 app.include_router(message_queue_router)
+app.include_router(service_registry_router)
+app.include_router(camunda_router)
+app.include_router(websocket_router)
 
 
 def custom_openapi() -> dict:

@@ -101,6 +101,8 @@ class ResponseObjectData(BaseModel):
     obfucated_fields: list[str] = Field(default_factory=list)
     editable_fields: list[str] = Field(default_factory=list)
     schema: Any = []
+    properties: dict = Field(default_factory=dict)
+    sort: str = ""
     rec_name: str = ""
     fields: dict[str, Any] = Field(default_factory=dict)
     columns: dict[str, str] = Field(default_factory=dict)
@@ -165,13 +167,38 @@ def make_response_object(
     if model and not model.status.fail:
         component = model.model.schema() if model else {}
         schema = component.get("components", [])
+        properties = component.get("properties", {})
+        if isinstance(properties, str):
+            try:
+                import json
+                properties = json.loads(properties)
+            except Exception:
+                properties = {}
+        
+        comp_sort = ""
+        comp_query = {}
+        if isinstance(properties, dict):
+            comp_sort = str(properties.get("sort") or "").strip()
+            q_val = properties.get("queryformeditable")
+            if q_val:
+                if isinstance(q_val, str):
+                    try:
+                        import json
+                        comp_query = json.loads(q_val)
+                    except Exception:
+                        comp_query = {}
+                elif isinstance(q_val, dict):
+                    comp_query = q_val.copy()
+
         content = ResponseObjectData(
             mode=mode,
             data=data,
             model=model.data_model,
             schema=schema,
+            properties=properties,
+            sort=comp_sort,
             rec_name=_extract_rec_name(data),
-            query=query if query else {},
+            query=query if query else comp_query,
             readable=readable,
             can_create=can_create,
             editable=editable,

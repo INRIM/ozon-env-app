@@ -190,3 +190,171 @@ def test_import_module_model_ignores_invalid_runtime_name(tmp_path):
         "component.40c6976d968c4966800a0667521fde47"
         not in orm.orm_static_models_map
     )
+
+
+def test_normalize_component_properties_dict():
+    from app.core.OzonEnvApp import normalize_component_properties
+
+    # Case 1: Dict with query (dict) and Orderby (string)
+    schema = {
+        "rec_name": "testComponent",
+        "properties": {
+            "query": {"active": True},
+            "Orderby": "list_order:asc",
+        }
+    }
+    normalize_component_properties(schema)
+    assert schema["properties"]["queryformeditable"] == '{"active": true}'
+    assert schema["properties"]["sort"] == "list_order:asc"
+    assert schema["properties"]["query"] == {"active": True}
+    assert schema["properties"]["Orderby"] == "list_order:asc"
+
+    # Case 2: Dict with query (string) and orderby (string, lowercase)
+    schema2 = {
+        "rec_name": "testComponent",
+        "properties": {
+            "query": "{}",
+            "orderby": "rec_name:desc",
+        }
+    }
+    normalize_component_properties(schema2)
+    assert schema2["properties"]["queryformeditable"] == "{}"
+    assert schema2["properties"]["sort"] == "rec_name:desc"
+
+    # Case 3: Dict without query or Orderby
+    schema3 = {
+        "rec_name": "testComponent",
+        "properties": {
+            "rheader": "1",
+        }
+    }
+    normalize_component_properties(schema3)
+    assert "queryformeditable" not in schema3["properties"]
+    assert "sort" not in schema3["properties"]
+
+
+def test_normalize_component_properties_string():
+    from app.core.OzonEnvApp import normalize_component_properties
+
+    schema = {
+        "rec_name": "testComponent",
+        "properties": '{"query": {"active": true}, "Orderby": "list_order:asc"}'
+    }
+    normalize_component_properties(schema)
+    assert isinstance(schema["properties"], dict)
+    assert schema["properties"]["queryformeditable"] == '{"active": true}'
+    assert schema["properties"]["sort"] == "list_order:asc"
+
+
+def test_insert_update_component_normalizes_properties():
+    env = AppOzonEnv(cfg={"app_code": "demo"})
+    component_model = _FakeComponentModel()
+    orm = _FakeOrm()
+    env.models = {"component": component_model}
+    env.orm = orm
+
+    schema = {
+        "rec_name": "testComponent",
+        "properties": {
+            "query": {"deleted": 0},
+            "Orderby": "rec_name:asc",
+        }
+    }
+    asyncio.run(env.insert_update_component(schema))
+
+    assert len(component_model.inserted) == 1
+    inserted_schema = component_model.inserted[0]
+    assert inserted_schema["properties"]["queryformeditable"] == '{"deleted": 0}'
+    assert inserted_schema["properties"]["sort"] == "rec_name:asc"
+
+
+def test_normalize_order_space_and_plus():
+    from app.services.service import _normalize_order
+    assert _normalize_order("rec_name asc") == "rec_name:asc"
+    assert _normalize_order("rec_name+asc") == "rec_name:asc"
+    assert _normalize_order("rec_name desc") == "rec_name:desc"
+    assert _normalize_order("rec_name+desc") == "rec_name:desc"
+    assert _normalize_order("rec_name:desc") == "rec_name:desc"
+    assert _normalize_order("-rec_name") == "rec_name:desc"
+    assert _normalize_order("+rec_name") == "rec_name:asc"
+    assert _normalize_order("rec_name desc, list_order asc") == "rec_name:desc,list_order:asc"
+    assert _normalize_order("rec_name+desc,list_order+asc") == "rec_name:desc,list_order:asc"
+
+
+def test_action_runtime_query_sort_override():
+    from app.services.action_runtime import ActionRuntime
+    from app.services.common import ResponseObjectData
+    import types
+
+    # Mock component record
+    class FakeSchemaRecord:
+        components = []
+        properties = {
+            "queryformeditable": '{"deleted": 0, "active": true}',
+            "sort": "rec_name:asc",
+        }
+
+    # Mock action record
+    class FakeAction:
+        mode = "list"
+        model = "documento"
+        view_name = ""
+        component_type = ""
+        type = "data"
+        list_query = '{"status": "approved"}'
+        listOrderString = "create_datetime:desc"
+        action_type = "window"
+        title = "Action Title"
+
+    class FakeService:
+        async def _get_component_record(self, name):
+            return FakeSchemaRecord()
+
+        def _parse_query_dict(self, val):
+            import json
+            return json.loads(val) if val else {}
+
+        async def list_records(self, model_name, query, order, **kwargs):
+            return types.SimpleNamespace(
+                content=ResponseObjectData(
+                    mode="list",
+                    data=[],
+                    model=model_name,
+                    query=query,
+                )
+            )
+
+    srv = FakeService()
+    runtime = ActionRuntime(srv)
+    async def fake_get_action_record(name):
+        return FakeAction()
+    async def fake_resolve_action_sequence(name, act):
+        return {}
+    async def fake_get_context_actions(*args, **kwargs):
+        return []
+    runtime.get_action_record = fake_get_action_record
+    runtime._resolve_action_sequence = fake_resolve_action_sequence
+    runtime._get_context_actions = fake_get_context_actions
+
+    # Case 1: Overrides configured on action
+    res = asyncio.run(
+        runtime.handle_get(
+            action_name="test_action",
+            query={},
+        )
+    )
+    assert res.query == {"status": "approved"}
+    assert res.sort == "create_datetime:desc"
+
+    # Case 2: No overrides configured on action (falls back to component properties)
+    FakeAction.list_query = ""
+    FakeAction.query = ""
+    FakeAction.listOrderString = ""
+    res = asyncio.run(
+        runtime.handle_get(
+            action_name="test_action",
+            query={},
+        )
+    )
+    assert res.query == {"deleted": 0, "active": True}
+    assert res.sort == "rec_name:asc"

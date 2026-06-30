@@ -152,7 +152,35 @@ def test_env_settings_extends_ozon_settings_and_exposes_urls():
         "https://kc-internal/realms/backend/protocol/openid-connect/token"
     )
     assert settings.camunda_tasklist_url == "https://camunda-tasklist"
+    assert settings.camunda_auth_enabled is True
     assert settings.runtime_admin_roles == {"admin", "manager"}
+
+
+def test_env_settings_accepts_nob_camunda_aliases():
+    settings = EnvSettings(
+        app_code="demo",
+        CAMUNDA_CLIENT_GRPCADDRESS="http://orchestration:26500",
+        CAMUNDA_CLIENT_RESTADDRESS="http://orchestration:8080",
+        CAMUNDA_CLIENT_AUTH_CLIENTID="connectors",
+        CAMUNDA_CLIENT_AUTH_CLIENTSECRET="secret",
+        CAMUNDA_CLIENT_AUTH_ISSUERURL="https://auth/realms/demo/token",
+    )
+
+    assert settings.camunda_zeebe_address == "orchestration:26500"
+    assert settings.camunda_tasklist_url == "http://orchestration:8080"
+    assert settings.camunda_client_id == "connectors"
+    assert settings.camunda_client_secret == "secret"
+    assert settings.camunda_oauth_token_url == "https://auth/realms/demo/token"
+
+
+def test_env_settings_rejects_camunda_web_url_as_grpc_address():
+    with pytest.raises(ValidationError) as exc_info:
+        EnvSettings(
+            app_code="demo",
+            CAMUNDA_ZEEBE_ADDRESS="http://orchestration:8081",
+        )
+
+    assert "must point to the Camunda gRPC gateway" in str(exc_info.value)
 
 
 def test_app_settings_is_db_settings_model_and_parses_admins():
@@ -186,7 +214,9 @@ def test_env_settings_rejects_fail_closed_stream_limit_smaller_than_upload_limit
 def test_get_env_settings_loads_env_local(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("APP_CODE", raising=False)
-    (tmp_path / ".env-local").write_text("APP_CODE=from-file\n", encoding="utf-8")
+    (tmp_path / ".env-local").write_text(
+        "APP_CODE=from-file\n", encoding="utf-8"
+    )
 
     settings = get_env_settings()
 
@@ -325,7 +355,9 @@ def test_field_acl_read_masks_and_compiles_on_session():
 
 def test_field_acl_denies_update_and_audits_attempt():
     audit = _AuditCollection()
-    customer = _RecordModel("customer", rows=[{"rec_name": "c1", "salary": 100}])
+    customer = _RecordModel(
+        "customer", rows=[{"rec_name": "c1", "salary": 100}]
+    )
     policies = _PolicyModel(
         [
             {
@@ -339,7 +371,9 @@ def test_field_acl_denies_update_and_audits_attempt():
             }
         ]
     )
-    env = _Env({"customer": customer, "field_acl_policy": policies}, audit=audit)
+    env = _Env(
+        {"customer": customer, "field_acl_policy": policies}, audit=audit
+    )
     service = Service(env)
 
     with pytest.raises(HTTPException) as exc:
@@ -356,7 +390,9 @@ def test_antivirus_unavailable_is_reported_without_blocking_upload():
         async def scan_bytes(self, content):
             raise AntivirusUnavailableError("clamav offline")
 
-    result = asyncio.run(scan_upload_non_blocking(OfflineScanner(), b"payload"))
+    result = asyncio.run(
+        scan_upload_non_blocking(OfflineScanner(), b"payload")
+    )
 
     assert result.status == AttachmentScanStatus.ERROR
     assert result.engine == "clamav-unavailable"

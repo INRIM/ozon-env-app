@@ -5,12 +5,14 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pydantic import ValidationError
 
 from ozonenv.OzonEnv import OzonEnv
 
+from app.app_settings import get_env_settings
 from app.deps.app_env import get_authed_env, get_ozon_env, get_service
 from app.services.components.selectComponentService import (
     build_remote_select_header,
@@ -21,6 +23,10 @@ from app.services.common import (
     ResponseObject,
     make_response_object,
 )
+from app.services.attachments import delete_attachment
+from app.services.attachments import load_attachment_metadata
+from app.services.attachments import load_record_attachment_file
+from app.services.attachments import save_formio_attachment
 from app.services.remote_service import remote_data_select_response
 from app.services.service import Service
 from app.services.utils import _stream_ndjson_with_start_packet, check_parse_json
@@ -147,7 +153,7 @@ async def get_session(
         requested_app_code,
         getattr(ozon_env.user_session, "app_code", ""),
     )
-    session_data = _safe_encode_payload(ozon_env.user_session)
+    session_data = ozon_env.user_session.get_dict()
     logger.info("get session response ready")
     return session_data
 
@@ -172,9 +178,76 @@ async def post_run_calendar_task(
     logger.info(
         "calendar task run request rec_name=%s trigger=%s",
         rec_name,
-        payload.get("trigger", ""),
+        payload.get("trigger", "manual"),
     )
     return await service.run_calendar_task(rec_name, payload=payload)
+
+
+@router.post("/client/attachment")
+async def post_client_attachment(
+    request: Request,
+    ozon_env: Annotated[OzonEnv, Depends(get_ozon_env)],
+) -> dict[str, Any]:
+    settings = get_env_settings()
+    app_code = str(getattr(ozon_env.user_session, "app_code", "") or "")
+    return await save_formio_attachment(
+        request=request,
+        settings=settings,
+        app_code=app_code,
+    )
+
+
+@router.get("/client/attachment/{attachment_id}")
+async def get_client_attachment(
+    attachment_id: str,
+    ozon_env: Annotated[OzonEnv, Depends(get_ozon_env)],
+) -> FileResponse:
+    settings = get_env_settings()
+    app_code = str(getattr(ozon_env.user_session, "app_code", "") or "")
+    file_path, metadata = load_attachment_metadata(
+        settings=settings,
+        app_code=app_code,
+        attachment_id=attachment_id,
+    )
+    return FileResponse(
+        file_path,
+        media_type=str(metadata.get("type") or "application/octet-stream"),
+        filename=str(metadata.get("name") or "attachment"),
+    )
+
+
+@router.get("/client/attachment/{model}/{rec_name}/{filename}")
+async def get_client_record_attachment(
+    model: str,
+    rec_name: str,
+    filename: str,
+) -> FileResponse:
+    settings = get_env_settings()
+    file_path, metadata = load_record_attachment_file(
+        settings=settings,
+        model=model,
+        rec_name=rec_name,
+        filename=filename,
+    )
+    return FileResponse(
+        file_path,
+        media_type=str(metadata.get("type") or "application/octet-stream"),
+        filename=str(metadata.get("name") or "attachment"),
+    )
+
+
+@router.delete("/client/attachment/{attachment_id}")
+async def delete_client_attachment(
+    attachment_id: str,
+    ozon_env: Annotated[OzonEnv, Depends(get_ozon_env)],
+) -> dict[str, Any]:
+    settings = get_env_settings()
+    app_code = str(getattr(ozon_env.user_session, "app_code", "") or "")
+    return delete_attachment(
+        settings=settings,
+        app_code=app_code,
+        attachment_id=attachment_id,
+    )
 
 
 @router.post("/models/distinct")

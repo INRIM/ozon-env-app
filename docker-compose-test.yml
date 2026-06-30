@@ -1,0 +1,241 @@
+name: ozon-env-app-camunda-e2e
+
+# Stack di test ALLEGGERITO: un solo container Camunda con secondary storage
+# in-memory/H2 al posto di elasticsearch + zeebe + tasklist.
+#
+# I worker e il runner parlano l'API v2 unificata su `camunda:8080/v2`
+# (`/jobs/activation`, `/user-tasks/search`): non serve Tasklist separato.
+
+services:
+  camunda:
+    image: camunda/camunda:8.9.0
+    environment:
+      # Profili aggiuntivi Camunda 8.9 per test locali:
+      # rdbmsH2 abilita secondary storage H2, insecure disabilita auth/authz.
+      SPRING_PROFILES_INCLUDE: rdbmsH2,insecure
+
+      # Compatibilita' legacy: il profilo insecure e' quello che disabilita
+      # anche le authorizations del runtime unificato.
+      CAMUNDA_SECURITY_AUTHENTICATION_UNPROTECTEDAPI: "true"
+      ZEEBE_BROKER_GATEWAY_SECURITY_AUTHENTICATION_MODE: none
+      ZEEBE_BROKER_SECURITY_AUTHENTICATION_MODE: none
+
+      # Secondary storage RDBMS su H2
+      CAMUNDA_DATA_SECONDARY_STORAGE_TYPE: rdbms
+      CAMUNDA_DATA_SECONDARY_STORAGE_RDBMS_DATABASEVENDORID: h2
+      CAMUNDA_DATA_SECONDARY_STORAGE_RDBMS_URL: jdbc:h2:file:./camunda-data/h2db
+      CAMUNDA_DATA_SECONDARY_STORAGE_RDBMS_USERNAME: sa
+      CAMUNDA_DATA_SECONDARY_STORAGE_RDBMS_PASSWORD: ""
+      CAMUNDA_DATA_SECONDARY_STORAGE_RDBMS_AUTO_DDL: "true"
+
+      # Watermark alti per ambienti CI piccoli
+      ZEEBE_BROKER_DATA_DISKUSAGECOMMANDWATERMARK: "0.998"
+      ZEEBE_BROKER_DATA_DISKUSAGEREPLICATIONWATERMARK: "0.999"
+
+      JAVA_TOOL_OPTIONS: "-Xms512m -Xmx768m"
+
+
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/localhost/26500'"]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+
+
+  # Keycloak leggero (start-dev, H2 in-memory) per emettere l'APP_TOKEN
+  # (sessione ozon-env-app), NON per Camunda. Realm `backend` importato.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: ["start-dev", "--import-realm", "--http-port=8080"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+      # iss del token = questo hostname: deve combaciare col validatore app.
+      KC_HOSTNAME_STRICT: "false"
+    volumes:
+      - ./tests/camunda_e2e/keycloak-realm.json:/opt/keycloak/data/import/realm.json:ro
+    # Niente healthcheck (immagine senza curl/bash): la readiness del realm e'
+    # gestita dal retry nel mint token (tests/camunda_e2e/auth.py).
+
+  db:
+    image: ozonapp.db:latest
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: test
+      MONGO_INITDB_ROOT_PASSWORD: test
+      MONGO_INITDB_DATABASE: ozon_test
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand(\"ping\")' >/dev/null 2>&1 || mongo --quiet --eval 'db.adminCommand(\"ping\")' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  app:
+    image: ozonapp.app:latest
+    env_file:
+      - path: tests/camunda_e2e/env.example
+      - path: tests/camunda_e2e/.env
+        required: false
+    environment:
+      MONGO_USER: test
+      MONGO_PASS: test
+      MONGO_DB: ozon_test
+      MONGO_URL: db:27017
+      BACKEND_INTERFACE: db
+      CAMUNDA_ENABLED: "true"
+      CAMUNDA_AUTH_ENABLED: "false"
+      CAMUNDA_ZEEBE_ADDRESS: camunda:26500
+      CAMUNDA_ZEEBE_SECURE: "false"
+      CAMUNDA_TASKLIST_URL: http://camunda:8080
+      # APP_TOKEN via keycloak: l'app valida il JWT (jwks/issuer su keycloak).
+      AUTH_MODE: keycloak
+      KEYCLOAK_REALM: backend
+      KEYCLOAK_CLIENT_ID: backend-web
+      KEYCLOAK_CLIENT_SECRET: camunda-e2e-secret
+      KEYCLOAK_SERVER_URL_PUBLIC: http://keycloak:8080
+      KEYCLOAK_SERVER_URL_INTERNAL: http://keycloak:8080
+      OZON_LOCALEDIR: /tmp/ozon-locale
+      OZON_APPLANG: it
+    command:
+      [
+        "sh",
+        "-c",
+        "mkdir -p /tmp/ozon-locale && exec uv run python -m app.main",
+      ]
+    volumes:
+      - ./pyproject.toml:/app/pyproject.toml:ro
+      - ./uv.lock:/app/uv.lock:ro
+      - ./app:/app/app
+      - ./tests:/app/tests
+      - ./attivita:/app/attivita:ro
+      - ./plugins:/plugins
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; urllib.request.urlopen('http://localhost:8000/docs'); sys.exit(0)\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+    depends_on:
+      db:
+        condition: service_healthy
+      camunda:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+
+  worker-check-user:
+    image: ozonapp.app:latest
+    command:
+      [
+        "sh",
+        "-c",
+        "mkdir -p /tmp/ozon-locale && exec uv run python -m tests.camunda_e2e.worker",
+      ]
+    env_file:
+      - path: tests/camunda_e2e/env.example
+      - path: tests/camunda_e2e/.env
+        required: false
+    environment:
+      SERVICE_TASK_TYPE: ckeck_user
+      APP_BASE_URL: http://app:8000
+      CAMUNDA_REST_ADDRESS: http://camunda:8080/v2
+      OZON_LOCALEDIR: /tmp/ozon-locale
+      OZON_APPLANG: it
+    volumes:
+      - ./pyproject.toml:/app/pyproject.toml:ro
+      - ./uv.lock:/app/uv.lock:ro
+      - ./tests:/app/tests:ro
+    depends_on:
+      app:
+        condition: service_healthy
+      camunda:
+        condition: service_healthy
+
+  worker-approved:
+    image: ozonapp.app:latest
+    command:
+      [
+        "sh",
+        "-c",
+        "mkdir -p /tmp/ozon-locale && exec uv run python -m tests.camunda_e2e.worker",
+      ]
+    env_file:
+      - path: tests/camunda_e2e/env.example
+      - path: tests/camunda_e2e/.env
+        required: false
+    environment:
+      SERVICE_TASK_TYPE: sed_message_approved
+      APP_BASE_URL: http://app:8000
+      CAMUNDA_REST_ADDRESS: http://camunda:8080/v2
+      OZON_LOCALEDIR: /tmp/ozon-locale
+      OZON_APPLANG: it
+    volumes:
+      - ./pyproject.toml:/app/pyproject.toml:ro
+      - ./uv.lock:/app/uv.lock:ro
+      - ./tests:/app/tests:ro
+    depends_on:
+      app:
+        condition: service_healthy
+      camunda:
+        condition: service_healthy
+
+  worker-refused:
+    image: ozonapp.app:latest
+    command:
+      [
+        "sh",
+        "-c",
+        "mkdir -p /tmp/ozon-locale && exec uv run python -m tests.camunda_e2e.worker",
+      ]
+    env_file:
+      - path: tests/camunda_e2e/env.example
+      - path: tests/camunda_e2e/.env
+        required: false
+    environment:
+      SERVICE_TASK_TYPE: sed_message_refused
+      APP_BASE_URL: http://app:8000
+      CAMUNDA_REST_ADDRESS: http://camunda:8080/v2
+      OZON_LOCALEDIR: /tmp/ozon-locale
+      OZON_APPLANG: it
+    volumes:
+      - ./pyproject.toml:/app/pyproject.toml:ro
+      - ./uv.lock:/app/uv.lock:ro
+      - ./tests:/app/tests:ro
+    depends_on:
+      app:
+        condition: service_healthy
+      camunda:
+        condition: service_healthy
+
+  runner:
+    image: ozonapp.app:latest
+    command:
+      [
+        "sh",
+        "-c",
+        "mkdir -p /tmp/ozon-locale && exec uv run pytest tests/test_camunda_e2e.py -q",
+      ]
+    env_file:
+      - path: tests/camunda_e2e/env.example
+      - path: tests/camunda_e2e/.env
+        required: false
+    environment:
+      CAMUNDA_E2E_ENABLED: "true"
+      APP_BASE_URL: http://app:8000
+      CAMUNDA_REST_ADDRESS: http://camunda:8080/v2
+      OZON_LOCALEDIR: /tmp/ozon-locale
+      OZON_APPLANG: it
+    volumes:
+      - ./pyproject.toml:/app/pyproject.toml:ro
+      - ./uv.lock:/app/uv.lock:ro
+      - ./app:/app/app
+      - ./tests:/app/tests
+      - ./tests/camunda_e2e/test_request.bpmn:/app/attivita/test_request.bpmn:ro
+    depends_on:
+      app:
+        condition: service_healthy
+      worker-check-user:
+        condition: service_started
+      worker-approved:
+        condition: service_started
+      worker-refused:
+        condition: service_started

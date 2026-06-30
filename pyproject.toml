@@ -75,6 +75,9 @@ filterwarnings = [
     # note the use of single quote below to denote "raw" strings in TOML
     'ignore:function ham\(\) is deprecated:DeprecationWarning'
 ]
+markers = [
+    "camunda: real Camunda end-to-end tests, opt-in only",
+]
 asyncio_mode = "auto"
 
 [tool.coverage.report]
@@ -102,10 +105,12 @@ requires-python = ">=3.14,<4.0"
 dependencies = [
     "camunda-orchestration-sdk>=9.0.0",
     "fastapi>=0.116.0",
+    "grpcio>=1.66,<2.0",
     "httpx>=0.28",
     "itsdangerous>=2.2",
     "ozon-env",
     "ozon-env-api",
+    "pyzeebe>=4.5,<5.0",
     "python-dotenv>=1.1.1",
     "uvicorn[standard]>=0.35.0",
 ]

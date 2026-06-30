@@ -1,0 +1,27 @@
+services:
+  mail_sender:
+    image: ozonapp.mail_sender:latest
+    build:
+      context: .
+    container_name: ozon-env-mail-sender
+    env_file:
+      # base generico dello stack, poi override opzionale specifico del service.
+      - ../../.env
+      - path: service.env
+        required: false
+    environment:
+      MODELS_FOLDER: /models_mail
+    volumes:
+      - ../../models:/models
+    restart: unless-stopped
+    networks:
+      - ozn-network
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  ozn-network:
+    external: true
+    name: ozn-network

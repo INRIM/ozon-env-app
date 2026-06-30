@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from app.api import routes as api_routes
 from app.app import app
+from app.app_settings import EnvSettings
 from app.deps.app_env import get_authed_env
 from app.deps.app_env import get_ozon_env
 from app.deps.app_env import get_service
@@ -170,6 +171,9 @@ class FakeUserSession:
         self.user_uid = f"U-{instance_id}"
         self.app_code = "test-app"
 
+    def get_dict(self) -> dict:
+        return dict(self.__dict__)
+
 
 class FakeOzonEnv:
     def __init__(self, instance_id: int):
@@ -185,6 +189,10 @@ class FailingJsonSession(BaseModel):
     user_uid: str = "U-fallback"
     app_code: str = "test-app"
     raw: object = _UnserializableValue()
+
+    def get_dict(self) -> dict:
+        # esclude il campo non serializzabile (come il vecchio encode fallback).
+        return self.model_dump(exclude={"raw"})
 
 
 class OzonEnvFactory:
@@ -749,6 +757,83 @@ def test_update_record_rec_name_mismatch():
         json={"rec_name": "mario", "status": "updated"},
     )
     assert response.status_code == 404
+
+
+def test_client_attachment_upload_download_delete(monkeypatch, tmp_path):
+    factory = Factory()
+    monkeypatch.setattr(
+        api_routes,
+        "get_env_settings",
+        lambda: EnvSettings(
+            app_code="test-app",
+            upload_root=tmp_path,
+            clamav_enabled=False,
+        ),
+    )
+    client = make_client(factory)
+
+    upload = client.post(
+        "/client/attachment",
+        headers={"Authorization": "Bearer ok-token"},
+        files={"file": ("hello.txt", b"hello world", "text/plain")},
+    )
+
+    assert upload.status_code == 200
+    body = upload.json()
+    assert body["storage"] == "url"
+    assert body["name"] == "hello.txt"
+    assert body["size"] == 11
+    assert body["type"] == "text/plain"
+    assert body["url"].startswith("/client/attachment/")
+    assert "base64" not in body
+
+    download = client.get(
+        body["url"],
+        headers={"Authorization": "Bearer ok-token"},
+    )
+    assert download.status_code == 200
+    assert download.content == b"hello world"
+
+    deleted = client.delete(
+        body["url"],
+        headers={"Authorization": "Bearer ok-token"},
+    )
+    assert deleted.status_code == 200
+    assert deleted.json() == {"deleted": True, "id": body["id"]}
+
+    missing = client.get(
+        body["url"],
+        headers={"Authorization": "Bearer ok-token"},
+    )
+    assert missing.status_code == 404
+
+
+def test_client_record_attachment_download(monkeypatch, tmp_path):
+    factory = Factory()
+    monkeypatch.setattr(
+        api_routes,
+        "get_env_settings",
+        lambda: EnvSettings(
+            app_code="test-app",
+            upload_root=tmp_path,
+            clamav_enabled=False,
+        ),
+    )
+    rec_name = "test_request.b68eb77950f8436ebc7e82b861e602be"
+    filename = "Inrim-QuiIAM-OFFERTA v4-3cffd9b8-af92-453c-9024-dcf706286d72.pdf"
+    folder = tmp_path / "test_request" / rec_name
+    folder.mkdir(parents=True)
+    (folder / filename).write_bytes(b"%PDF-1.4 demo")
+    client = make_client(factory)
+
+    response = client.get(
+        f"/client/attachment/test_request/{rec_name}/{filename.replace(' ', '%20')}",
+        headers={"Authorization": "Bearer ok-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.content == b"%PDF-1.4 demo"
+    assert response.headers["content-type"] == "application/pdf"
 
 
 def test_single_backend_instance_per_request(monkeypatch):

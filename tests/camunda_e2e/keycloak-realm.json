@@ -1,0 +1,61 @@
+{
+  "realm": "backend",
+  "enabled": true,
+  "sslRequired": "none",
+  "accessTokenLifespan": 3600,
+  "clients": [
+    {
+      "clientId": "backend-web",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "camunda-e2e-secret",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": ["*"],
+      "webOrigins": ["*"]
+    }
+  ],
+  "users": [
+    {
+      "username": "e2e-admin",
+      "enabled": true,
+      "email": "e2e-admin@example.org",
+      "firstName": "E2E",
+      "lastName": "Admin",
+      "credentials": [
+        { "type": "password", "value": "e2e", "temporary": false }
+      ]
+    },
+    {
+      "username": "utente",
+      "enabled": true,
+      "email": "utente@example.org",
+      "firstName": "Utente",
+      "lastName": "E2E",
+      "credentials": [
+        { "type": "password", "value": "e2e", "temporary": false }
+      ]
+    },
+    {
+      "username": "responsible",
+      "enabled": true,
+      "email": "responsible@example.org",
+      "firstName": "Responsible",
+      "lastName": "E2E",
+      "credentials": [
+        { "type": "password", "value": "e2e", "temporary": false }
+      ]
+    },
+    {
+      "username": "manager",
+      "enabled": true,
+      "email": "manager@example.org",
+      "firstName": "Manager",
+      "lastName": "E2E",
+      "credentials": [
+        { "type": "password", "value": "e2e", "temporary": false }
+      ]
+    }
+  ]
+}

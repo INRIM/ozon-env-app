@@ -5,7 +5,7 @@ Wrapper degli script legacy in Ansible, sul modello di `mci_app`.
 Primo argomento = target env (`local` | `dev` | `prod`, default `local`):
 
 - `./build.sh [env]` — `uv lock` (opzionale) + build immagini (`ozonapp.db` + `ozonapp.app`)
-- `./deploy.sh [env] <admin_uid>` — setup-db + bootstrap (plugin + seed settings/admin) + avvia stack
+- `./deploy.sh [env]` — build immagini ozon-env-app + `docker compose up -d`
 - `./update.sh [env] [service]` — ricrea un servizio del compose (default `app`)
 - `./stop.sh` — ferma lo stack locale
 
@@ -16,8 +16,8 @@ Primo argomento = target env (`local` | `dev` | `prod`, default `local`):
 ```bash
 ./build.sh                 # local
 ./build.sh dev
-./deploy.sh a.gerace       # local
-./deploy.sh prod a.gerace
+./deploy.sh                # local
+./deploy.sh prod
 ./update.sh dev app
 ```
 
@@ -32,24 +32,18 @@ Primo argomento = target env (`local` | `dev` | `prod`, default `local`):
 `build_imges.sh` usa `--network host`: serve la **VPN** attiva per scaricare
 `ozon-env` (github) e `ozon-env-api` (gitlab interno).
 
-`build` costruisce **solo le immagini**, non avvia lo stack: `database/scripts/init_db.js`
-e generato da `setup_db.sh` in fase di deploy, e un `up` su checkout fresco creerebbe
-una dir vuota al posto del bind-mount. Lo stack viene avviato da `deploy`.
+`build` costruisce **solo le immagini**, non avvia lo stack.
 
-### deploy (setup-db + bootstrap)
+### deploy
 ```bash
-./deploy.sh a.gerace
+./deploy.sh
 ```
-Sequenza: assert env+admin → `setup_db.sh` (immagine db + `database/scripts/init_db.js`)
-→ `bootstrap.sh <uid>` (avvia db, attende ping, `bootstrap.py --admin`) → `up -d --force-recreate`.
+Sequenza: build immagini `ozonapp.db` + `ozonapp.app` → crea rete Docker esterna se manca → `docker compose up -d`.
 
-Richiede l'immagine `ozonapp.app:latest` gia costruita (esegui prima `./build.sh`),
-oppure forza la build nel deploy:
+Per saltare la build nel deploy:
 ```bash
-./deploy.sh a.gerace -e ozonapp_deploy_build=true
+./deploy.sh -e ozonapp_deploy_build=false
 ```
-`bootstrap.py` e idempotente (merge admins create-if-missing, plugin upsert):
-ri-eseguire un deploy e sicuro.
 
 ### update
 ```bash
@@ -68,15 +62,15 @@ In remoto `ozonapp_sync_sources=true`: il repo viene clonato/aggiornato in
 `ozonapp_project_root` (default `/opt/ozon-env-app`).
 
 ```bash
-./deploy.sh prod a.gerace
+./deploy.sh prod
 # override inventory esplicito:
-ANSIBLE_INVENTORY=./ansible/inventories/prod/hosts.yml ./deploy.sh prod a.gerace
+ANSIBLE_INVENTORY=./ansible/inventories/prod/hosts.yml ./deploy.sh prod
 ```
 
 Oppure i playbook diretti:
 ```bash
 ansible-playbook -i ansible/inventories/dev/hosts.yml ansible/playbooks/build.yml
-ansible-playbook -i ansible/inventories/dev/hosts.yml ansible/playbooks/deploy.yml -e ozonapp_admin_uid=a.gerace
+ansible-playbook -i ansible/inventories/dev/hosts.yml ansible/playbooks/deploy.yml
 ansible-playbook -i ansible/inventories/dev/hosts.yml ansible/playbooks/update.yml -e ozonapp_update_service=app
 ```
 
@@ -89,13 +83,16 @@ Tre modi, in ordine di precedenza:
 3. nessun contenuto CI → **il `.env` esistente NON viene mai sovrascritto**
    (contiene segreti reali). Se assente, copia il fallback `.env.example`.
 
-Chiavi obbligatorie validate in deploy: `APP_CODE`, `MONGO_USER`, `MONGO_PASS`,
-`MONGO_DB`, `SESSION_SECRET`.
+La validazione delle chiavi `.env` in deploy e' opt-in:
+```bash
+./deploy.sh -e ozonapp_validate_deploy_env=true
+```
 
 ## Note
 
 - Stack single-project: **nessun `-p`** (gli script riusati non lo usano).
 - `database/scripts/init_db.js` viene eseguito da MongoDB solo alla **prima**
   inizializzazione del volume `mdbdata` (fresh volume).
-- Health check: `GET :7999/openapi.json` (endpoint pubblico, non `/dashboard`
-  che e sotto auth). Disattiva con `-e ozonapp_verify_endpoint=false`.
+- Health check: disabilitato di default. Se attivato con
+  `-e ozonapp_verify_endpoint=true`, usa `GET :7999/openapi.json`
+  (endpoint pubblico, non `/dashboard` che e sotto auth).
