@@ -12,6 +12,7 @@ from fastapi import Query
 
 from app.deps.app_env import get_authed_env
 from app.deps.app_env import get_service
+from app.services.common import ResponseObject
 from app.services.service import Service
 
 router = APIRouter(
@@ -69,7 +70,7 @@ async def start_process(
         bool,
         Query(alias="update_data"),
     ] = False,
-) -> Any:
+) -> ResponseObject:
     logger.info("camunda gateway start process_key=%s", process_key)
     try:
         return await service.start_camunda_gateway_process(
@@ -95,7 +96,7 @@ async def start_process_for_model(
         bool,
         Query(alias="update_data"),
     ] = False,
-) -> Any:
+) -> ResponseObject:
     logger.info(
         "camunda gateway start process_model=%s process_name=%s",
         process_model,
@@ -116,7 +117,7 @@ async def start_process_for_model(
 async def process_status(
     process_id: str,
     service: Annotated[Service, Depends(get_service)],
-) -> dict[str, Any]:
+) -> ResponseObject:
     logger.info("camunda gateway status process_id=%s", process_id)
     try:
         return await service.get_camunda_gateway_status(process_id)
@@ -130,7 +131,7 @@ async def complete_task(
     service: Annotated[Service, Depends(get_service)],
     payload: Annotated[dict[str, Any], Body(default_factory=dict)],
     process_id: str = "",
-) -> Any:
+) -> ResponseObject:
     resolved = _resolve_process_id(process_id, payload)
     logger.info("camunda gateway complete process_id=%s", resolved)
     try:
@@ -145,7 +146,7 @@ async def approve_task(
     service: Annotated[Service, Depends(get_service)],
     payload: Annotated[dict[str, Any], Body(default_factory=dict)],
     process_id: str = "",
-) -> Any:
+) -> ResponseObject:
     resolved = _resolve_process_id(process_id, payload)
     logger.info("camunda gateway approve process_id=%s", resolved)
     try:
@@ -164,7 +165,7 @@ async def refuse_task(
     service: Annotated[Service, Depends(get_service)],
     payload: Annotated[dict[str, Any], Body(default_factory=dict)],
     process_id: str = "",
-) -> Any:
+) -> ResponseObject:
     resolved = _resolve_process_id(process_id, payload)
     logger.info("camunda gateway refuse process_id=%s", resolved)
     try:
@@ -184,7 +185,7 @@ async def refuse_task(
 async def complete_many(
     service: Annotated[Service, Depends(get_service)],
     payload: Annotated[dict[str, Any], Body(default_factory=dict)],
-) -> dict[str, Any]:
+) -> ResponseObject:
     logger.info(
         "camunda gateway complete_many n=%s",
         len(payload.get("rec_names") or []),
@@ -196,7 +197,7 @@ async def complete_many(
 async def approve_many(
     service: Annotated[Service, Depends(get_service)],
     payload: Annotated[dict[str, Any], Body(default_factory=dict)],
-) -> dict[str, Any]:
+) -> ResponseObject:
     logger.info(
         "camunda gateway approve_many n=%s",
         len(payload.get("rec_names") or []),
@@ -210,7 +211,7 @@ async def approve_many(
 async def refuse_many(
     service: Annotated[Service, Depends(get_service)],
     payload: Annotated[dict[str, Any], Body(default_factory=dict)],
-) -> dict[str, Any]:
+) -> ResponseObject:
     logger.info(
         "camunda gateway refuse_many n=%s",
         len(payload.get("rec_names") or []),

@@ -91,7 +91,12 @@ class RemoteSelectRequest(BaseModel):
         return bool(cleaned)
 
 class ResponseObjectData(BaseModel):
-    mode: str # can be form,list,list_stream
+    # mode: form | list | list_stream | redirect | status
+    #   - redirect: il client naviga verso `next_action_url` (route-token, es.
+    #     "#" = reload pagina corrente, "list_x" = vista named). Usato dalle
+    #     response Camunda quando il task indica un avanzamento di pagina.
+    #   - status: stato del processo (process_id + process_status), nessun form.
+    mode: str
     data: Any
     readable: bool = True
     editable: bool = True
@@ -111,7 +116,14 @@ class ResponseObjectData(BaseModel):
     total_count: int = 0
     context_actions: list[dict[str, Any]] = Field(default_factory=list)
     title: str = ""
+    # next_action_url: per mode=redirect, il route-token verso cui navigare
+    # (es. "#" reload, "list_x"). Per le altre mode resta vuoto.
     next_action_url: str = ""
+    # process_id / process_status: coordinate del processo Camunda (mode=status
+    # o accompagnano form/redirect). process_status: started|running|completed|
+    # terminated|timeout|error.
+    process_id: str = ""
+    process_status: str = ""
 
 class ResponseObject(BaseModel):
     content: ResponseObjectData
@@ -156,13 +168,26 @@ def make_response_object(
     editable: bool = True,
     can_create: bool = True,
     total_count: int = 0,
+    next_action_url: str = "",
+    process_id: str = "",
+    process_status: str = "",
+    fail: bool = False,
+    message: str = "",
 ) -> ResponseObject:
-    """Costruisce una risposta API uniforme per form/list/stream."""
+    """Costruisce una risposta API uniforme per form/list/stream/redirect/status.
+
+    `next_action_url`/`process_id`/`process_status` servono alle response Camunda
+    (vedi ResponseObjectData). `fail`/`message` permettono di forzare uno stato
+    d'errore anche quando non deriva dallo `status` del model (es. errore del
+    task esterno Camunda)."""
 
     content = ResponseObjectData(
         mode=mode,
         data=data if data else [],
         total_count=total_count,
+        next_action_url=next_action_url,
+        process_id=process_id,
+        process_status=process_status,
     )
     if model and not model.status.fail:
         component = model.model.schema() if model else {}
@@ -205,6 +230,9 @@ def make_response_object(
             batch_size=batch_size,
             fields=fields if fields else {},
             total_count=total_count,
+            next_action_url=next_action_url,
+            process_id=process_id,
+            process_status=process_status,
         )
         if mode in ["list_stream", "list"]:
             content.columns = model.table_columns
@@ -213,8 +241,8 @@ def make_response_object(
             content.filter_kyes = model.model.filter_keys()
 
     return ResponseObject(
-        fail=model.status.fail if model else False,
-        message=model.status.msg if model else "",
+        fail=fail or (model.status.fail if model else False),
+        message=message or (model.status.msg if model else ""),
         content=content,
     )
 

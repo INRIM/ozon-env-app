@@ -363,7 +363,7 @@ class Service:
         *,
         update_data: bool = False,
         process_model: str = "",
-    ) -> dict[str, Any]:
+    ) -> ResponseObject:
         async def save_form_record(
             model_name: str,
             record_payload: dict[str, Any],
@@ -424,16 +424,36 @@ class Service:
                 or ""
             ).strip()
             client_resp = await self._camunda_after_start_response(
-                process_id, model=model_name, rec_name=rec_name
+                process_id,
+                model=model_name,
+                rec_name=rec_name,
+                update_data=update_data,
+                has_payload=bool(payload),
             )
             if client_resp is not None:
                 return client_resp
 
-        return result
+        # Nessuna risposta dal task (o wait disabilitato): form col processo
+        # avviato. process_id/process_status danno al client le coordinate.
+        model_obj = self._get_model(model_name) if model_name else None
+        status = str((result.get("stato") or {}).get("status") or "started")
+        return make_response_object(
+            model_obj,
+            mode="form",
+            data=result.get("form") or None,
+            process_id=str(result.get("process_id", "") or ""),
+            process_status=status,
+        )
 
     async def _camunda_after_start_response(
-        self, process_id: str, *, model: str = "", rec_name: str = ""
-    ) -> Any:
+        self,
+        process_id: str,
+        *,
+        model: str = "",
+        rec_name: str = "",
+        update_data: bool = False,
+        has_payload: bool = False,
+    ) -> ResponseObject | None:
         """Dopo lo start: attende il settle e costruisce la risposta client.
         - errore dell'external task -> risposta d'errore (dalla struct);
         - task successivo = user task -> "self": il form rletto (mode=form), cosi
@@ -463,42 +483,152 @@ class Service:
             return None
 
         process_vars = settle.get("variables") or {}
-        client_resp = self._camunda_client_response(process_vars, model=model)
-        if client_resp is not None:
-            return client_resp
 
-        history_loader = getattr(gateway, "get_process_history_variables", None)
-        if callable(history_loader):
-            try:
-                history_vars = await history_loader(process_id)
-            except Exception:  # noqa: BLE001 - fallback best-effort
-                logger.exception(
-                    "camunda history variables failed process=%s", process_id
-                )
-                history_vars = {}
-            client_resp = self._camunda_client_response(
-                history_vars or {}, model=model
+        # Se il settle non porta la struct dell'ultimo task (variabili purgate
+        # dal runtime dopo l'end del processo), prova a rileggerle dalla history.
+        if not process_vars.get("last_task"):
+            history_loader = getattr(
+                gateway, "get_process_history_variables", None
             )
-        if client_resp is not None:
-            return client_resp
+            if callable(history_loader):
+                try:
+                    history_vars = await history_loader(process_id)
+                except Exception:  # noqa: BLE001 - fallback best-effort
+                    logger.exception(
+                        "camunda history variables failed process=%s",
+                        process_id,
+                    )
+                    history_vars = {}
+                if history_vars:
+                    process_vars = history_vars
+                    settle = {**settle, "variables": history_vars}
 
-        # task successivo = user task -> "self" = reload della pagina corrente
-        # (mode=redirect next_page="#"): il client ricarica e mostra il form col
-        # processo avviato / il nuovo task.
-        if settle.get("reason") == "user_task":
+        # 1) errore dell'external task -> risposta d'errore.
+        err_resp = self._camunda_error_response(process_vars, model=model)
+        if err_resp is not None:
+            return err_resp
+
+        # 2) URL di redirect secondo le regole di start (vedi
+        #    _resolve_start_redirect). "" -> nessun redirect -> form.
+        next_url = await self._resolve_start_redirect(
+            settle,
+            model=model,
+            rec_name=rec_name,
+            update_data=update_data,
+            has_payload=has_payload,
+        )
+        if next_url:
             model_obj = self._get_model(model) if model else None
             return make_response_object(
-                model_obj, mode="redirect", data={"next_page": "#"}
+                model_obj,
+                mode="redirect",
+                next_action_url=next_url,
+                process_id=process_id,
+                process_status=str(settle.get("reason") or ""),
             )
         return None
+
+    async def _resolve_camunda_action_url(
+        self, model: str, rec_name: str = "", kind: str = "open"
+    ) -> str:
+        """URL di una action form per `model`, secondo convenzione:
+        - kind="open" -> `form_form_{model}` (apre il record) ->
+          `/action/form_form_{model}/{rec_name}`
+        - kind="new"  -> `new_{model}` (nuovo) -> `/action/new_{model}`
+        Verifica che la action esista (no URL morti); altrimenti "" (il caller
+        ripiega su "self")."""
+        model = str(model or "").strip()
+        if not model:
+            return ""
+        action_name = (
+            f"form_form_{model}" if kind == "open" else f"new_{model}"
+        )
+        action = await self._get_action_record(action_name)
+        if not action:
+            logger.warning(
+                "camunda redirect: action %s inesistente per model=%s",
+                action_name,
+                model,
+            )
+            return ""
+        rec_name = str(rec_name or "").strip()
+        if kind == "open" and rec_name:
+            return f"/action/{action_name}/{rec_name}"
+        return f"/action/{action_name}"
+
+    async def _resolve_start_redirect(
+        self,
+        settle: dict[str, Any],
+        *,
+        model: str = "",
+        rec_name: str = "",
+        update_data: bool = False,
+        has_payload: bool = False,
+    ) -> str:
+        """Risolve l'URL di redirect dopo lo start del processo. Ritorna ""
+        (nessun redirect, il caller mostra il form) oppure un token/URL.
+
+        Regole (model/rec_name/update_data autoritativi dalla struct del task,
+        fallback ai parametri di start):
+        1. update_data + record salvato (rec_name) -> apre il form salvato:
+           `/action/form_form_{model}/{rec_name}` (submit-like).
+        2. payload ma NON update_data -> "self" (reload pagina corrente).
+        3. nessun payload + task successivo user_task -> nuovo form del model del
+           task: `/action/new_{model}`.
+        next_page esplicito dal worker (non "self"/vuoto) -> verbatim.
+        """
+        process_vars = settle.get("variables") or {}
+        last_task = str(process_vars.get("last_task") or "").strip()
+        ctx = process_vars.get(last_task) if last_task else None
+        ctx = ctx if isinstance(ctx, dict) else {}
+
+        # next_page esplicito dal worker -> verbatim (link gia' risolto).
+        next_page = str(ctx.get("next_page") or "").strip()
+        if next_page and next_page != "self":
+            return next_page
+
+        s_model = str(ctx.get("model") or model or "").strip()
+        s_rec = str(ctx.get("rec_name") or rec_name or "").strip()
+        s_update = bool(ctx.get("update_data")) or bool(update_data)
+
+        # Regola 1: form salvato -> aprilo.
+        if s_update and s_rec and s_model:
+            url = await self._resolve_camunda_action_url(
+                s_model, s_rec, "open"
+            )
+            return url or "self"
+
+        # Regola 2: payload senza update_data -> reload.
+        if has_payload and not s_update:
+            return "self"
+
+        # Regola 3: niente payload + prossimo user task -> nuovo form del model.
+        if not has_payload and settle.get("reason") == "user_task":
+            task_model = s_model or str(
+                process_vars.get("model") or ""
+            ).strip()
+            url = await self._resolve_camunda_action_url(
+                task_model, "", "new"
+            )
+            return url or "self"
+
+        return ""
 
     async def get_camunda_gateway_status(
         self,
         process_id: str,
-    ) -> dict[str, Any]:
-        return await self.service_manager.camunda_status(
+    ) -> ResponseObject:
+        result = await self.service_manager.camunda_status(
             process_id,
             gateway=self._camunda_gateway(),
+        )
+        stato = result.get("stato") or {}
+        return make_response_object(
+            None,
+            mode="status",
+            data=result.get("variables") or None,
+            process_id=str(stato.get("process_id") or process_id or ""),
+            process_status=str(stato.get("status") or ""),
         )
 
     async def complete_camunda_gateway_task(
@@ -507,7 +637,7 @@ class Service:
         payload: dict[str, Any] | None = None,
         *,
         decision: str = "",
-    ) -> Any:
+    ) -> ResponseObject:
         payload = payload or {}
         gateway = self._camunda_gateway()
         form = payload.get("form") if isinstance(payload.get("form"), dict) else {}
@@ -529,6 +659,20 @@ class Service:
             or ""
         ).strip()
         data = form or variables
+
+        # DIAG: capire perche' la response esce vuota (model non risolto / niente
+        # struct redirect). Rimuovere dopo la diagnosi.
+        logger.info(
+            "DIAG complete: process_id=%s decision=%s payload_keys=%s "
+            "form_keys=%s variables_keys=%s -> model=%r rec_name=%r",
+            process_id,
+            decision,
+            list(payload.keys()),
+            list(form.keys()),
+            list(variables.keys()),
+            model,
+            rec_name,
+        )
 
         # 1) salva le modifiche dell'utente sul form PRIMA del complete (cosi il
         #    record riflette lo stato dell'utente; l'eventuale worker external lo
@@ -574,6 +718,18 @@ class Service:
                     "camunda wait_until_settled failed process=%s", process_id
                 )
 
+        # DIAG: cosa ha catturato il settle (reason + variabili di processo).
+        _settle_vars = settle.get("variables") or {}
+        logger.info(
+            "DIAG settle: reason=%s settled=%s var_keys=%s last_task=%r "
+            "last_task_struct=%r",
+            settle.get("reason"),
+            settle.get("settled"),
+            list(_settle_vars.keys()),
+            _settle_vars.get("last_task"),
+            _settle_vars.get(str(_settle_vars.get("last_task") or "")),
+        )
+
         # 4) risposta dal risultato dell'external task: la variabile col nome
         #    dell'ultimo task (variables["last_task"]) contiene la struttura con
         #    next_action/next_page/error. Costruisce la risposta client
@@ -587,9 +743,38 @@ class Service:
             return await self.load_record(model, rec_name)
         if model:
             return make_response_object(
-                self._get_model(model), mode="form", data={}
+                self._get_model(model),
+                mode="form",
+                data={},
+                process_id=process_id,
+                process_status="completed",
             )
-        return {"stato": {"process_id": process_id}, "variables": variables}
+        return make_response_object(
+            None,
+            mode="status",
+            data=variables or None,
+            process_id=process_id,
+            process_status="completed",
+        )
+
+    def _camunda_error_response(
+        self, process_vars: dict[str, Any], *, model: str = ""
+    ) -> ResponseObject | None:
+        """Se la struct dell'ultimo task segnala errore -> response d'errore
+        (mode=form, fail=True, message). Altrimenti None."""
+        last_task = str(process_vars.get("last_task") or "").strip()
+        ctx = process_vars.get(last_task) if last_task else None
+        if not isinstance(ctx, dict) or not bool(ctx.get("error")):
+            return None
+        ctx_model = str(ctx.get("model") or model or "").strip()
+        model_obj = self._get_model(ctx_model) if ctx_model else None
+        return make_response_object(
+            model_obj,
+            mode="form",
+            fail=True,
+            message=str(ctx.get("msg") or f"Errore nel task {last_task}"),
+            process_status="error",
+        )
 
     def _camunda_client_response(
         self,
@@ -597,40 +782,28 @@ class Service:
         *,
         model: str = "",
         rec_name: str = "",
-    ) -> Any:
-        """Costruisce la risposta client dalla struttura prodotta dall'external
-        task (chiavi legacy ProcessServiceCamunda). Ritorna None se non c'e' una
-        struttura usabile (il caller fa fallback al form).
+    ) -> ResponseObject | None:
+        """Risposta client dalla struct dell'external task (chiavi legacy
+        ProcessServiceCamunda), usata dal path di complete. None se non c'e' una
+        struct usabile (il caller fa fallback al form).
 
-        Sempre envelope ResponseObject (mai dict grezzo): error -> form con
-        status=error+message; redirect -> mode=redirect con next_page.
-        """
+        Sempre envelope ResponseObject: error -> form con fail/message; redirect
+        -> mode=redirect con next_page VERBATIM (incluso "self": il client lo
+        interpreta come reload; nessuna traduzione lato server)."""
+        err_resp = self._camunda_error_response(process_vars, model=model)
+        if err_resp is not None:
+            return err_resp
+
         last_task = str(process_vars.get("last_task") or "").strip()
         ctx = process_vars.get(last_task) if last_task else None
         if not isinstance(ctx, dict):
             return None
-        ctx_model = str(ctx.get("model") or model or "").strip()
-        model_obj = self._get_model(ctx_model) if ctx_model else None
-
-        if bool(ctx.get("error")):
-            message = str(
-                ctx.get("msg") or f"Errore nel task {last_task}"
-            )
-            return make_response_object(
-                model_obj,
-                mode="form",
-                data={"status": "error", "message": message},
-            )
-
         if ctx.get("next_action") == "redirect":
-            next_page = str(ctx.get("next_page") or "self")
-            if next_page in ("", "self"):
-                # "self" -> reload della pagina corrente (pattern legacy
-                # ProcessServiceCamunda: url "self" -> "#"). Il client su "#"
-                # ricarica la vista, mostrando il nuovo stato/task.
-                next_page = "#"
+            ctx_model = str(ctx.get("model") or model or "").strip()
+            model_obj = self._get_model(ctx_model) if ctx_model else None
+            next_page = str(ctx.get("next_page") or "self") or "self"
             return make_response_object(
-                model_obj, mode="redirect", data={"next_page": next_page}
+                model_obj, mode="redirect", next_action_url=next_page
             )
 
         return None
@@ -640,11 +813,13 @@ class Service:
         payload: dict[str, Any] | None = None,
         *,
         decision: str = "",
-    ) -> dict[str, Any]:
+    ) -> ResponseObject:
         """Batch: per ogni rec_name nella lista esegue il task singolo
         (complete/approved/refused). Il process_id di ciascuno e' letto dal
-        record (campo `process_id`, salvato allo start). Ritorna un riepilogo
-        per rec_name (non si ferma al primo errore)."""
+        record (campo `process_id`, salvato allo start). Non si ferma al primo
+        errore. Risposta: ResponseObject mode=list, content.data = lista di
+        {rec_name, status, message}, total_count = totale; fail=True se almeno
+        un record e' fallito."""
         payload = payload or {}
         model = str(payload.get("model") or "").strip()
         rec_names = payload.get("rec_names") or payload.get("rec_name") or []
@@ -698,15 +873,19 @@ class Service:
                     }
                 )
         ok = sum(1 for r in results if r["status"] == "ok")
-        return {
-            "stato": {
-                "status": "ok" if ok == len(results) else "partial",
-                "decision": decision,
-                "total": len(results),
-                "completed": ok,
-            },
-            "results": results,
-        }
+        failed = len(results) - ok
+        status = "ok" if failed == 0 else "partial"
+        return make_response_object(
+            None,
+            mode="list",
+            data=results,
+            total_count=len(results),
+            process_status=status,
+            fail=failed > 0,
+            message=(
+                "" if failed == 0 else f"{failed}/{len(results)} falliti"
+            ),
+        )
 
     async def compo_by_name(self, model: str, name: str) -> ResponseObject:
         logger.info("service.compo_by_name model=%s name=%s", model, name)

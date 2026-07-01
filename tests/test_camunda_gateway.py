@@ -9,9 +9,14 @@ from app.deps.app_env import get_authed_env
 from app.deps.app_env import get_service
 from app.services.camunda import Camunda8Gateway
 from app.services.camunda import _sdk_value
+from app.services.common import make_response_object
 
 
 class FakeService:
+    """Tutti i metodi gateway tornano un ResponseObject (come il Service reale):
+    process_id/process_status per status, next_action_url per redirect, lista in
+    content.data per il batch."""
+
     def __init__(self):
         self.calls = []
 
@@ -26,18 +31,21 @@ class FakeService:
         self.calls.append(
             ("start", process_key, payload or {}, update_data, process_model)
         )
-        return {
-            "stato": {"status": "started"},
-            "variables": payload or {},
-            "process_id": "proc-1",
-        }
+        return make_response_object(
+            None,
+            mode="form",
+            process_id="proc-1",
+            process_status="started",
+        )
 
     async def get_camunda_gateway_status(self, process_id):
         self.calls.append(("status", process_id))
-        return {
-            "stato": {"status": "running", "process_id": process_id},
-            "variables": {},
-        }
+        return make_response_object(
+            None,
+            mode="status",
+            process_id=process_id,
+            process_status="running",
+        )
 
     async def complete_camunda_gateway_task(
         self,
@@ -47,30 +55,26 @@ class FakeService:
         decision="",
     ):
         self.calls.append(("complete", process_id, payload or {}, decision))
-        variables = dict((payload or {}).get("var", {}))
-        if decision == "approved":
-            variables["approved"] = True
-        return {
-            "stato": {"status": "completed", "decision": decision},
-            "variables": variables,
-        }
+        return make_response_object(
+            None,
+            mode="redirect",
+            next_action_url="#",
+            process_id=process_id,
+            process_status="completed",
+        )
 
     async def complete_many_camunda_gateway_tasks(
         self, payload=None, *, decision=""
     ):
         self.calls.append(("complete_many", payload or {}, decision))
         rec_names = (payload or {}).get("rec_names") or []
-        return {
-            "stato": {
-                "status": "ok",
-                "decision": decision,
-                "total": len(rec_names),
-                "completed": len(rec_names),
-            },
-            "results": [
-                {"rec_name": rn, "status": "ok"} for rn in rec_names
-            ],
-        }
+        return make_response_object(
+            None,
+            mode="list",
+            data=[{"rec_name": rn, "status": "ok"} for rn in rec_names],
+            total_count=len(rec_names),
+            process_status="ok",
+        )
 
 
 class MissingProcessService(FakeService):
@@ -113,13 +117,17 @@ def test_camunda_gateway_router_endpoints():
         )
 
         assert started.status_code == 200
-        assert started.json()["process_id"] == "proc-1"
+        assert started.json()["content"]["process_id"] == "proc-1"
+        assert started.json()["content"]["process_status"] == "started"
         assert started_with_update.status_code == 200
         assert started_for_model.status_code == 200
         assert status.status_code == 200
-        assert status.json()["stato"]["status"] == "running"
+        assert status.json()["content"]["mode"] == "status"
+        assert status.json()["content"]["process_status"] == "running"
         assert approved.status_code == 200
-        assert approved.json()["variables"] == {"x": 1, "approved": True}
+        assert approved.json()["content"]["mode"] == "redirect"
+        assert approved.json()["content"]["next_action_url"] == "#"
+        assert approved.json()["content"]["process_status"] == "completed"
         assert fake.calls == [
             ("start", "approve_request", {"amount": 10}, False, ""),
             (
@@ -176,7 +184,9 @@ def test_camunda_router_batch_endpoints():
         complete = client.post("/gateway/camunda/complete_many", json=body)
 
         assert approve.status_code == 200
-        assert approve.json()["stato"]["total"] == 2
+        assert approve.json()["content"]["mode"] == "list"
+        assert approve.json()["content"]["total_count"] == 2
+        assert len(approve.json()["content"]["data"]) == 2
         assert refuse.status_code == 200
         assert complete.status_code == 200
         # ogni endpoint delega al batch col decision giusto

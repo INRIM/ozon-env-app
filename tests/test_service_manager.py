@@ -138,7 +138,9 @@ def test_service_manager_start_camunda_variables_are_json_safe():
     assert doc["items"] == ["2026-06-20T10:00:00"]
 
 
-def test_service_start_camunda_update_data_saves_form_and_process_id():
+def test_service_start_camunda_update_data_saves_form_and_process_id(
+    monkeypatch,
+):
     service = object.__new__(Service)
     upsert_calls = []
 
@@ -184,6 +186,22 @@ def test_service_start_camunda_update_data_saves_form_and_process_id():
 
     service.upsert = fake_upsert
 
+    class FakeRecordModel:
+        status = SimpleNamespace(fail=False, msg="")
+        model = SimpleNamespace(schema=lambda: {"rec_name": "request"})
+        data_model = "request"
+
+    service._get_model = lambda model_name: FakeRecordModel()
+    # wait disabilitato -> nessun settle: si prende il ramo "form col processo
+    # avviato" (process_id/process_status nella response).
+    monkeypatch.setattr(
+        "app.services.service.get_env_settings",
+        lambda: SimpleNamespace(
+            camunda_complete_wait_seconds=0,
+            camunda_poll_interval_seconds=0.1,
+        ),
+    )
+
     result = asyncio.run(
         service.start_camunda_gateway_process(
             "approve_request",
@@ -221,8 +239,10 @@ def test_service_start_camunda_update_data_saves_form_and_process_id():
             "rec_name": "req-1",
         },
     ]
-    assert result["process_id"] == "proc-123"
-    assert result["form"]["process_id"] == "proc-123"
+    assert result.content.mode == "form"
+    assert result.content.process_id == "proc-123"
+    assert result.content.process_status == "started"
+    assert result.content.data["process_id"] == "proc-123"
 
 
 def test_camunda_after_start_response_uses_history_variables(monkeypatch):
@@ -276,10 +296,140 @@ def test_camunda_after_start_response_uses_history_variables(monkeypatch):
 
     assert gateway.history_calls == ["proc-123"]
     assert response.content.mode == "form"
-    assert response.content.data == {
-        "status": "error",
-        "message": "utente non autorizzato",
+    assert response.fail is True
+    assert response.message == "utente non autorizzato"
+    assert response.content.process_status == "error"
+
+
+def _make_service_with_actions(existing_actions):
+    """Service stub: `_get_action_record` ritorna truthy solo per le action in
+    `existing_actions` (verifica esistenza prima di costruire l'URL)."""
+    service = object.__new__(Service)
+
+    async def fake_get_action_record(name):
+        return object() if name in existing_actions else None
+
+    service._get_action_record = fake_get_action_record
+    return service
+
+
+def test_resolve_start_redirect_rule1_update_data_opens_saved_form():
+    service = _make_service_with_actions({"form_form_test_request"})
+    settle = {
+        "reason": "user_task",
+        "variables": {
+            "last_task": "ckeck_user",
+            "ckeck_user": {
+                "next_action": "redirect",
+                "next_page": "self",
+                "model": "test_request",
+                "rec_name": "test_request.abc",
+                "update_data": True,
+            },
+        },
     }
+    url = asyncio.run(
+        service._resolve_start_redirect(
+            settle,
+            model="test_request",
+            rec_name="test_request.abc",
+            update_data=True,
+            has_payload=True,
+        )
+    )
+    assert url == "/action/form_form_test_request/test_request.abc"
+
+
+def test_resolve_start_redirect_rule2_payload_no_update_data_self():
+    service = _make_service_with_actions(set())
+    settle = {
+        "reason": "user_task",
+        "variables": {
+            "last_task": "ckeck_user",
+            "ckeck_user": {
+                "next_action": "redirect",
+                "next_page": "self",
+                "model": "test_request",
+                "update_data": False,
+            },
+        },
+    }
+    url = asyncio.run(
+        service._resolve_start_redirect(
+            settle,
+            model="test_request",
+            rec_name="",
+            update_data=False,
+            has_payload=True,
+        )
+    )
+    assert url == "self"
+
+
+def test_resolve_start_redirect_rule3_no_payload_user_task_new_form():
+    service = _make_service_with_actions({"new_test_request"})
+    settle = {
+        "reason": "user_task",
+        "variables": {"model": "test_request"},
+    }
+    url = asyncio.run(
+        service._resolve_start_redirect(
+            settle,
+            model="",
+            rec_name="",
+            update_data=False,
+            has_payload=False,
+        )
+    )
+    assert url == "/action/new_test_request"
+
+
+def test_resolve_start_redirect_explicit_next_page_verbatim():
+    service = _make_service_with_actions(set())
+    settle = {
+        "reason": "user_task",
+        "variables": {
+            "last_task": "ckeck_user",
+            "ckeck_user": {
+                "next_action": "redirect",
+                "next_page": "list_test_request",
+            },
+        },
+    }
+    url = asyncio.run(
+        service._resolve_start_redirect(
+            settle, model="test_request", has_payload=True
+        )
+    )
+    assert url == "list_test_request"
+
+
+def test_resolve_start_redirect_missing_action_falls_back_self():
+    # update_data + rec_name ma la action form_form_* non esiste -> "self"
+    # (mai un URL morto).
+    service = _make_service_with_actions(set())
+    settle = {
+        "reason": "user_task",
+        "variables": {
+            "last_task": "ckeck_user",
+            "ckeck_user": {
+                "next_page": "self",
+                "model": "test_request",
+                "rec_name": "test_request.abc",
+                "update_data": True,
+            },
+        },
+    }
+    url = asyncio.run(
+        service._resolve_start_redirect(
+            settle,
+            model="test_request",
+            rec_name="test_request.abc",
+            update_data=True,
+            has_payload=True,
+        )
+    )
+    assert url == "self"
 
 
 def test_service_manager_complete_decision_payload():
