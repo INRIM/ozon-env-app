@@ -515,3 +515,59 @@ def test_service_manager_seed_files_define_models_actions_and_process_name():
     assert "process_name_to_complete" not in serialized_action_schema
     assert "process_name_to_complete" not in serialized_actions
     assert "process_name" in serialized_action_schema
+
+
+def test_group_users_save_action_is_visible_in_form_context():
+    actions = json.loads(Path("app/base/data/action.json").read_text())
+    submit_group_users = next(
+        item for item in actions if item["rec_name"] == "submit_group_users"
+    )
+
+    assert submit_group_users["model"] == "group_users"
+    assert submit_group_users["action_type"] == "save"
+    assert "form" in submit_group_users["context_button_mode"]
+
+
+def test_groups_save_action_is_visible_in_form_context():
+    """submit_groups aveva context_button_mode vuoto (sia in data_value che
+    top-level): _get_context_actions scarta l'action se action_mode non e'
+    in context_button_mode, quindi il bottone Salva non compariva mai sul
+    form 'groups'."""
+    actions = json.loads(Path("app/base/data/action.json").read_text())
+    submit_groups = next(
+        item for item in actions if item["rec_name"] == "submit_groups"
+    )
+
+    assert submit_groups["model"] == "groups"
+    assert submit_groups["action_type"] == "save"
+    assert "form" in submit_groups["context_button_mode"]
+    assert submit_groups["data_value"]["context_button_mode"] == "Form"
+
+
+def test_sys_schemas_have_default_acl_properties_excluding_identity_layer():
+    """I record sys esistenti in components.json (esclusa identity layer:
+    user/groups/group_users, accesso solo admin) devono avere models_groups/
+    models_restricted_fields di default gia' valorizzati — coerenti con
+    quanto normalize_component_properties inietta per i nuovi record."""
+    from app.core.OzonEnvApp import IDENTITY_MODEL_NAMES
+    from app.core.OzonEnvApp import _DEFAULT_MODELS_GROUPS_SYS
+    from app.core.OzonEnvApp import _DEFAULT_MODELS_RESTRICTED_FIELDS
+
+    components = json.loads(
+        Path("app/base/schema/components.json").read_text()
+    )
+    sys_components = [c for c in components if c.get("sys") is True]
+    assert sys_components
+
+    for component in sys_components:
+        rec_name = component["rec_name"]
+        properties = component.get("properties") or {}
+        if rec_name in IDENTITY_MODEL_NAMES:
+            assert "models_groups" not in properties, rec_name
+            assert "models_restricted_fields" not in properties, rec_name
+            continue
+        assert properties.get("models_groups") == _DEFAULT_MODELS_GROUPS_SYS, rec_name
+        assert (
+            properties.get("models_restricted_fields")
+            == _DEFAULT_MODELS_RESTRICTED_FIELDS
+        ), rec_name

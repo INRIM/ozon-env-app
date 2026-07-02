@@ -26,6 +26,9 @@ class PluginInstaller:
             db = env.orm.db
             for plugin_dir in plugins:
                 await self._install_plugin(plugin_dir, db)
+            from app.ozon_env_acl.model_rules_sync import sync_all_model_rules
+
+            await sync_all_model_rules(env)
         finally:
             await env.close_env()
 

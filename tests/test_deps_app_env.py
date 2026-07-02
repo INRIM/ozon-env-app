@@ -100,6 +100,19 @@ class _FakeEngine:
         return self.collections[name]
 
 
+class _FakeGroupUsersModel:
+    """Minimal group_users model stand-in (group/users/app_code rows)."""
+
+    def __init__(self, rows=None):
+        self.rows = list(rows or [])
+
+    def get_domain(self, query):
+        return query
+
+    async def find(self, domain, limit=0):
+        return [row.copy() for row in self.rows]
+
+
 class _FakeOzonEnv:
     def __init__(
         self,
@@ -107,6 +120,7 @@ class _FakeOzonEnv:
         runtime_app_code: str | None = None,
         user_session=None,
         user_docs=None,
+        group_users=None,
     ):
         self.params = {"current_session_token": "admin-token"}
         self.config_system = {"ozon_admin_token": "admin-token"}
@@ -133,11 +147,17 @@ class _FakeOzonEnv:
             ),
             add_static_model=_noop_add_static_model,
         )
+        self._group_users = _FakeGroupUsersModel(group_users)
         self.upload_folder = ""
 
     async def session_app(self):
         self.session_app_calls += 1
         return _SessionResult()
+
+    def get(self, name: str):
+        if name == "group_users":
+            return self._group_users
+        raise ValueError(f"Unknown model: {name}")
 
 
 async def _noop_add_static_model(name, model_class):
@@ -263,6 +283,47 @@ def test_get_authed_env_calls_session_app_once(monkeypatch):
     assert ozon_env.params["current_token"] == sso_token
 
 
+def test_get_authed_env_sets_is_admin_from_group_users(monkeypatch):
+    """is_admin/groups sourced live from group_users, not setting_app.admins."""
+    monkeypatch.setattr(app_env, "settings", _FAKE_SETTINGS)
+
+    ozon_env = _FakeOzonEnv(
+        user_app_code="mci",
+        group_users=[
+            {
+                "group": "admin",
+                "users": ["legacy-user"],
+                "app_code": "mci",
+                "active": True,
+                "deleted": 0,
+            }
+        ],
+    )
+    response = Response()
+    request = _build_request("/action/list")
+
+    asyncio.run(
+        app_env.get_authed_env("Bearer ok-token", ozon_env, request, response)
+    )
+
+    assert ozon_env.user_session.is_admin is True
+    assert "admin" in ozon_env.user_session.user["groups"]
+
+
+def test_get_authed_env_is_not_admin_without_group_users_membership(monkeypatch):
+    monkeypatch.setattr(app_env, "settings", _FAKE_SETTINGS)
+
+    ozon_env = _FakeOzonEnv(user_app_code="mci")
+    response = Response()
+    request = _build_request("/action/list")
+
+    asyncio.run(
+        app_env.get_authed_env("Bearer ok-token", ozon_env, request, response)
+    )
+
+    assert ozon_env.user_session.is_admin is False
+
+
 def test_get_authed_env_uses_runtime_app_code_for_session_and_cookie(monkeypatch):
     monkeypatch.setattr(app_env, "settings", _FAKE_SETTINGS)
 
@@ -278,7 +339,12 @@ def test_get_authed_env_uses_runtime_app_code_for_session_and_cookie(monkeypatch
     )
 
     assert ozon_env.user_session.app_code == "persona"
-    assert "app_code=persona" in response.headers.get("set-cookie", "")
+    app_code_cookie = next(
+        header
+        for header in response.headers.getlist("set-cookie")
+        if header.startswith("app_code=persona")
+    )
+    assert "HttpOnly" not in app_code_cookie
 
 
 @pytest.mark.parametrize(

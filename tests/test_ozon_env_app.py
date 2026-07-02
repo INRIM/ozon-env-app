@@ -5,6 +5,13 @@ from types import SimpleNamespace
 from app.core.OzonEnvApp import AppOzonEnv
 from app.core.OzonEnvApp import AppOzonOrm
 from app.core.OzonEnvApp import is_runtime_model_name
+from app.core.OzonEnvApp import _DEFAULT_MODELS_GROUPS_NON_SYS
+from app.core.OzonEnvApp import _DEFAULT_MODELS_RESTRICTED_FIELDS
+
+_DEFAULT_ACL_PROPERTIES = {
+    "models_groups": _DEFAULT_MODELS_GROUPS_NON_SYS,
+    "models_restricted_fields": _DEFAULT_MODELS_RESTRICTED_FIELDS,
+}
 
 
 class _FakeComponentModel:
@@ -49,6 +56,31 @@ class _FakeOrm:
         )
 
 
+class _RuleCollection:
+    def __init__(self):
+        self.deleted = []
+        self.inserted = []
+
+    async def delete_many(self, query):
+        self.deleted.append(query)
+
+    async def insert_many(self, rows):
+        self.inserted.extend(rows)
+
+
+class _RuleEngine:
+    def __init__(self):
+        self.groups = _RuleCollection()
+        self.fields = _RuleCollection()
+
+    def get_collection(self, name):
+        if name == "model_groups_rule":
+            return self.groups
+        if name == "model_fields_rule":
+            return self.fields
+        raise AssertionError(f"unexpected collection {name}")
+
+
 class _FakeComponentCollection:
     def __init__(self, distinct_values):
         self.distinct_values = list(distinct_values)
@@ -81,6 +113,61 @@ class _FakeEnv:
         self.models = {}
         self.models_folder = str(tmp_path / "models")
         self.app_code = "demo"
+
+
+def test_normalize_component_properties_defaults_non_sys_record():
+    from app.core.OzonEnvApp import normalize_component_properties
+
+    schema = {"rec_name": "customer", "type": "resource"}
+    normalize_component_properties(schema)
+
+    assert schema["properties"]["models_groups"] == _DEFAULT_MODELS_GROUPS_NON_SYS
+    assert (
+        schema["properties"]["models_restricted_fields"]
+        == _DEFAULT_MODELS_RESTRICTED_FIELDS
+    )
+
+
+def test_normalize_component_properties_defaults_sys_record():
+    from app.core.OzonEnvApp import _DEFAULT_MODELS_GROUPS_SYS
+    from app.core.OzonEnvApp import normalize_component_properties
+
+    schema = {"rec_name": "action", "type": "resource", "sys": True}
+    normalize_component_properties(schema)
+
+    assert schema["properties"]["models_groups"] == _DEFAULT_MODELS_GROUPS_SYS
+    assert (
+        schema["properties"]["models_restricted_fields"]
+        == _DEFAULT_MODELS_RESTRICTED_FIELDS
+    )
+
+
+def test_normalize_component_properties_skips_identity_models():
+    from app.core.OzonEnvApp import normalize_component_properties
+
+    for rec_name in ("user", "groups", "group_users"):
+        schema = {"rec_name": rec_name, "type": "resource", "sys": True}
+        normalize_component_properties(schema)
+        assert "models_groups" not in schema["properties"]
+        assert "models_restricted_fields" not in schema["properties"]
+
+
+def test_normalize_component_properties_does_not_override_existing_rules():
+    from app.core.OzonEnvApp import normalize_component_properties
+
+    custom_rules = {"rules": [{"groups": ["custom"], "actions": {}}]}
+    schema = {
+        "rec_name": "customer",
+        "type": "resource",
+        "properties": {"models_groups": custom_rules},
+    }
+    normalize_component_properties(schema)
+
+    assert schema["properties"]["models_groups"] == custom_rules
+    assert (
+        schema["properties"]["models_restricted_fields"]
+        == _DEFAULT_MODELS_RESTRICTED_FIELDS
+    )
 
 
 def test_is_runtime_model_name_rejects_builder_temporary_names():
@@ -120,6 +207,7 @@ def test_insert_update_component_skips_runtime_sync_for_builder_temporary_name()
         {
             "rec_name": "component.40c6976d968c4966800a0667521fde47",
             "type": "form",
+            "properties": _DEFAULT_ACL_PROPERTIES,
         }
     ]
     assert orm.added == []
@@ -146,6 +234,7 @@ def test_insert_update_component_keeps_runtime_sync_for_valid_component_name():
         {
             "rec_name": "nullaOstaBandiRequest",
             "type": "form",
+            "properties": _DEFAULT_ACL_PROPERTIES,
         }
     ]
     assert orm.added == ["nullaOstaBandiRequest"]
@@ -266,6 +355,47 @@ def test_insert_update_component_normalizes_properties():
     inserted_schema = component_model.inserted[0]
     assert inserted_schema["properties"]["queryformeditable"] == '{"deleted": 0}'
     assert inserted_schema["properties"]["sort"] == "rec_name:asc"
+
+
+def test_insert_update_component_syncs_model_rules_on_save():
+    env = AppOzonEnv(cfg={"app_code": "demo"})
+    component_model = _FakeComponentModel()
+    orm = _FakeOrm()
+    rule_engine = _RuleEngine()
+    orm.app_settings = SimpleNamespace(app_code="demo")
+    orm.db = SimpleNamespace(engine=rule_engine)
+    env.models = {"component": component_model}
+    env.orm = orm
+
+    schema = {
+        "rec_name": "document",
+        "properties": {
+            "models_groups": {
+                "rules": [
+                    {
+                        "groups": ["manager"],
+                        "actions": {"read": True, "update": True},
+                    }
+                ]
+            },
+            "models_restricted_fields": {
+                "fields_rule": {
+                    "resticted_fields": ["salary"],
+                    "allowed_groups": [
+                        {"groups": ["dpo"], "actions": {"read": True}}
+                    ],
+                },
+                "record_rulse": [],
+            },
+        },
+    }
+
+    asyncio.run(env.insert_update_component(schema))
+
+    assert rule_engine.groups.deleted == [{"app_code": "demo", "model": "document"}]
+    assert rule_engine.fields.deleted == [{"app_code": "demo", "model": "document"}]
+    assert rule_engine.groups.inserted[0]["rec_name"] == "mgr.demo.document.manager"
+    assert rule_engine.fields.inserted[0]["rec_name"] == "mfr.demo.document.fields.dpo"
 
 
 def test_normalize_order_space_and_plus():

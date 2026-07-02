@@ -10,6 +10,7 @@ from app.deps.app_env import _build_ozon_cfg
 from app.deps.app_env import _model_to_dict
 from app.deps.app_env import sync_app_settings_startup
 from app.core.models import AppUser
+from app.ozon_env_acl import get_admin_uids
 
 def _localhost_mongo_available(host: str = "127.0.0.1", port: int = 22222) -> bool:
     try:
@@ -105,7 +106,12 @@ async def test_sync_app_settings_startup_persists_public_record_real_mongo(
 
 
 @pytest.mark.asyncio
-async def test_sync_app_settings_startup_backfills_admins_real_mongo(tmp_path):
+async def test_sync_app_settings_startup_seeds_admin_group_users_real_mongo(
+    tmp_path,
+):
+    """Startup seeds group_users(group='admin') from env ADMINS when the
+    app_code has no admin group yet — replaces the old setting_app.admins
+    backfill. is_admin is now sourced exclusively from group_users."""
     if not _localhost_mongo_available():
         pytest.skip("Mongo locale non disponibile su 127.0.0.1:22222")
 
@@ -166,11 +172,8 @@ async def test_sync_app_settings_startup_backfills_admins_real_mongo(tmp_path):
 
         verify_env = OzonEnv(cfg=cfg, cls_model=OzonModelApp)
         await verify_env.init_env()
-        verify_model = verify_env.get("settings")
-        record = await _load_settings_record(verify_model, temp_app_code)
-
-        assert record["rec_name"] == temp_app_code
-        assert record["admins"] == ["integration.admin"]
+        admin_uids = await get_admin_uids(verify_env, temp_app_code)
+        assert admin_uids == ["integration.admin"]
         await verify_env.close_env()
     finally:
         cleanup_env = OzonEnv(cfg=cfg, cls_model=OzonModelApp)
@@ -179,4 +182,10 @@ async def test_sync_app_settings_startup_backfills_admins_real_mongo(tmp_path):
         loaded = await cleanup_model.load({"rec_name": temp_app_code})
         if not cleanup_model.status.fail and loaded:
             await cleanup_model.remove(loaded)
+        group_users_model = cleanup_env.get("group_users")
+        group_loaded = await group_users_model.load(
+            {"rec_name": f"admin-{temp_app_code}"}
+        )
+        if not group_users_model.status.fail and group_loaded:
+            await group_users_model.remove(group_loaded)
         await cleanup_env.close_env()

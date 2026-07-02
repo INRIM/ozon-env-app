@@ -47,7 +47,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -97,7 +101,11 @@
     "next_action_name": "form_form_fast_search_config",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599facf",
@@ -143,7 +151,11 @@
       "deleted": "0.00",
       "user_function": "",
       "delete_cascade": [],
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -193,7 +205,11 @@
     "next_action_name": "submit_design",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa9f",
@@ -242,7 +258,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -294,7 +314,11 @@
     "next_action_name": "form_resource_schema_preview",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fab7",
@@ -344,7 +368,11 @@
       "add_referer": false,
       "eval_process": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -396,7 +424,11 @@
     "next_action_name": "submit_mail_server_out",
     "keep_filter": true,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fadf",
@@ -445,7 +477,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -497,7 +533,11 @@
     "next_action_name": "form_form_global_params",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa97",
@@ -546,7 +586,10 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -598,7 +641,10 @@
     "next_action_name": "form_form_user",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fac7",
@@ -648,7 +694,11 @@
       "eval_process": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -698,7 +748,11 @@
     "next_action_name": "list_calendar",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa87",
@@ -747,7 +801,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -799,7 +857,11 @@
     "next_action_name": "form_form_schema",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fad7",
@@ -851,7 +913,11 @@
       "create_datetime": "03/06/2026 10:25:47",
       "update_datetime": "03/06/2026 10:28:07",
       "view_name": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -903,7 +969,11 @@
     "next_action_name": "list_settings",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599faa7",
@@ -953,7 +1023,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -1003,7 +1077,11 @@
     "next_action_name": "submit_user_type",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fab3",
@@ -1053,7 +1131,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -1103,7 +1185,11 @@
     "next_action_name": "form_form_mail_template",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fae6",
@@ -1154,7 +1240,8 @@
       "deleted": "0.00",
       "user_function": "",
       "view_name": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": []
     },
     "owner_name": "",
     "deleted": 0,
@@ -1204,7 +1291,8 @@
     "next_action_name": "list_camunda_process",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": []
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa93",
@@ -1254,7 +1342,11 @@
       "eval_process": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -1304,7 +1396,11 @@
     "next_action_name": "list_action_type",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fabb",
@@ -1354,7 +1450,11 @@
       "eval_process": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -1404,7 +1504,11 @@
     "next_action_name": "list_mail_server_out",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa83",
@@ -1453,7 +1557,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -1505,7 +1613,11 @@
     "next_action_name": "list_resource",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fac3",
@@ -1555,7 +1667,11 @@
       "add_referer": false,
       "eval_process": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -1607,7 +1723,11 @@
     "next_action_name": "submit_calendar",
     "keep_filter": true,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa9b",
@@ -1657,7 +1777,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -1707,7 +1831,11 @@
     "next_action_name": "list_menu_group",
     "keep_filter": false,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599facb",
@@ -1756,7 +1884,11 @@
       "add_referer": false,
       "eval_process": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -1808,7 +1940,11 @@
     "next_action_name": "list_standard",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa7b",
@@ -1857,7 +1993,11 @@
       "add_referer": false,
       "eval_process": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -1909,7 +2049,11 @@
     "next_action_name": "list_action",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fad3",
@@ -1958,7 +2102,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -2010,7 +2158,11 @@
     "next_action_name": "form_form_design",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599faa3",
@@ -2059,7 +2211,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -2111,7 +2267,11 @@
     "next_action_name": "form_layout_schema_preview",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fadb",
@@ -2157,7 +2317,11 @@
       "deleted": "0.00",
       "user_function": "",
       "delete_cascade": [],
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -2207,7 +2371,11 @@
     "next_action_name": "submit_global_params",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa8b",
@@ -2256,7 +2424,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -2308,7 +2480,11 @@
     "next_action_name": "form_form_action",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fae3",
@@ -2358,7 +2534,8 @@
       "eval_process": false,
       "deleted": "0.00",
       "view_name": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": []
     },
     "owner_name": "",
     "deleted": 0,
@@ -2410,7 +2587,8 @@
     "next_action_name": "list_camunda_process",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": []
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599faab",
@@ -2460,7 +2638,11 @@
       "eval_process": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -2510,7 +2692,11 @@
     "next_action_name": "list_user_type",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fab1",
@@ -2560,7 +2746,11 @@
       "add_referer": false,
       "eval_process": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -2612,7 +2802,11 @@
     "next_action_name": "submit_mail_template",
     "keep_filter": true,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599faad",
@@ -2661,7 +2855,11 @@
       "add_referer": false,
       "eval_process": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -2713,7 +2911,11 @@
     "next_action_name": "form_form_action_type",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa91",
@@ -2762,7 +2964,10 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -2814,7 +3019,10 @@
     "next_action_name": "submit_user",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fab5",
@@ -2864,7 +3072,11 @@
       "eval_process": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -2914,7 +3126,11 @@
     "next_action_name": "list_mail_template",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa81",
@@ -2966,7 +3182,11 @@
       "create_datetime": "03/06/2026 10:25:47",
       "update_datetime": "03/06/2026 10:27:20",
       "view_name": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -3018,7 +3238,11 @@
     "next_action_name": "list_menu_group",
     "keep_filter": false,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fab9",
@@ -3068,7 +3292,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -3118,7 +3346,11 @@
     "next_action_name": "form_form_mail_server_out",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa95",
@@ -3165,7 +3397,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -3217,7 +3453,11 @@
     "next_action_name": "",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fabd",
@@ -3267,7 +3507,11 @@
       "add_referer": false,
       "eval_process": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -3319,7 +3563,11 @@
     "next_action_name": "submit_fast_search_config",
     "keep_filter": true,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa79",
@@ -3368,7 +3616,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -3418,7 +3670,11 @@
     "next_action_name": "form_form_user_type",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fac1",
@@ -3468,7 +3724,11 @@
       "eval_process": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -3518,7 +3778,11 @@
     "next_action_name": "list_fast_search_config",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa99",
@@ -3568,7 +3832,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -3620,7 +3888,11 @@
     "next_action_name": "form_form_action_type",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fac5",
@@ -3670,7 +3942,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -3720,7 +3996,11 @@
     "next_action_name": "form_form_calendar",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa85",
@@ -3769,7 +4049,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -3821,7 +4105,11 @@
     "next_action_name": "list_form",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fac9",
@@ -3867,7 +4155,11 @@
       "deleted": "0.00",
       "user_function": "",
       "delete_cascade": [],
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -3917,7 +4209,11 @@
     "next_action_name": "submit_standard",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa9d",
@@ -3966,7 +4262,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -4018,7 +4318,11 @@
     "next_action_name": "form_form_resource",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599facd",
@@ -4067,7 +4371,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -4119,7 +4427,11 @@
     "next_action_name": "form_form_standard",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa75",
@@ -4169,7 +4481,11 @@
       "add_referer": false,
       "eval_process": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -4221,7 +4537,11 @@
     "next_action_name": "submit_action",
     "keep_filter": true,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fad1",
@@ -4270,7 +4590,11 @@
       "add_referer": false,
       "eval_process": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -4320,7 +4644,11 @@
     "next_action_name": "list_design",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599faa1",
@@ -4367,7 +4695,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -4417,7 +4749,11 @@
     "next_action_name": "",
     "keep_filter": false,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fad5",
@@ -4463,7 +4799,11 @@
       "deleted": "0.00",
       "user_function": "",
       "delete_cascade": [],
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -4513,7 +4853,11 @@
     "next_action_name": "submit_settings",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa89",
@@ -4562,7 +4906,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -4614,7 +4962,11 @@
     "next_action_name": "form_form_schema_preview",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fad9",
@@ -4663,7 +5015,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -4715,7 +5071,11 @@
     "next_action_name": "form_form_settings",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599faa5",
@@ -4764,7 +5124,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -4816,7 +5180,11 @@
     "next_action_name": "list_layout",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fadd",
@@ -4868,7 +5236,11 @@
       "create_datetime": "03/06/2026 10:25:47",
       "update_datetime": "03/06/2026 10:27:50",
       "view_name": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -4920,7 +5292,11 @@
     "next_action_name": "list_global_params",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa7d",
@@ -4967,7 +5343,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -5017,7 +5397,11 @@
     "next_action_name": "form_form_resource",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fae1",
@@ -5064,7 +5448,8 @@
       "user_function": "",
       "view_name": "",
       "delete_cascade": [],
-      "process_name": ""
+      "process_name": "",
+      "groups": []
     },
     "owner_name": "",
     "deleted": 0,
@@ -5114,7 +5499,8 @@
     "next_action_name": "submit_camunda_process",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": []
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599faa9",
@@ -5164,7 +5550,11 @@
       "eval_process": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -5214,7 +5604,11 @@
     "next_action_name": "list_user_type",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fae5",
@@ -5264,7 +5658,8 @@
       "keep_filter": false,
       "deleted": "0.00",
       "view_name": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": []
     },
     "owner_name": "",
     "deleted": 0,
@@ -5316,7 +5711,8 @@
     "next_action_name": "form_form_camunda_process",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": []
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa8d",
@@ -5366,7 +5762,11 @@
       "eval_process": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -5416,7 +5816,11 @@
     "next_action_name": "list_action",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599faac",
@@ -5466,7 +5870,10 @@
       "eval_process": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -5516,7 +5923,10 @@
     "next_action_name": "list_user",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa8e",
@@ -5566,7 +5976,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -5616,7 +6030,11 @@
     "next_action_name": "",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fab0",
@@ -5662,7 +6080,11 @@
       "deleted": "0.00",
       "user_function": "",
       "delete_cascade": [],
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -5712,7 +6134,11 @@
     "next_action_name": "submit_mail_template",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599faae",
@@ -5761,7 +6187,10 @@
       "add_referer": false,
       "eval_process": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -5811,7 +6240,10 @@
     "next_action_name": "list_user",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa90",
@@ -5858,7 +6290,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -5908,7 +6344,11 @@
     "next_action_name": "",
     "keep_filter": false,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fab2",
@@ -5957,7 +6397,11 @@
       "add_referer": false,
       "eval_process": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -6009,7 +6453,11 @@
     "next_action_name": "list_mail_template",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa80",
@@ -6058,7 +6506,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -6108,7 +6560,11 @@
     "next_action_name": "submit_menu_group",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fab4",
@@ -6157,7 +6613,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -6209,7 +6669,11 @@
     "next_action_name": "form_form_mail_template",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa92",
@@ -6259,7 +6723,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -6311,7 +6779,11 @@
     "next_action_name": "submit_action_type",
     "keep_filter": false,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fab6",
@@ -6357,7 +6829,11 @@
       "deleted": "0.00",
       "user_function": "",
       "delete_cascade": [],
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -6407,7 +6883,11 @@
     "next_action_name": "submit_mail_server_out",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa78",
@@ -6457,7 +6937,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -6509,7 +6993,11 @@
     "next_action_name": "submit_menu_group",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fab8",
@@ -6558,7 +7046,11 @@
       "add_referer": false,
       "eval_process": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -6610,7 +7102,11 @@
     "next_action_name": "list_mail_server_out",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa94",
@@ -6660,7 +7156,10 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -6710,7 +7209,10 @@
     "next_action_name": "submit_user",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599faba",
@@ -6759,7 +7261,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -6811,7 +7317,11 @@
     "next_action_name": "form_form_mail_server_out",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa82",
@@ -6861,7 +7371,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -6911,7 +7425,11 @@
     "next_action_name": "form_form_action",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fabc",
@@ -6957,7 +7475,11 @@
       "deleted": "0.00",
       "user_function": "",
       "delete_cascade": [],
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -7007,7 +7529,11 @@
     "next_action_name": "submit_fast_search_config",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa96",
@@ -7057,7 +7583,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -7107,7 +7637,11 @@
     "next_action_name": "submit_action_type",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fabe",
@@ -7156,7 +7690,11 @@
       "add_referer": false,
       "eval_process": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -7206,7 +7744,11 @@
     "next_action_name": "list_fast_search_config",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa74",
@@ -7252,7 +7794,11 @@
       "deleted": "0.00",
       "user_function": "",
       "delete_cascade": [],
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -7302,7 +7848,11 @@
     "next_action_name": "submit_action",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fac0",
@@ -7351,7 +7901,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -7403,7 +7957,11 @@
     "next_action_name": "form_form_fast_search_config",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa98",
@@ -7453,7 +8011,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -7505,7 +8067,11 @@
     "next_action_name": "form_form_menu_group",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fac2",
@@ -7551,7 +8117,11 @@
       "deleted": "0.00",
       "user_function": "",
       "delete_cascade": [],
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -7601,7 +8171,11 @@
     "next_action_name": "submit_calendar",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa84",
@@ -7650,7 +8224,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -7702,7 +8280,11 @@
     "next_action_name": "form_form_resource",
     "keep_filter": false,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fac4",
@@ -7754,7 +8336,11 @@
       "create_datetime": "03/06/2026 10:25:47",
       "update_datetime": "03/06/2026 10:28:26",
       "view_name": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -7806,7 +8392,11 @@
     "next_action_name": "list_calendar",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa9a",
@@ -7850,7 +8440,11 @@
       "user_function": "",
       "menu_group": "",
       "delete_cascade": [],
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -7900,7 +8494,11 @@
     "next_action_name": "",
     "keep_filter": false,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fac6",
@@ -7949,7 +8547,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -8001,7 +8603,11 @@
     "next_action_name": "form_form_calendar",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa7a",
@@ -8051,7 +8657,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -8101,7 +8711,11 @@
     "next_action_name": "form_form_action_type",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fac8",
@@ -8151,7 +8765,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -8201,7 +8819,11 @@
     "next_action_name": "form_form_action",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa9c",
@@ -8248,7 +8870,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -8300,7 +8926,11 @@
     "next_action_name": "form_form_resource",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599faca",
@@ -8350,7 +8980,11 @@
       "add_referer": false,
       "eval_process": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -8402,7 +9036,11 @@
     "next_action_name": "submit_standard",
     "keep_filter": true,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa86",
@@ -8444,7 +9082,11 @@
       "force_domain_query": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -8496,7 +9138,11 @@
     "next_action_name": "",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599facc",
@@ -8546,7 +9192,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -8596,7 +9246,11 @@
     "next_action_name": "form_form_standard",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa9e",
@@ -8646,7 +9300,11 @@
       "eval_process": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -8696,7 +9354,11 @@
     "next_action_name": "list_action_type",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599face",
@@ -8746,7 +9408,11 @@
       "eval_process": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -8796,7 +9462,11 @@
     "next_action_name": "list_standard",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa72",
@@ -8846,7 +9516,10 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -8896,7 +9569,10 @@
     "next_action_name": "form_form_user",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fad0",
@@ -8946,7 +9622,11 @@
       "add_referer": false,
       "eval_process": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -8998,7 +9678,11 @@
     "next_action_name": "submit_design",
     "keep_filter": true,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599faa0",
@@ -9045,7 +9729,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -9097,7 +9785,11 @@
     "next_action_name": "form_form_layout",
     "keep_filter": false,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fad2",
@@ -9147,7 +9839,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -9197,7 +9893,11 @@
     "next_action_name": "form_form_design",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa88",
@@ -9246,7 +9946,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -9298,7 +10002,11 @@
     "next_action_name": "form_form_schema",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fad4",
@@ -9348,7 +10056,11 @@
       "eval_process": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -9398,7 +10110,11 @@
     "next_action_name": "list_design",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599faa2",
@@ -9445,7 +10161,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -9495,7 +10215,11 @@
     "next_action_name": "",
     "keep_filter": false,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fad6",
@@ -9545,7 +10269,11 @@
       "add_referer": false,
       "eval_process": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -9597,7 +10325,11 @@
     "next_action_name": "submit_settings",
     "keep_filter": true,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa7c",
@@ -9646,7 +10378,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -9696,7 +10432,11 @@
     "next_action_name": "form_form_action",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fad8",
@@ -9746,7 +10486,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -9796,7 +10540,11 @@
     "next_action_name": "form_form_settings",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599faa4",
@@ -9843,7 +10591,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -9895,7 +10647,11 @@
     "next_action_name": "form_form_layout",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fada",
@@ -9945,7 +10701,11 @@
       "eval_process": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -9995,7 +10755,11 @@
     "next_action_name": "list_settings",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa8a",
@@ -10042,7 +10806,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -10092,7 +10860,11 @@
     "next_action_name": "",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fadc",
@@ -10142,7 +10914,11 @@
       "add_referer": false,
       "eval_process": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -10194,7 +10970,11 @@
     "next_action_name": "submit_global_params",
     "keep_filter": true,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599faa6",
@@ -10243,7 +11023,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -10295,7 +11079,11 @@
     "next_action_name": "form_form_layout",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fade",
@@ -10345,7 +11133,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -10395,7 +11187,11 @@
     "next_action_name": "form_form_global_params",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa76",
@@ -10444,7 +11240,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -10494,7 +11294,11 @@
     "next_action_name": "form_form_menu_group",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fae0",
@@ -10544,7 +11348,11 @@
       "eval_process": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -10594,7 +11402,11 @@
     "next_action_name": "list_global_params",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599faa8",
@@ -10644,7 +11456,11 @@
       "eval_process": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -10696,7 +11512,11 @@
     "next_action_name": "submit_user_type",
     "keep_filter": true,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fae2",
@@ -10747,7 +11567,8 @@
       "eval_process": false,
       "deleted": "0.00",
       "view_name": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": []
     },
     "owner_name": "",
     "deleted": 0,
@@ -10799,7 +11620,8 @@
     "next_action_name": "submit_camunda_process",
     "keep_filter": true,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": []
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa8c",
@@ -10846,7 +11668,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -10898,7 +11724,11 @@
     "next_action_name": "form_form_resource",
     "keep_filter": false,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fae4",
@@ -10940,7 +11770,8 @@
       "builder_enabled": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": []
     },
     "owner_name": "",
     "deleted": 0,
@@ -10990,7 +11821,8 @@
     "next_action_name": "form_form_camunda_process",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": []
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599faaa",
@@ -11040,7 +11872,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -11092,7 +11928,11 @@
     "next_action_name": "form_form_user_type",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa7e",
@@ -11139,7 +11979,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -11189,7 +12033,11 @@
     "next_action_name": "form_form_action",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa71",
@@ -11238,7 +12086,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -11290,7 +12142,11 @@
     "next_action_name": "list_form",
     "keep_filter": false,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa73",
@@ -11337,7 +12193,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -11387,7 +12247,11 @@
     "next_action_name": "form_form_schema",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa77",
@@ -11437,7 +12301,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -11487,7 +12355,11 @@
     "next_action_name": "form_form_action",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa7f",
@@ -11534,7 +12406,11 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -11584,7 +12460,11 @@
     "next_action_name": "form_form_layout",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599fa8f",
@@ -11634,7 +12514,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -11686,7 +12570,11 @@
     "next_action_name": "form_form_schema",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "6a1fe4fb1ec8e6f72599faaf",
@@ -11735,7 +12623,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -11787,7 +12679,11 @@
     "next_action_name": "form_form_layout",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "data_model": "",
@@ -11836,7 +12732,11 @@
       "add_referer": false,
       "eval_process": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -11888,7 +12788,11 @@
     "next_action_name": "submit_message_queue",
     "keep_filter": true,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "data_model": "",
@@ -11937,7 +12841,11 @@
       "eval_process": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -11987,7 +12895,11 @@
     "next_action_name": "list_message_queue",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "data_model": "",
@@ -12036,7 +12948,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -12086,7 +13002,11 @@
     "next_action_name": "form_form_message_queue",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "data_model": "",
@@ -12131,7 +13051,11 @@
       "deleted": "0.00",
       "user_function": "",
       "delete_cascade": [],
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -12181,7 +13105,11 @@
     "next_action_name": "submit_message_queue",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "data_model": "",
@@ -12229,7 +13157,11 @@
       "add_referer": false,
       "eval_process": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -12281,7 +13213,11 @@
     "next_action_name": "list_message_queue",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "data_model": "",
@@ -12329,7 +13265,11 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -12381,7 +13321,11 @@
     "next_action_name": "form_form_message_queue",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "data_model": "",
@@ -12390,7 +13334,12 @@
     "parent": "",
     "process_id": "",
     "process_task_id": "",
-    "data_value": {},
+    "data_value": {
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
+    },
     "owner_name": "",
     "deleted": 0,
     "list_order": 130,
@@ -12437,7 +13386,11 @@
     "builder_enabled": false,
     "next_action_name": "form_form_ext_service",
     "keep_filter": false,
-    "ref": "self"
+    "ref": "self",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "data_model": "",
@@ -12446,7 +13399,12 @@
     "parent": "",
     "process_id": "",
     "process_task_id": "",
-    "data_value": {},
+    "data_value": {
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
+    },
     "owner_name": "",
     "deleted": 0,
     "list_order": 131,
@@ -12493,7 +13451,11 @@
     "builder_enabled": false,
     "next_action_name": "submit_ext_service",
     "keep_filter": true,
-    "ref": "self"
+    "ref": "self",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "data_model": "",
@@ -12502,7 +13464,12 @@
     "parent": "",
     "process_id": "",
     "process_task_id": "",
-    "data_value": {},
+    "data_value": {
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
+    },
     "owner_name": "",
     "deleted": 0,
     "list_order": 132,
@@ -12551,7 +13518,11 @@
     "builder_enabled": false,
     "next_action_name": "submit_ext_service",
     "keep_filter": true,
-    "ref": "self"
+    "ref": "self",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "data_model": "",
@@ -12560,7 +13531,12 @@
     "parent": "",
     "process_id": "",
     "process_task_id": "",
-    "data_value": {},
+    "data_value": {
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
+    },
     "owner_name": "",
     "deleted": 0,
     "list_order": 133,
@@ -12609,7 +13585,11 @@
     "builder_enabled": false,
     "next_action_name": "list_ext_service",
     "keep_filter": true,
-    "ref": ""
+    "ref": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "data_model": "",
@@ -12618,7 +13598,12 @@
     "parent": "",
     "process_id": "",
     "process_task_id": "",
-    "data_value": {},
+    "data_value": {
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
+    },
     "owner_name": "",
     "deleted": 0,
     "list_order": 134,
@@ -12667,7 +13652,11 @@
     "builder_enabled": false,
     "next_action_name": "form_form_ext_service",
     "keep_filter": true,
-    "ref": "self"
+    "ref": "self",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "data_model": "",
@@ -12676,7 +13665,12 @@
     "parent": "",
     "process_id": "",
     "process_task_id": "",
-    "data_value": {},
+    "data_value": {
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
+    },
     "owner_name": "",
     "deleted": 0,
     "list_order": 135,
@@ -12723,7 +13717,11 @@
     "builder_enabled": false,
     "next_action_name": "list_ext_service",
     "keep_filter": true,
-    "ref": ""
+    "ref": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "data_model": "",
@@ -12732,7 +13730,12 @@
     "parent": "",
     "process_id": "",
     "process_task_id": "",
-    "data_value": {},
+    "data_value": {
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
+    },
     "owner_name": "",
     "deleted": 0,
     "list_order": 136,
@@ -12779,7 +13782,11 @@
     "builder_enabled": false,
     "next_action_name": "form_form_ext_service_process",
     "keep_filter": false,
-    "ref": "self"
+    "ref": "self",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "data_model": "",
@@ -12788,7 +13795,12 @@
     "parent": "",
     "process_id": "",
     "process_task_id": "",
-    "data_value": {},
+    "data_value": {
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
+    },
     "owner_name": "",
     "deleted": 0,
     "list_order": 137,
@@ -12835,7 +13847,11 @@
     "builder_enabled": false,
     "next_action_name": "submit_ext_service_process",
     "keep_filter": true,
-    "ref": "self"
+    "ref": "self",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "data_model": "",
@@ -12844,7 +13860,12 @@
     "parent": "",
     "process_id": "",
     "process_task_id": "",
-    "data_value": {},
+    "data_value": {
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
+    },
     "owner_name": "",
     "deleted": 0,
     "list_order": 138,
@@ -12893,7 +13914,11 @@
     "builder_enabled": false,
     "next_action_name": "submit_ext_service_process",
     "keep_filter": true,
-    "ref": "self"
+    "ref": "self",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "data_model": "",
@@ -12902,7 +13927,12 @@
     "parent": "",
     "process_id": "",
     "process_task_id": "",
-    "data_value": {},
+    "data_value": {
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
+    },
     "owner_name": "",
     "deleted": 0,
     "list_order": 139,
@@ -12951,7 +13981,11 @@
     "builder_enabled": false,
     "next_action_name": "list_ext_service_process",
     "keep_filter": true,
-    "ref": ""
+    "ref": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "data_model": "",
@@ -12960,7 +13994,12 @@
     "parent": "",
     "process_id": "",
     "process_task_id": "",
-    "data_value": {},
+    "data_value": {
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
+    },
     "owner_name": "",
     "deleted": 0,
     "list_order": 140,
@@ -13009,7 +14048,11 @@
     "builder_enabled": false,
     "next_action_name": "form_form_ext_service_process",
     "keep_filter": true,
-    "ref": "self"
+    "ref": "self",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "data_model": "",
@@ -13018,7 +14061,12 @@
     "parent": "",
     "process_id": "",
     "process_task_id": "",
-    "data_value": {},
+    "data_value": {
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
+    },
     "owner_name": "",
     "deleted": 0,
     "list_order": 141,
@@ -13065,7 +14113,11 @@
     "builder_enabled": false,
     "next_action_name": "list_ext_service_process",
     "keep_filter": true,
-    "ref": ""
+    "ref": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "data_model": "",
@@ -13074,7 +14126,12 @@
     "parent": "",
     "process_id": "",
     "process_task_id": "",
-    "data_value": {},
+    "data_value": {
+      "groups": [
+        "admin",
+        "technical_operator"
+      ]
+    },
     "owner_name": "",
     "deleted": 0,
     "list_order": 150,
@@ -13121,7 +14178,11 @@
     "builder_enabled": false,
     "next_action_name": "",
     "keep_filter": true,
-    "ref": ""
+    "ref": "",
+    "groups": [
+      "admin",
+      "technical_operator"
+    ]
   },
   {
     "_id": "b4c6fbef7f58fc8245a8b934",
@@ -13170,7 +14231,10 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -13220,7 +14284,10 @@
     "next_action_name": "form_form_groups",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
   },
   {
     "_id": "53a2b51cfb72826f02c0f82c",
@@ -13270,7 +14337,10 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -13320,7 +14390,10 @@
     "next_action_name": "submit_groups",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
   },
   {
     "_id": "916d4c0f0c65dcfdaf6673fc",
@@ -13370,7 +14443,10 @@
       "eval_process": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -13422,7 +14498,10 @@
     "next_action_name": "submit_groups",
     "keep_filter": true,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
   },
   {
     "_id": "7caeaaa99ca59c0993fe4ddd",
@@ -13450,7 +14529,7 @@
       "mode": "Form",
       "list_query": "{}",
       "listOrderString": "",
-      "context_button_mode": "",
+      "context_button_mode": "Form",
       "button_icon": "fa-plus",
       "no_public_user": true,
       "callType": null,
@@ -13472,7 +14551,10 @@
       "eval_process": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -13516,13 +14598,18 @@
     "list_query": "{}",
     "force_domain_query": false,
     "listOrderString": "",
-    "context_button_mode": [],
+    "context_button_mode": [
+      "form"
+    ],
     "button_icon": "fa-plus",
     "builder_enabled": false,
     "next_action_name": "list_groups",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
   },
   {
     "_id": "6788f953ef4f6b148d99de38",
@@ -13572,7 +14659,10 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -13624,7 +14714,10 @@
     "next_action_name": "form_form_groups",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
   },
   {
     "_id": "dab2cc111dbffc8354682a29",
@@ -13674,7 +14767,10 @@
       "eval_process": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -13724,7 +14820,10 @@
     "next_action_name": "list_groups",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
   },
   {
     "_id": "cf803ec32760dd179d9084fc",
@@ -13773,7 +14872,10 @@
       "eval_process": false,
       "keep_filter": false,
       "deleted": "0.00",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -13823,7 +14925,10 @@
     "next_action_name": "form_form_group_users",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
   },
   {
     "_id": "48ce8bca5c1c2f4a4cd55fff",
@@ -13873,7 +14978,10 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -13923,7 +15031,10 @@
     "next_action_name": "submit_group_users",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
   },
   {
     "_id": "e82703f2648a8fe0cb821cf6",
@@ -13973,7 +15084,10 @@
       "eval_process": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -14025,7 +15139,10 @@
     "next_action_name": "submit_group_users",
     "keep_filter": true,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
   },
   {
     "_id": "2b729b7bbd8a28a55f9c3763",
@@ -14053,7 +15170,7 @@
       "mode": "Form",
       "list_query": "{}",
       "listOrderString": "",
-      "context_button_mode": "",
+      "context_button_mode": "Form",
       "button_icon": "fa-plus",
       "no_public_user": true,
       "callType": null,
@@ -14075,7 +15192,10 @@
       "eval_process": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -14119,13 +15239,18 @@
     "list_query": "{}",
     "force_domain_query": false,
     "listOrderString": "",
-    "context_button_mode": [],
+    "context_button_mode": [
+      "form"
+    ],
     "button_icon": "fa-plus",
     "builder_enabled": false,
     "next_action_name": "list_group_users",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
   },
   {
     "_id": "380364f1c6a3fc12b8578645",
@@ -14175,7 +15300,10 @@
       "keep_filter": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -14227,7 +15355,10 @@
     "next_action_name": "form_form_group_users",
     "keep_filter": false,
     "ref": "self",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
   },
   {
     "_id": "f0a53196e93c80dc39eb5c76",
@@ -14277,7 +15408,10 @@
       "eval_process": false,
       "deleted": "0.00",
       "user_function": "",
-      "process_name": ""
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
     },
     "owner_name": "",
     "deleted": 0,
@@ -14327,6 +15461,1291 @@
     "next_action_name": "list_group_users",
     "keep_filter": true,
     "ref": "",
-    "process_name": ""
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
+  },
+  {
+    "_id": "c13c9ce58077a50d4e7ea17a",
+    "data_model": "",
+    "rec_name": "list_model_groups_rule",
+    "app_code": "",
+    "parent": "",
+    "process_id": "",
+    "process_task_id": "",
+    "data_value": {
+      "data_model": "action",
+      "list_order": "163",
+      "title": "Model Groups Rule",
+      "rec_name": "list_model_groups_rule",
+      "sys": true,
+      "admin": true,
+      "user_function": null,
+      "model": "Model Groups Rule",
+      "component_type": "Risorsa",
+      "action_type": "Menu",
+      "menu_group": "Identity",
+      "delete_cascade": "",
+      "action_root_path": "/action",
+      "type": "Data",
+      "mode": "List",
+      "list_query": "{}",
+      "listOrderString": "",
+      "context_button_mode": "",
+      "button_icon": "fa-plus",
+      "callType": null,
+      "url": "",
+      "token_header_key": "",
+      "token": "",
+      "process_tenant": "",
+      "start_process": "",
+      "start_process_assignee": "",
+      "complete_task_assignee": "",
+      "next_action_name": "Model Groups Rule - Apri",
+      "ref": "self",
+      "parent": "",
+      "no_public_user": false,
+      "force_domain_query": false,
+      "builder_enabled": false,
+      "addUrlParamRedirectReferer": false,
+      "add_referer": false,
+      "eval_process": false,
+      "keep_filter": false,
+      "deleted": "0.00",
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
+    },
+    "owner_name": "",
+    "deleted": 0,
+    "list_order": 163,
+    "owner_uid": "",
+    "owner_mail": "",
+    "owner_function": "",
+    "owner_function_type": "",
+    "owner_sector": "",
+    "owner_sector_id": 0,
+    "owner_personal_type": "",
+    "owner_job_title": "",
+    "update_uid": "",
+    "sys": true,
+    "default": false,
+    "active": true,
+    "demo": false,
+    "childs": [],
+    "create_datetime": "2026-06-03T08:25:47.897002Z",
+    "update_datetime": "1970-01-01T00:00:00Z",
+    "status": "ok",
+    "message": "",
+    "res_data": {},
+    "session_diff": {},
+    "tz": "Europe/Rome",
+    "modal": false,
+    "title": "Model Groups Rule",
+    "admin": true,
+    "write_access": false,
+    "no_public_user": false,
+    "user_function": "",
+    "model": "model_groups_rule",
+    "component_type": "resource",
+    "action_type": "menu",
+    "view_name": "",
+    "menu_group": "identity",
+    "delete_cascade": [],
+    "action_root_path": "/action",
+    "type": "data",
+    "mode": "list",
+    "list_query": "{}",
+    "force_domain_query": false,
+    "listOrderString": "",
+    "context_button_mode": [],
+    "button_icon": "fa-plus",
+    "builder_enabled": false,
+    "next_action_name": "form_form_model_groups_rule",
+    "keep_filter": false,
+    "ref": "self",
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
+  },
+  {
+    "_id": "78730882f780e0e4a9a61226",
+    "data_model": "",
+    "rec_name": "form_form_model_groups_rule",
+    "app_code": "",
+    "parent": "",
+    "process_id": "",
+    "process_task_id": "",
+    "data_value": {
+      "data_model": "action",
+      "list_order": "164",
+      "title": "Apri",
+      "rec_name": "form_form_model_groups_rule",
+      "sys": true,
+      "admin": true,
+      "user_function1": null,
+      "model": "Model Groups Rule",
+      "component_type": "Risorsa",
+      "action_type": "Window",
+      "menu_group": null,
+      "delete_cascade": "",
+      "action_root_path": "/action",
+      "type": "Data",
+      "mode": "Form",
+      "list_query": "{}",
+      "listOrderString": "",
+      "context_button_mode": "",
+      "button_icon": "fa-plus",
+      "callType": null,
+      "url": "",
+      "token_header_key": "",
+      "token": "",
+      "process_tenant": "",
+      "start_process": "",
+      "start_process_assignee": "",
+      "complete_task_assignee": "",
+      "next_action_name": "Model Groups Rule - Salva",
+      "ref": "self",
+      "parent": "",
+      "force_domain_query": false,
+      "builder_enabled": false,
+      "no_public_user": false,
+      "addUrlParamRedirectReferer": false,
+      "add_referer": false,
+      "eval_process": false,
+      "keep_filter": false,
+      "deleted": "0.00",
+      "user_function": "",
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
+    },
+    "owner_name": "",
+    "deleted": 0,
+    "list_order": 164,
+    "owner_uid": "",
+    "owner_mail": "",
+    "owner_function": "",
+    "owner_function_type": "",
+    "owner_sector": "",
+    "owner_sector_id": 0,
+    "owner_personal_type": "",
+    "owner_job_title": "",
+    "update_uid": "",
+    "sys": true,
+    "default": false,
+    "active": true,
+    "demo": false,
+    "childs": [],
+    "create_datetime": "2026-06-03T08:25:47.897002Z",
+    "update_datetime": "1970-01-01T00:00:00Z",
+    "status": "ok",
+    "message": "",
+    "res_data": {},
+    "session_diff": {},
+    "tz": "Europe/Rome",
+    "modal": false,
+    "title": "Apri",
+    "admin": true,
+    "write_access": false,
+    "no_public_user": false,
+    "user_function": "",
+    "model": "model_groups_rule",
+    "component_type": "resource",
+    "action_type": "window",
+    "view_name": "",
+    "menu_group": "",
+    "delete_cascade": [],
+    "action_root_path": "/action",
+    "type": "data",
+    "mode": "form",
+    "list_query": "{}",
+    "force_domain_query": false,
+    "listOrderString": "",
+    "context_button_mode": [],
+    "button_icon": "fa-plus",
+    "builder_enabled": false,
+    "next_action_name": "submit_model_groups_rule",
+    "keep_filter": false,
+    "ref": "self",
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
+  },
+  {
+    "_id": "dd1b40d4b4dd2da65a331d2b",
+    "data_model": "",
+    "rec_name": "new_model_groups_rule",
+    "app_code": "",
+    "parent": "",
+    "process_id": "",
+    "process_task_id": "",
+    "data_value": {
+      "data_model": "action",
+      "list_order": "165",
+      "title": "Nuovo",
+      "rec_name": "new_model_groups_rule",
+      "sys": true,
+      "admin": true,
+      "user_function1": null,
+      "model": "Model Groups Rule",
+      "component_type": "Risorsa",
+      "action_type": "Window",
+      "menu_group": null,
+      "delete_cascade": "",
+      "action_root_path": "/action",
+      "type": "Data",
+      "mode": "Form",
+      "list_query": "{}",
+      "listOrderString": "",
+      "context_button_mode": "List",
+      "button_icon": "it-plus",
+      "no_public_user": true,
+      "callType": null,
+      "url": "",
+      "token_header_key": "",
+      "token": "",
+      "process_tenant": "",
+      "start_process": "",
+      "start_process_assignee": "",
+      "complete_task_assignee": "",
+      "next_action_name": "Model Groups Rule - Salva",
+      "keep_filter": true,
+      "ref": "self",
+      "parent": "",
+      "force_domain_query": false,
+      "builder_enabled": false,
+      "addUrlParamRedirectReferer": false,
+      "add_referer": false,
+      "eval_process": false,
+      "deleted": "0.00",
+      "user_function": "",
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
+    },
+    "owner_name": "",
+    "deleted": 0,
+    "list_order": 165,
+    "owner_uid": "",
+    "owner_mail": "",
+    "owner_function": "",
+    "owner_function_type": "",
+    "owner_sector": "",
+    "owner_sector_id": 0,
+    "owner_personal_type": "",
+    "owner_job_title": "",
+    "update_uid": "",
+    "sys": true,
+    "default": false,
+    "active": true,
+    "demo": false,
+    "childs": [],
+    "create_datetime": "2026-06-03T08:25:47.897002Z",
+    "update_datetime": "1970-01-01T00:00:00Z",
+    "status": "ok",
+    "message": "",
+    "res_data": {},
+    "session_diff": {},
+    "tz": "Europe/Rome",
+    "modal": false,
+    "title": "Nuovo",
+    "admin": true,
+    "write_access": false,
+    "no_public_user": true,
+    "user_function": "",
+    "model": "model_groups_rule",
+    "component_type": "resource",
+    "action_type": "window",
+    "view_name": "",
+    "menu_group": "",
+    "delete_cascade": [],
+    "action_root_path": "/action",
+    "type": "data",
+    "mode": "form",
+    "list_query": "{}",
+    "force_domain_query": false,
+    "listOrderString": "",
+    "context_button_mode": [
+      "list"
+    ],
+    "button_icon": "it-plus",
+    "builder_enabled": false,
+    "next_action_name": "submit_model_groups_rule",
+    "keep_filter": true,
+    "ref": "self",
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
+  },
+  {
+    "_id": "7f62a81a23ca8b4201b521fa",
+    "data_model": "",
+    "rec_name": "submit_model_groups_rule",
+    "app_code": "",
+    "parent": "",
+    "process_id": "",
+    "process_task_id": "",
+    "data_value": {
+      "data_model": "action",
+      "list_order": "166",
+      "title": "Salva",
+      "rec_name": "submit_model_groups_rule",
+      "sys": true,
+      "admin": true,
+      "user_function1": null,
+      "model": "Model Groups Rule",
+      "component_type": "Risorsa",
+      "action_type": "Save",
+      "menu_group": null,
+      "delete_cascade": "",
+      "action_root_path": "/action",
+      "type": "Data",
+      "mode": "Form",
+      "list_query": "{}",
+      "listOrderString": "",
+      "context_button_mode": "Form",
+      "button_icon": "fa-plus",
+      "no_public_user": true,
+      "callType": null,
+      "url": "",
+      "token_header_key": "",
+      "token": "",
+      "process_tenant": "",
+      "start_process": "",
+      "start_process_assignee": "",
+      "complete_task_assignee": "",
+      "next_action_name": "Model Groups Rule - Model Groups Rule",
+      "keep_filter": true,
+      "ref": "self",
+      "parent": "",
+      "force_domain_query": false,
+      "builder_enabled": false,
+      "addUrlParamRedirectReferer": false,
+      "add_referer": false,
+      "eval_process": false,
+      "deleted": "0.00",
+      "user_function": "",
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
+    },
+    "owner_name": "",
+    "deleted": 0,
+    "list_order": 166,
+    "owner_uid": "",
+    "owner_mail": "",
+    "owner_function": "",
+    "owner_function_type": "",
+    "owner_sector": "",
+    "owner_sector_id": 0,
+    "owner_personal_type": "",
+    "owner_job_title": "",
+    "update_uid": "",
+    "sys": true,
+    "default": false,
+    "active": true,
+    "demo": false,
+    "childs": [],
+    "create_datetime": "2026-06-03T08:25:47.897002Z",
+    "update_datetime": "1970-01-01T00:00:00Z",
+    "status": "ok",
+    "message": "",
+    "res_data": {},
+    "session_diff": {},
+    "tz": "Europe/Rome",
+    "modal": false,
+    "title": "Salva",
+    "admin": true,
+    "write_access": false,
+    "no_public_user": true,
+    "user_function": "",
+    "model": "model_groups_rule",
+    "component_type": "resource",
+    "action_type": "save",
+    "view_name": "",
+    "menu_group": "",
+    "delete_cascade": [],
+    "action_root_path": "/action",
+    "type": "data",
+    "mode": "form",
+    "list_query": "{}",
+    "force_domain_query": false,
+    "listOrderString": "",
+    "context_button_mode": [
+      "form"
+    ],
+    "button_icon": "fa-plus",
+    "builder_enabled": false,
+    "next_action_name": "list_model_groups_rule",
+    "keep_filter": true,
+    "ref": "",
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
+  },
+  {
+    "_id": "95aaaf8aeaca688034d68848",
+    "data_model": "",
+    "rec_name": "copy_model_groups_rule",
+    "app_code": "",
+    "parent": "",
+    "process_id": "",
+    "process_task_id": "",
+    "data_value": {
+      "data_model": "action",
+      "list_order": "167",
+      "title": "Duplica",
+      "rec_name": "copy_model_groups_rule",
+      "sys": true,
+      "admin": true,
+      "user_function1": null,
+      "model": "Model Groups Rule",
+      "component_type": "Risorsa",
+      "action_type": "Copy",
+      "menu_group": null,
+      "delete_cascade": "",
+      "action_root_path": "/action",
+      "type": "Data",
+      "mode": "Form",
+      "list_query": "{}",
+      "listOrderString": "",
+      "context_button_mode": "Form",
+      "button_icon": "it-copy",
+      "no_public_user": true,
+      "callType": null,
+      "url": "",
+      "token_header_key": "",
+      "token": "",
+      "process_tenant": "",
+      "start_process": "",
+      "start_process_assignee": "",
+      "complete_task_assignee": "",
+      "next_action_name": "Model Groups Rule - Apri",
+      "ref": "self",
+      "parent": "",
+      "force_domain_query": false,
+      "builder_enabled": false,
+      "addUrlParamRedirectReferer": false,
+      "add_referer": false,
+      "eval_process": false,
+      "keep_filter": false,
+      "deleted": "0.00",
+      "user_function": "",
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
+    },
+    "owner_name": "",
+    "deleted": 0,
+    "list_order": 167,
+    "owner_uid": "",
+    "owner_mail": "",
+    "owner_function": "",
+    "owner_function_type": "",
+    "owner_sector": "",
+    "owner_sector_id": 0,
+    "owner_personal_type": "",
+    "owner_job_title": "",
+    "update_uid": "",
+    "sys": true,
+    "default": false,
+    "active": true,
+    "demo": false,
+    "childs": [],
+    "create_datetime": "2026-06-03T08:25:47.897002Z",
+    "update_datetime": "1970-01-01T00:00:00Z",
+    "status": "ok",
+    "message": "",
+    "res_data": {},
+    "session_diff": {},
+    "tz": "Europe/Rome",
+    "modal": false,
+    "title": "Duplica",
+    "admin": true,
+    "write_access": false,
+    "no_public_user": true,
+    "user_function": "",
+    "model": "model_groups_rule",
+    "component_type": "resource",
+    "action_type": "copy",
+    "view_name": "",
+    "menu_group": "",
+    "delete_cascade": [],
+    "action_root_path": "/action",
+    "type": "data",
+    "mode": "form",
+    "list_query": "{}",
+    "force_domain_query": false,
+    "listOrderString": "",
+    "context_button_mode": [
+      "form"
+    ],
+    "button_icon": "it-copy",
+    "builder_enabled": false,
+    "next_action_name": "form_form_model_groups_rule",
+    "keep_filter": false,
+    "ref": "self",
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
+  },
+  {
+    "_id": "b66797203cba4db864aa7697",
+    "data_model": "",
+    "rec_name": "delete_model_groups_rule",
+    "app_code": "",
+    "parent": "",
+    "process_id": "",
+    "process_task_id": "",
+    "data_value": {
+      "data_model": "action",
+      "list_order": "168",
+      "title": "Elimina",
+      "rec_name": "delete_model_groups_rule",
+      "sys": true,
+      "admin": true,
+      "user_function1": null,
+      "model": "Model Groups Rule",
+      "component_type": "Risorsa",
+      "action_type": "Delete",
+      "menu_group": null,
+      "delete_cascade": "",
+      "action_root_path": "/action",
+      "type": "Data",
+      "mode": "Form",
+      "list_query": "{}",
+      "listOrderString": "",
+      "context_button_mode": "",
+      "button_icon": "it-delete",
+      "no_public_user": true,
+      "callType": null,
+      "url": "",
+      "token_header_key": "",
+      "token": "",
+      "process_tenant": "",
+      "start_process": "",
+      "start_process_assignee": "",
+      "complete_task_assignee": "",
+      "next_action_name": "Model Groups Rule - Model Groups Rule",
+      "keep_filter": true,
+      "ref": "self",
+      "parent": "",
+      "force_domain_query": false,
+      "builder_enabled": false,
+      "addUrlParamRedirectReferer": false,
+      "add_referer": false,
+      "eval_process": false,
+      "deleted": "0.00",
+      "user_function": "",
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
+    },
+    "owner_name": "",
+    "deleted": 0,
+    "list_order": 168,
+    "owner_uid": "",
+    "owner_mail": "",
+    "owner_function": "",
+    "owner_function_type": "",
+    "owner_sector": "",
+    "owner_sector_id": 0,
+    "owner_personal_type": "",
+    "owner_job_title": "",
+    "update_uid": "",
+    "sys": true,
+    "default": false,
+    "active": true,
+    "demo": false,
+    "childs": [],
+    "create_datetime": "2026-06-03T08:25:47.897002Z",
+    "update_datetime": "1970-01-01T00:00:00Z",
+    "status": "ok",
+    "message": "",
+    "res_data": {},
+    "session_diff": {},
+    "tz": "Europe/Rome",
+    "modal": false,
+    "title": "Elimina",
+    "admin": true,
+    "write_access": false,
+    "no_public_user": true,
+    "user_function": "",
+    "model": "model_groups_rule",
+    "component_type": "resource",
+    "action_type": "delete",
+    "view_name": "",
+    "menu_group": "",
+    "delete_cascade": [],
+    "action_root_path": "/action",
+    "type": "data",
+    "mode": "form",
+    "list_query": "{}",
+    "force_domain_query": false,
+    "listOrderString": "",
+    "context_button_mode": [],
+    "button_icon": "it-delete",
+    "builder_enabled": false,
+    "next_action_name": "list_model_groups_rule",
+    "keep_filter": true,
+    "ref": "",
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
+  },
+  {
+    "_id": "08b35778b6d985b6b32c2eb6",
+    "data_model": "",
+    "rec_name": "list_model_fields_rule",
+    "app_code": "",
+    "parent": "",
+    "process_id": "",
+    "process_task_id": "",
+    "data_value": {
+      "data_model": "action",
+      "list_order": "169",
+      "title": "Model Fields Rule",
+      "rec_name": "list_model_fields_rule",
+      "sys": true,
+      "admin": true,
+      "user_function": null,
+      "model": "Model Fields Rule",
+      "component_type": "Risorsa",
+      "action_type": "Menu",
+      "menu_group": "Identity",
+      "delete_cascade": "",
+      "action_root_path": "/action",
+      "type": "Data",
+      "mode": "List",
+      "list_query": "{}",
+      "listOrderString": "",
+      "context_button_mode": "",
+      "button_icon": "fa-plus",
+      "callType": null,
+      "url": "",
+      "token_header_key": "",
+      "token": "",
+      "process_tenant": "",
+      "start_process": "",
+      "start_process_assignee": "",
+      "complete_task_assignee": "",
+      "next_action_name": "Model Fields Rule - Apri",
+      "ref": "self",
+      "parent": "",
+      "no_public_user": false,
+      "force_domain_query": false,
+      "builder_enabled": false,
+      "addUrlParamRedirectReferer": false,
+      "add_referer": false,
+      "eval_process": false,
+      "keep_filter": false,
+      "deleted": "0.00",
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
+    },
+    "owner_name": "",
+    "deleted": 0,
+    "list_order": 169,
+    "owner_uid": "",
+    "owner_mail": "",
+    "owner_function": "",
+    "owner_function_type": "",
+    "owner_sector": "",
+    "owner_sector_id": 0,
+    "owner_personal_type": "",
+    "owner_job_title": "",
+    "update_uid": "",
+    "sys": true,
+    "default": false,
+    "active": true,
+    "demo": false,
+    "childs": [],
+    "create_datetime": "2026-06-03T08:25:47.897002Z",
+    "update_datetime": "1970-01-01T00:00:00Z",
+    "status": "ok",
+    "message": "",
+    "res_data": {},
+    "session_diff": {},
+    "tz": "Europe/Rome",
+    "modal": false,
+    "title": "Model Fields Rule",
+    "admin": true,
+    "write_access": false,
+    "no_public_user": false,
+    "user_function": "",
+    "model": "model_fields_rule",
+    "component_type": "resource",
+    "action_type": "menu",
+    "view_name": "",
+    "menu_group": "identity",
+    "delete_cascade": [],
+    "action_root_path": "/action",
+    "type": "data",
+    "mode": "list",
+    "list_query": "{}",
+    "force_domain_query": false,
+    "listOrderString": "",
+    "context_button_mode": [],
+    "button_icon": "fa-plus",
+    "builder_enabled": false,
+    "next_action_name": "form_form_model_fields_rule",
+    "keep_filter": false,
+    "ref": "self",
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
+  },
+  {
+    "_id": "314d1628cda2877b934d00c5",
+    "data_model": "",
+    "rec_name": "form_form_model_fields_rule",
+    "app_code": "",
+    "parent": "",
+    "process_id": "",
+    "process_task_id": "",
+    "data_value": {
+      "data_model": "action",
+      "list_order": "170",
+      "title": "Apri",
+      "rec_name": "form_form_model_fields_rule",
+      "sys": true,
+      "admin": true,
+      "user_function1": null,
+      "model": "Model Fields Rule",
+      "component_type": "Risorsa",
+      "action_type": "Window",
+      "menu_group": null,
+      "delete_cascade": "",
+      "action_root_path": "/action",
+      "type": "Data",
+      "mode": "Form",
+      "list_query": "{}",
+      "listOrderString": "",
+      "context_button_mode": "",
+      "button_icon": "fa-plus",
+      "callType": null,
+      "url": "",
+      "token_header_key": "",
+      "token": "",
+      "process_tenant": "",
+      "start_process": "",
+      "start_process_assignee": "",
+      "complete_task_assignee": "",
+      "next_action_name": "Model Fields Rule - Salva",
+      "ref": "self",
+      "parent": "",
+      "force_domain_query": false,
+      "builder_enabled": false,
+      "no_public_user": false,
+      "addUrlParamRedirectReferer": false,
+      "add_referer": false,
+      "eval_process": false,
+      "keep_filter": false,
+      "deleted": "0.00",
+      "user_function": "",
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
+    },
+    "owner_name": "",
+    "deleted": 0,
+    "list_order": 170,
+    "owner_uid": "",
+    "owner_mail": "",
+    "owner_function": "",
+    "owner_function_type": "",
+    "owner_sector": "",
+    "owner_sector_id": 0,
+    "owner_personal_type": "",
+    "owner_job_title": "",
+    "update_uid": "",
+    "sys": true,
+    "default": false,
+    "active": true,
+    "demo": false,
+    "childs": [],
+    "create_datetime": "2026-06-03T08:25:47.897002Z",
+    "update_datetime": "1970-01-01T00:00:00Z",
+    "status": "ok",
+    "message": "",
+    "res_data": {},
+    "session_diff": {},
+    "tz": "Europe/Rome",
+    "modal": false,
+    "title": "Apri",
+    "admin": true,
+    "write_access": false,
+    "no_public_user": false,
+    "user_function": "",
+    "model": "model_fields_rule",
+    "component_type": "resource",
+    "action_type": "window",
+    "view_name": "",
+    "menu_group": "",
+    "delete_cascade": [],
+    "action_root_path": "/action",
+    "type": "data",
+    "mode": "form",
+    "list_query": "{}",
+    "force_domain_query": false,
+    "listOrderString": "",
+    "context_button_mode": [],
+    "button_icon": "fa-plus",
+    "builder_enabled": false,
+    "next_action_name": "submit_model_fields_rule",
+    "keep_filter": false,
+    "ref": "self",
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
+  },
+  {
+    "_id": "febb60fb2f671e55e4aeb49d",
+    "data_model": "",
+    "rec_name": "new_model_fields_rule",
+    "app_code": "",
+    "parent": "",
+    "process_id": "",
+    "process_task_id": "",
+    "data_value": {
+      "data_model": "action",
+      "list_order": "171",
+      "title": "Nuovo",
+      "rec_name": "new_model_fields_rule",
+      "sys": true,
+      "admin": true,
+      "user_function1": null,
+      "model": "Model Fields Rule",
+      "component_type": "Risorsa",
+      "action_type": "Window",
+      "menu_group": null,
+      "delete_cascade": "",
+      "action_root_path": "/action",
+      "type": "Data",
+      "mode": "Form",
+      "list_query": "{}",
+      "listOrderString": "",
+      "context_button_mode": "List",
+      "button_icon": "it-plus",
+      "no_public_user": true,
+      "callType": null,
+      "url": "",
+      "token_header_key": "",
+      "token": "",
+      "process_tenant": "",
+      "start_process": "",
+      "start_process_assignee": "",
+      "complete_task_assignee": "",
+      "next_action_name": "Model Fields Rule - Salva",
+      "keep_filter": true,
+      "ref": "self",
+      "parent": "",
+      "force_domain_query": false,
+      "builder_enabled": false,
+      "addUrlParamRedirectReferer": false,
+      "add_referer": false,
+      "eval_process": false,
+      "deleted": "0.00",
+      "user_function": "",
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
+    },
+    "owner_name": "",
+    "deleted": 0,
+    "list_order": 171,
+    "owner_uid": "",
+    "owner_mail": "",
+    "owner_function": "",
+    "owner_function_type": "",
+    "owner_sector": "",
+    "owner_sector_id": 0,
+    "owner_personal_type": "",
+    "owner_job_title": "",
+    "update_uid": "",
+    "sys": true,
+    "default": false,
+    "active": true,
+    "demo": false,
+    "childs": [],
+    "create_datetime": "2026-06-03T08:25:47.897002Z",
+    "update_datetime": "1970-01-01T00:00:00Z",
+    "status": "ok",
+    "message": "",
+    "res_data": {},
+    "session_diff": {},
+    "tz": "Europe/Rome",
+    "modal": false,
+    "title": "Nuovo",
+    "admin": true,
+    "write_access": false,
+    "no_public_user": true,
+    "user_function": "",
+    "model": "model_fields_rule",
+    "component_type": "resource",
+    "action_type": "window",
+    "view_name": "",
+    "menu_group": "",
+    "delete_cascade": [],
+    "action_root_path": "/action",
+    "type": "data",
+    "mode": "form",
+    "list_query": "{}",
+    "force_domain_query": false,
+    "listOrderString": "",
+    "context_button_mode": [
+      "list"
+    ],
+    "button_icon": "it-plus",
+    "builder_enabled": false,
+    "next_action_name": "submit_model_fields_rule",
+    "keep_filter": true,
+    "ref": "self",
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
+  },
+  {
+    "_id": "e1ffe747135f3200cf751a22",
+    "data_model": "",
+    "rec_name": "submit_model_fields_rule",
+    "app_code": "",
+    "parent": "",
+    "process_id": "",
+    "process_task_id": "",
+    "data_value": {
+      "data_model": "action",
+      "list_order": "172",
+      "title": "Salva",
+      "rec_name": "submit_model_fields_rule",
+      "sys": true,
+      "admin": true,
+      "user_function1": null,
+      "model": "Model Fields Rule",
+      "component_type": "Risorsa",
+      "action_type": "Save",
+      "menu_group": null,
+      "delete_cascade": "",
+      "action_root_path": "/action",
+      "type": "Data",
+      "mode": "Form",
+      "list_query": "{}",
+      "listOrderString": "",
+      "context_button_mode": "Form",
+      "button_icon": "fa-plus",
+      "no_public_user": true,
+      "callType": null,
+      "url": "",
+      "token_header_key": "",
+      "token": "",
+      "process_tenant": "",
+      "start_process": "",
+      "start_process_assignee": "",
+      "complete_task_assignee": "",
+      "next_action_name": "Model Fields Rule - Model Fields Rule",
+      "keep_filter": true,
+      "ref": "self",
+      "parent": "",
+      "force_domain_query": false,
+      "builder_enabled": false,
+      "addUrlParamRedirectReferer": false,
+      "add_referer": false,
+      "eval_process": false,
+      "deleted": "0.00",
+      "user_function": "",
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
+    },
+    "owner_name": "",
+    "deleted": 0,
+    "list_order": 172,
+    "owner_uid": "",
+    "owner_mail": "",
+    "owner_function": "",
+    "owner_function_type": "",
+    "owner_sector": "",
+    "owner_sector_id": 0,
+    "owner_personal_type": "",
+    "owner_job_title": "",
+    "update_uid": "",
+    "sys": true,
+    "default": false,
+    "active": true,
+    "demo": false,
+    "childs": [],
+    "create_datetime": "2026-06-03T08:25:47.897002Z",
+    "update_datetime": "1970-01-01T00:00:00Z",
+    "status": "ok",
+    "message": "",
+    "res_data": {},
+    "session_diff": {},
+    "tz": "Europe/Rome",
+    "modal": false,
+    "title": "Salva",
+    "admin": true,
+    "write_access": false,
+    "no_public_user": true,
+    "user_function": "",
+    "model": "model_fields_rule",
+    "component_type": "resource",
+    "action_type": "save",
+    "view_name": "",
+    "menu_group": "",
+    "delete_cascade": [],
+    "action_root_path": "/action",
+    "type": "data",
+    "mode": "form",
+    "list_query": "{}",
+    "force_domain_query": false,
+    "listOrderString": "",
+    "context_button_mode": [
+      "form"
+    ],
+    "button_icon": "fa-plus",
+    "builder_enabled": false,
+    "next_action_name": "list_model_fields_rule",
+    "keep_filter": true,
+    "ref": "",
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
+  },
+  {
+    "_id": "afd64420f7304e3f971b9ded",
+    "data_model": "",
+    "rec_name": "copy_model_fields_rule",
+    "app_code": "",
+    "parent": "",
+    "process_id": "",
+    "process_task_id": "",
+    "data_value": {
+      "data_model": "action",
+      "list_order": "173",
+      "title": "Duplica",
+      "rec_name": "copy_model_fields_rule",
+      "sys": true,
+      "admin": true,
+      "user_function1": null,
+      "model": "Model Fields Rule",
+      "component_type": "Risorsa",
+      "action_type": "Copy",
+      "menu_group": null,
+      "delete_cascade": "",
+      "action_root_path": "/action",
+      "type": "Data",
+      "mode": "Form",
+      "list_query": "{}",
+      "listOrderString": "",
+      "context_button_mode": "Form",
+      "button_icon": "it-copy",
+      "no_public_user": true,
+      "callType": null,
+      "url": "",
+      "token_header_key": "",
+      "token": "",
+      "process_tenant": "",
+      "start_process": "",
+      "start_process_assignee": "",
+      "complete_task_assignee": "",
+      "next_action_name": "Model Fields Rule - Apri",
+      "ref": "self",
+      "parent": "",
+      "force_domain_query": false,
+      "builder_enabled": false,
+      "addUrlParamRedirectReferer": false,
+      "add_referer": false,
+      "eval_process": false,
+      "keep_filter": false,
+      "deleted": "0.00",
+      "user_function": "",
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
+    },
+    "owner_name": "",
+    "deleted": 0,
+    "list_order": 173,
+    "owner_uid": "",
+    "owner_mail": "",
+    "owner_function": "",
+    "owner_function_type": "",
+    "owner_sector": "",
+    "owner_sector_id": 0,
+    "owner_personal_type": "",
+    "owner_job_title": "",
+    "update_uid": "",
+    "sys": true,
+    "default": false,
+    "active": true,
+    "demo": false,
+    "childs": [],
+    "create_datetime": "2026-06-03T08:25:47.897002Z",
+    "update_datetime": "1970-01-01T00:00:00Z",
+    "status": "ok",
+    "message": "",
+    "res_data": {},
+    "session_diff": {},
+    "tz": "Europe/Rome",
+    "modal": false,
+    "title": "Duplica",
+    "admin": true,
+    "write_access": false,
+    "no_public_user": true,
+    "user_function": "",
+    "model": "model_fields_rule",
+    "component_type": "resource",
+    "action_type": "copy",
+    "view_name": "",
+    "menu_group": "",
+    "delete_cascade": [],
+    "action_root_path": "/action",
+    "type": "data",
+    "mode": "form",
+    "list_query": "{}",
+    "force_domain_query": false,
+    "listOrderString": "",
+    "context_button_mode": [
+      "form"
+    ],
+    "button_icon": "it-copy",
+    "builder_enabled": false,
+    "next_action_name": "form_form_model_fields_rule",
+    "keep_filter": false,
+    "ref": "self",
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
+  },
+  {
+    "_id": "15d6b8add3377bd3eff8eca5",
+    "data_model": "",
+    "rec_name": "delete_model_fields_rule",
+    "app_code": "",
+    "parent": "",
+    "process_id": "",
+    "process_task_id": "",
+    "data_value": {
+      "data_model": "action",
+      "list_order": "174",
+      "title": "Elimina",
+      "rec_name": "delete_model_fields_rule",
+      "sys": true,
+      "admin": true,
+      "user_function1": null,
+      "model": "Model Fields Rule",
+      "component_type": "Risorsa",
+      "action_type": "Delete",
+      "menu_group": null,
+      "delete_cascade": "",
+      "action_root_path": "/action",
+      "type": "Data",
+      "mode": "Form",
+      "list_query": "{}",
+      "listOrderString": "",
+      "context_button_mode": "",
+      "button_icon": "it-delete",
+      "no_public_user": true,
+      "callType": null,
+      "url": "",
+      "token_header_key": "",
+      "token": "",
+      "process_tenant": "",
+      "start_process": "",
+      "start_process_assignee": "",
+      "complete_task_assignee": "",
+      "next_action_name": "Model Fields Rule - Model Fields Rule",
+      "keep_filter": true,
+      "ref": "self",
+      "parent": "",
+      "force_domain_query": false,
+      "builder_enabled": false,
+      "addUrlParamRedirectReferer": false,
+      "add_referer": false,
+      "eval_process": false,
+      "deleted": "0.00",
+      "user_function": "",
+      "process_name": "",
+      "groups": [
+        "admin"
+      ]
+    },
+    "owner_name": "",
+    "deleted": 0,
+    "list_order": 174,
+    "owner_uid": "",
+    "owner_mail": "",
+    "owner_function": "",
+    "owner_function_type": "",
+    "owner_sector": "",
+    "owner_sector_id": 0,
+    "owner_personal_type": "",
+    "owner_job_title": "",
+    "update_uid": "",
+    "sys": true,
+    "default": false,
+    "active": true,
+    "demo": false,
+    "childs": [],
+    "create_datetime": "2026-06-03T08:25:47.897002Z",
+    "update_datetime": "1970-01-01T00:00:00Z",
+    "status": "ok",
+    "message": "",
+    "res_data": {},
+    "session_diff": {},
+    "tz": "Europe/Rome",
+    "modal": false,
+    "title": "Elimina",
+    "admin": true,
+    "write_access": false,
+    "no_public_user": true,
+    "user_function": "",
+    "model": "model_fields_rule",
+    "component_type": "resource",
+    "action_type": "delete",
+    "view_name": "",
+    "menu_group": "",
+    "delete_cascade": [],
+    "action_root_path": "/action",
+    "type": "data",
+    "mode": "form",
+    "list_query": "{}",
+    "force_domain_query": false,
+    "listOrderString": "",
+    "context_button_mode": [],
+    "button_icon": "it-delete",
+    "builder_enabled": false,
+    "next_action_name": "list_model_fields_rule",
+    "keep_filter": true,
+    "ref": "",
+    "process_name": "",
+    "groups": [
+      "admin"
+    ]
   }
 ]

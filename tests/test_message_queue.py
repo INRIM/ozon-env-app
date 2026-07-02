@@ -5,6 +5,7 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
+from app.core.models import FieldAclOperation
 from app.services import message_queue as mq
 from app.services.common import ResponseObject, ResponseObjectData
 
@@ -105,7 +106,7 @@ def test_auto_enqueue_insert_flag_on():
         component=types.SimpleNamespace(properties={"send_mail_create": "1"}),
     )
 
-    asyncio.run(mq.maybe_enqueue_on_save(svc, "ordini", "ord-1", "insert"))
+    asyncio.run(mq.maybe_enqueue_on_save(svc, "ordini", "ord-1", FieldAclOperation.INSERT.value))
 
     assert len(svc.upserts) == 1
     assert svc.upserts[0]["data"]["mail_template"] == "welcome"
@@ -123,7 +124,7 @@ def test_auto_enqueue_insert_flag_off():
         component=types.SimpleNamespace(properties={"send_mail_create": "0"}),
     )
 
-    asyncio.run(mq.maybe_enqueue_on_save(svc, "ordini", "ord-1", "insert"))
+    asyncio.run(mq.maybe_enqueue_on_save(svc, "ordini", "ord-1", FieldAclOperation.INSERT.value))
 
     assert svc.upserts == []
 
@@ -159,7 +160,7 @@ def test_auto_enqueue_no_default_template():
         component=types.SimpleNamespace(properties={"send_mail_create": "1"}),
     )
 
-    asyncio.run(mq.maybe_enqueue_on_save(svc, "ordini", "ord-1", "insert"))
+    asyncio.run(mq.maybe_enqueue_on_save(svc, "ordini", "ord-1", FieldAclOperation.INSERT.value))
 
     assert svc.upserts == []
 
@@ -170,7 +171,7 @@ def test_auto_enqueue_skips_internal_models():
     )
 
     for model in ("message_queue", "mail_template", "component", "action"):
-        asyncio.run(mq.maybe_enqueue_on_save(svc, model, "x", "insert"))
+        asyncio.run(mq.maybe_enqueue_on_save(svc, model, "x", FieldAclOperation.INSERT.value))
 
     assert svc.upserts == []
 
@@ -182,7 +183,7 @@ def test_auto_enqueue_best_effort_swallows_errors():
             raise RuntimeError("boom")
 
     svc = Boom(FakeEnv({}))
-    asyncio.run(mq.maybe_enqueue_on_save(svc, "ordini", "ord-1", "insert"))
+    asyncio.run(mq.maybe_enqueue_on_save(svc, "ordini", "ord-1", FieldAclOperation.INSERT.value))
     assert svc.upserts == []
 
 

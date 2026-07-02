@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -12,6 +13,7 @@ from app.core.models import FieldAclEffect
 from app.core.models import FieldAclOperation
 
 WILDCARD = "*"
+ADMIN_GROUP_NAME = "admin"
 
 
 def _obj_to_dict(obj: Any) -> dict[str, Any]:
@@ -46,6 +48,21 @@ def _as_set(value: Any) -> set[str]:
 
 def _lower_set(value: Any) -> set[str]:
     return {item.lower() for item in _as_set(value)}
+
+
+def _parse_mongo_rule(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value.copy()
+    if not isinstance(value, str):
+        return {}
+    raw = value.strip()
+    if not raw or raw == "{}":
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _session_actor(session: Any) -> dict[str, Any]:
@@ -107,13 +124,158 @@ def apply_session_allowed_users(
     return allowed
 
 
+async def _expand_implied_groups(env: Any, groups: set[str]) -> set[str]:
+    if not groups:
+        return set()
+    try:
+        model = env.get("groups")
+    except Exception:
+        return set(groups)
+    if model is None:
+        return set(groups)
+    query: dict[str, Any] = {"active": True, "deleted": 0}
+    try:
+        domain = model.get_domain(query)
+    except Exception:
+        domain = query
+    try:
+        records = await model.find(domain=domain, limit=0)
+    except Exception:
+        return set(groups)
+
+    implications: dict[str, set[str]] = {}
+    for record in records:
+        data = _obj_to_dict(record)
+        group_name = str(data.get("rec_name") or "").strip()
+        if not group_name:
+            continue
+        implications[group_name] = _as_set(data.get("implied_groups"))
+
+    expanded = set(groups)
+    pending = list(groups)
+    while pending:
+        group_name = pending.pop()
+        for implied_group in implications.get(group_name, set()):
+            if implied_group not in expanded:
+                expanded.add(implied_group)
+                pending.append(implied_group)
+    return expanded
+
+
+async def _groups_from_rules(env: Any, uid: str) -> set[str]:
+    try:
+        groups_model = env.get("groups")
+        user_model = env.get("user")
+    except Exception:
+        return set()
+    if groups_model is None or user_model is None:
+        return set()
+    groups_query: dict[str, Any] = {"active": True, "deleted": 0}
+    try:
+        groups_domain = groups_model.get_domain(groups_query)
+    except Exception:
+        groups_domain = groups_query
+    try:
+        group_records = await groups_model.find(domain=groups_domain, limit=0)
+    except Exception:
+        return set()
+
+    matched: set[str] = set()
+    for record in group_records:
+        data = _obj_to_dict(record)
+        group_name = str(data.get("rec_name") or "").strip()
+        rule = _parse_mongo_rule(data.get("rule"))
+        if not group_name or not rule:
+            continue
+        user_query = {
+            "$and": [
+                {"active": True},
+                {"deleted": 0},
+                {"$or": [{"rec_name": uid}, {"uid": uid}]},
+                rule,
+            ]
+        }
+        try:
+            user_domain = user_model.get_domain(user_query)
+        except Exception:
+            user_domain = user_query
+        try:
+            users = await user_model.find(domain=user_domain, limit=1)
+        except Exception:
+            users = []
+        if users:
+            matched.add(group_name)
+    return matched
+
+
 async def apply_session_groups(env: Any, session: Any) -> list[str]:
-    """Popola session.user.groups da group_users (request-scoped, non persiste)."""
+    """Popola session.user.groups e session.groups da group_users
+    (request-scoped, non persiste).
+
+    Sovrascrive sempre entrambi i campi, anche a vuoto: ozon-env.session_app()
+    puo' aver propagato groups dal JWT keycloak sul record persistito quando
+    l'utente e' nuovo (OzonOrm.build_auth_user usa claims.get("groups") come
+    fallback) — group_users resta l'unica fonte effettiva ad ogni request.
+    """
     user = _field(session, "user", None)
     if not isinstance(user, dict):
         return []
     uid = str(_field(session, "uid", "") or user.get("uid") or "").strip()
-    if not uid:
+    app_code = str(
+        _field(session, "app_code", "") or user.get("app_code") or ""
+    ).strip()
+    groups: set[str] = set()
+    if uid and app_code:
+        try:
+            model = env.get("group_users")
+        except Exception:
+            model = None
+        if model is not None:
+            query: dict[str, Any] = {
+                "active": True,
+                "deleted": 0,
+                "app_code": app_code,
+            }
+            try:
+                domain = model.get_domain(query)
+            except Exception:
+                domain = query
+            try:
+                records = await model.find(domain=domain, limit=0)
+            except Exception:
+                records = []
+            for record in records:
+                data = _obj_to_dict(record)
+                record_app_code = str(data.get("app_code") or "").strip()
+                if record_app_code != app_code:
+                    continue
+                members = _as_set(data.get("users"))
+                if uid in members:
+                    group_name = str(data.get("group") or "").strip()
+                    if group_name:
+                        groups.add(group_name)
+        groups |= await _groups_from_rules(env, uid)
+        groups = await _expand_implied_groups(env, groups)
+    sorted_groups = sorted(groups)
+    user["groups"] = sorted_groups
+    try:
+        session.groups = sorted_groups
+    except Exception:
+        pass
+    try:
+        session.is_tech = "technical_operator" in sorted_groups
+    except Exception:
+        pass
+    return sorted_groups
+
+
+async def get_admin_uids(env: Any, app_code: str) -> list[str]:
+    """Uid del gruppo 'admin' in group_users per app_code.
+
+    Sostituisce setting_app.admins come fonte di is_admin: keycloak resta
+    responsabile della sola autenticazione, non dell'autorizzazione admin.
+    """
+    if not app_code:
         return []
     try:
         model = env.get("group_users")
@@ -121,25 +283,24 @@ async def apply_session_groups(env: Any, session: Any) -> list[str]:
         return []
     if model is None:
         return []
+    query: dict[str, Any] = {"active": True, "deleted": 0, "app_code": app_code}
     try:
-        domain = model.get_domain({"active": True, "deleted": 0})
+        domain = model.get_domain(query)
     except Exception:
-        domain = {"active": True, "deleted": 0}
+        domain = query
     try:
         records = await model.find(domain=domain, limit=0)
     except Exception:
         return []
-    groups: set[str] = set()
+    admin_uids: set[str] = set()
     for record in records:
         data = _obj_to_dict(record)
-        members = _as_set(data.get("users"))
-        if uid in members:
-            group_name = str(data.get("group") or "").strip()
-            if group_name:
-                groups.add(group_name)
-    sorted_groups = sorted(groups)
-    user["groups"] = sorted_groups
-    return sorted_groups
+        if str(data.get("app_code") or "").strip() != app_code:
+            continue
+        if str(data.get("group") or "").strip().lower() != ADMIN_GROUP_NAME:
+            continue
+        admin_uids |= _as_set(data.get("users"))
+    return sorted(admin_uids)
 
 
 def _selector_matches(selector: Any, actor: dict[str, Any]) -> bool:
@@ -485,13 +646,23 @@ def synth_policies_from_component_properties(
         if not isinstance(properties, dict):
             continue
 
-        allowed_groups = sorted(_as_set(properties.get("models_groups")))
-        synthesized.extend(
-            _model_groups_to_policies(model_key, WILDCARD, allowed_groups)
-        )
+        # Formato legacy (list/CSV di nomi gruppo) -> policy sintetiche
+        # DENY-by-exclusion. Il nuovo formato {"rules": [...]} (vedi
+        # app.core.OzonEnvApp defaults) e' spec-data per il motore ACL non
+        # ancora costruito: e' un dict, non list/str, quindi qui va ignorato
+        # esplicitamente — altrimenti _as_set lo stringifica in un unico
+        # gruppo-fantasma e nega tutto a tutti i non-admin.
+        models_groups_raw = properties.get("models_groups")
+        if not isinstance(models_groups_raw, dict):
+            allowed_groups = sorted(_as_set(models_groups_raw))
+            synthesized.extend(
+                _model_groups_to_policies(model_key, WILDCARD, allowed_groups)
+            )
 
         restricted_fields = properties.get("models_restricted_fields")
-        if isinstance(restricted_fields, dict):
+        if isinstance(restricted_fields, dict) and not (
+            {"fields_rule", "record_rulse"} & restricted_fields.keys()
+        ):
             for field_path, field_groups in restricted_fields.items():
                 if not str(field_path or "").strip():
                     continue

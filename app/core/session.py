@@ -16,6 +16,7 @@ class AppSession(User):
     sso_expire: Optional[datetime] = None
     expire_datetime: Optional[datetime] = None
     login_complete: bool = False
+    is_tech: bool = False
     divisione_uo: str = ""
     app: dict[str, Any] = Field(default_factory=dict)
     apps: dict[str, Any] = Field(default_factory=dict)

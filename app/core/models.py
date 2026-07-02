@@ -27,8 +27,10 @@ class AttachmentScanStatus(StrEnum):
 
 class FieldAclOperation(StrEnum):
     READ = "read"
-    INSERT = "insert"
+    INSERT = "create"
     UPDATE = "update"
+    DELETE = "delete"
+    EXPORT = "export"
 
 
 class FieldAclEffect(StrEnum):
@@ -53,3 +55,37 @@ class FieldAclPolicy(BasicModel):
 
 class AppUser(User):
     avatar_url: str = ""
+
+
+class ModelGroupsRule(BasicModel):
+    """Riga flat di component.properties.models_groups (vedi
+    app.ozon_env_acl.model_rules_sync) — permessi CRUD+export per
+    (app_code, model, group)."""
+
+    model: str = ""
+    group: str = ""
+    read: bool = False
+    create: bool = False
+    update: bool = False
+    delete: bool = False
+    export: bool = False
+
+
+class ModelFieldsRule(BasicModel):
+    """Riga flat di component.properties.models_restricted_fields (vedi
+    app.ozon_env_acl.model_rules_sync):
+    - rule_type="fields": campi ristretti per gruppo (da fields_rule.allowed_groups)
+    - rule_type="record": filtro riga-per-riga (da record_rulse), group vuoto,
+      filters e' una query mongo verbatim (puo' contenere nodi {"var": ...}
+      non ancora risolti — vedi app.ozon_env_acl.render_query_vars)
+    """
+
+    model: str = ""
+    rule_type: str = "fields"
+    group: str = ""
+    restricted_fields: list[str] = Field(default_factory=list)
+    filters: dict[str, Any] = Field(default_factory=dict)
+    read: bool = False
+    create: bool = False
+    update: bool = False
+    delete: bool = False

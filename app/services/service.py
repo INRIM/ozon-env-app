@@ -218,6 +218,41 @@ class Service:
             self.session.app_code,
         )
 
+    def _is_menu_group_allowed(self, group: CoreModel) -> bool:
+        session = getattr(self, "session", None)
+        if not session:
+            return True
+        is_admin = getattr(session, "is_admin", False)
+        if is_admin:
+            return True
+            
+        user = getattr(session, "user", None) or {}
+        user_groups = set(user.get("groups", []) if isinstance(user, dict) else [])
+        
+        # Check menu-specific groups if defined
+        group_groups_raw = getattr(group, "groups", None) or []
+        if isinstance(group_groups_raw, str):
+            group_groups = {g.strip() for g in group_groups_raw.split(",") if g.strip()}
+        elif isinstance(group_groups_raw, (list, set, tuple)):
+            group_groups = {str(g).strip() for g in group_groups_raw if str(g).strip()}
+        else:
+            group_groups = set()
+            
+        if group_groups:
+            # If groups are explicitly set, the user must belong to at least one of them
+            return bool(user_groups & group_groups)
+            
+        # By default check admin menu groups
+        if getattr(group, "admin", False):
+            # Check if it's the Identity layer menu group
+            if getattr(group, "rec_name", "") == "identity":
+                # Identity layer: accessible only to admin
+                return False
+            # Other system/admin menus: accessible to admin and technical_operator
+            return "technical_operator" in user_groups
+            
+        return True
+
     def _get_model(self, model_name: str):
         normalized = str(model_name or "").strip()
         candidates = [normalized]
@@ -1615,6 +1650,7 @@ class Service:
             )
             if not comp_sys:
                 data["user_function"] = "user"
+                data["groups"] = ["operator"]
             if data.get("component_type"):
                 data["component_type"] = comp_type
             if data.get("action_type") == "menu":
@@ -2117,20 +2153,23 @@ class Service:
 
     async def service_get_menu(self, parent: str = "") -> ResponseObjectData:
         is_admin = self.session.is_admin
+        user_groups = set(self.session.user.get("groups", []) if (self.session and getattr(self.session, "user", None)) else [])
         logger.info(
-            "service_get_menu: start parent=%s app_code=%s uid=%s is_admin=%s",
+            "service_get_menu: start parent=%s app_code=%s uid=%s is_admin=%s groups=%s",
             parent,
             getattr(self.session, "app_code", None),
             getattr(self.session, "uid", None),
             is_admin,
+            user_groups,
         )
-        if not is_admin:
-            logger.info("service_get_menu: non-admin, returning empty menu")
-            return ResponseObjectData(
-                mode="menu",
-                data=[{}],
-                query={"admin": True, "parent": parent},
-            )
+        if not is_admin and "technical_operator" not in user_groups:
+            if not user_groups:
+                logger.info("service_get_menu: non-admin with no groups, returning empty menu")
+                return ResponseObjectData(
+                    mode="menu",
+                    data=[{}],
+                    query={"admin": True, "parent": parent},
+                )
         action_model = self.env.get("action")
         menu_group_model = self.env.get("menu_group")
 
@@ -2147,6 +2186,7 @@ class Service:
             menu_group_model,
             query=menu_group_query,
         )
+        menu_groups = [g for g in menu_groups if self._is_menu_group_allowed(g)]
         logger.info(
             "service_get_menu: menu_group_query=%s groups_found=%d",
             menu_group_query,
@@ -2167,6 +2207,7 @@ class Service:
             menu_actions = await self._find_base(
                 action_model, query=menu_query
             )
+            menu_actions = [a for a in menu_actions if self.action_runtime._is_action_allowed(a)]
             logger.info(
                 "service_get_menu: group=%s actions_found=%d",
                 group_name,
@@ -2230,9 +2271,11 @@ class Service:
                 menu_actions = await self._find_base(
                     action_model, query=q_menu
                 )
+                menu_actions = [a for a in menu_actions if self.action_runtime._is_action_allowed(a)]
                 if menu_actions and not _has_non_system_records(menu_actions):
                     continue
                 act_list = await self._find_base(action_model, query=q)
+                act_list = [a for a in act_list if self.action_runtime._is_action_allowed(a)]
                 card_buttons: list[dict[str, Any]] = []
 
                 for rec_b in menu_actions:

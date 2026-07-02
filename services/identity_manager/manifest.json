@@ -1,0 +1,23 @@
+{
+  "code": "identity_manager",
+  "kind": "worker",
+  "network": "ozn-network",
+  "shared_volumes": [
+    {
+      "name": "models",
+      "target": "/models"
+    }
+  ],
+  "env_requires": [
+    "APP_CODE",
+    "MONGO_USER",
+    "MONGO_PASS",
+    "MONGO_DB"
+  ],
+  "endpoint": "",
+  "image": "ozonapp.identity_manager:latest",
+  "build_context": ".",
+  "repo": "",
+  "version": "local",
+  "compose_file": "docker-compose.yml"
+}

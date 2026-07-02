@@ -23,10 +23,11 @@ from app.core.OzonEnvApp import AppOzonEnv
 from app.core.OzonModelApp import OzonModelApp
 from app.core.models import FieldAclPolicy
 from app.core.models import MailTemplate, AppUser
+from app.core.models import ModelFieldsRule
+from app.core.models import ModelGroupsRule
 from app.services.cookie_auth import sign_token
 from app.services.cookie_auth import verify_token
 from app.services.service import Service
-from app.services.session_auth import _get_app_admins
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -36,6 +37,8 @@ api_key_header = APIKeyHeader(name=settings.token_header, auto_error=False)
 _STATIC_MODELS = [
     ("mail_template", MailTemplate),
     ("field_acl_policy", FieldAclPolicy),
+    ("model_groups_rule", ModelGroupsRule),
+    ("model_fields_rule", ModelFieldsRule),
 ]
 
 _READ_ONLY_POST_CSRF_EXEMPT_PATHS = {
@@ -188,27 +191,6 @@ async def _read_settings_model_record(
     raise RuntimeError("settings model does not support by_name/load")
 
 
-async def _load_settings_model_object(
-    settings_model: Any,
-    app_code: str,
-) -> Any:
-    if hasattr(settings_model, "load"):
-        for query in ({"app_code": app_code}, {"rec_name": app_code}):
-            record = await settings_model.load(query)
-            if bool(getattr(getattr(settings_model, "status", None), "fail", False)):
-                continue
-            if _normalize_app_settings_record(record, app_code):
-                return record
-    if hasattr(settings_model, "by_name"):
-        record = await settings_model.by_name(app_code)
-        if bool(getattr(getattr(settings_model, "status", None), "fail", False)):
-            record = None
-        if _normalize_app_settings_record(record, app_code):
-            return record
-        return None
-    raise RuntimeError("settings model does not support by_name/load")
-
-
 async def _load_app_settings_record(
     env: AppOzonEnv,
     source_settings: Any = None,
@@ -272,8 +254,10 @@ async def _ensure_startup_identity_fields(
     env: AppOzonEnv,
     source_settings: Any = None,
 ) -> None:
-    """Backfill admins from env into DB record if DB admins is empty.
-    Called only at startup, not per-request — DB is authoritative for requests.
+    """Seed the 'admin' group_users record from env ADMINS, once, if this
+    app_code has no admin group yet. Startup-only bridge for first deploy —
+    after that, admin membership is managed exclusively via group_users
+    (UI), not via setting_app.admins or env vars.
     """
     effective_settings = _effective_settings(source_settings)
     app_code = str(getattr(effective_settings, "app_code", "") or "").strip()
@@ -284,21 +268,47 @@ async def _ensure_startup_identity_fields(
     if not configured_admins:
         return
 
-    settings_model = _get_settings_model(env)
-    record = await _load_settings_model_object(settings_model, app_code)
+    from app.ozon_env_acl import ADMIN_GROUP_NAME
+    from app.ozon_env_acl import get_admin_uids
+
+    if await get_admin_uids(env, app_code):
+        return
+
+    group_users_model = env.get("group_users")
+    if group_users_model is None:
+        return
+
+    rec_name = f"{ADMIN_GROUP_NAME}-{app_code}"
+    payload = {
+        "rec_name": rec_name,
+        "label": "Admin",
+        "app_code": app_code,
+        "group": ADMIN_GROUP_NAME,
+        "users": configured_admins,
+        "active": True,
+        "deleted": 0,
+        "default": False,
+        "demo": False,
+        "list_order": 1,
+        "parent": "",
+        "process_id": "",
+        "process_task_id": "",
+        "sys": False,
+        "type": "form",
+        "data_value": {
+            "data_model": "group_users",
+            "rec_name": rec_name,
+            "label": "Admin",
+        },
+    }
+    record = await group_users_model.new(data=payload)
     if record is None:
-        return
-
-    current_admins = list(getattr(record, "admins", []) or [])
-    if current_admins:
-        return
-
-    setattr(record, "admins", configured_admins)
-    updated = await settings_model.update(record)
-    if updated is None:
-        raise RuntimeError("cannot persist admins backfill at startup")
+        raise RuntimeError("cannot build group_users admin seed record")
+    saved = await group_users_model.insert(record)
+    if saved is None:
+        raise RuntimeError("cannot persist group_users admin seed record")
     logger.info(
-        "startup: backfilled admins from env app_code=%s admins=%s",
+        "startup: seeded admin group_users app_code=%s admins=%s",
         app_code,
         configured_admins,
     )
@@ -343,9 +353,13 @@ async def sync_app_settings_startup(source_settings: Any = None) -> None:
     try:
         await env.init_env(local_model={"user":AppUser})
         env_ready = True
-        # Startup-only: backfill admins from env if DB record has none.
+        await _register_static_models(env)
+        # Startup-only: seed admin group_users from env if none exists yet.
         await _ensure_startup_identity_fields(env, effective_settings)
         await _sync_runtime_app_settings(env, effective_settings)
+        from app.ozon_env_acl.model_rules_sync import sync_all_model_rules
+
+        await sync_all_model_rules(env)
     finally:
         if env_ready:
             await env.close_env()
@@ -472,25 +486,44 @@ async def get_authed_env(
     # is_admin frozen at whatever was persisted in the `user` collection.
     # Patch the live session object in-memory (Service holds it by reference):
     #  - inject app_code from settings
-    #  - re-evaluate is_admin against app_settings.admins (authoritative)
-    session = ozon_env.user_session
-    admins = _get_app_admins(ozon_env)
-    session_uid = str(getattr(session, "uid", "") or "").strip()
-    session_is_admin = session_uid in admins
+    #  - groups/is_admin: sorgente unica group_users (app.ozon_env_acl), non
+    #    piu' setting_app.admins ne' claim keycloak. Keycloak resta solo
+    #    autenticazione.
+    from app.services.session_auth import session_to_app_session
+    session_uid = str(getattr(ozon_env.user_session, "uid", "") or "").strip()
     current_app_code = _current_env_app_code(ozon_env, settings)
     try:
-        session.app_code = current_app_code
+        session = session_to_app_session(ozon_env.user_session, current_app_code)
+        ozon_env.user_session = session
+    except Exception:
+        logger.exception("failed to convert session to AppSession uid=%s", session_uid)
+        session = ozon_env.user_session
+
+    from app.ozon_env_acl import apply_session_groups
+    from app.ozon_env_acl import get_admin_uids
+
+    try:
+        groups = await apply_session_groups(ozon_env, session)
+        logger.info("session groups uid=%s groups=%s", session_uid, groups)
+    except Exception:
+        logger.exception("failed to set session groups uid=%s", session_uid)
+
+    try:
+        admin_uids = await get_admin_uids(ozon_env, current_app_code)
+    except Exception:
+        logger.exception("failed to resolve admin group uid=%s", session_uid)
+        admin_uids = []
+    session_is_admin = session_uid in admin_uids
+    try:
         session.is_admin = session_is_admin
     except Exception:
-        logger.exception(
-            "failed to patch session app_code/is_admin uid=%s", session_uid
-        )
+        logger.exception("failed to patch session is_admin uid=%s", session_uid)
     logger.info(
         "session patched uid=%s app_code=%s is_admin=%s admins=%s",
         session_uid,
         current_app_code,
         session_is_admin,
-        admins,
+        admin_uids,
     )
 
     # ACL row-level: allowed_users al login (admin -> admins di default; altrimenti
@@ -498,7 +531,7 @@ async def get_authed_env(
     try:
         from app.ozon_env_acl import apply_session_allowed_users
 
-        allowed_users = apply_session_allowed_users(session, admins)
+        allowed_users = apply_session_allowed_users(session, admin_uids)
         logger.info(
             "session allowed_users uid=%s count=%d",
             session_uid,
@@ -508,17 +541,6 @@ async def get_authed_env(
         logger.exception(
             "failed to set allowed_users uid=%s", session_uid
         )
-
-    # ACL group-based: session.user.groups da group_users. Vedi app/ozon_env_acl.apply_session_groups.
-    try:
-        from app.ozon_env_acl import apply_session_groups
-
-        groups = await apply_session_groups(ozon_env, session)
-        logger.info(
-            "session groups uid=%s groups=%s", session_uid, groups
-        )
-    except Exception:
-        logger.exception("failed to set session groups uid=%s", session_uid)
 
     # BFF cookie mode: refresh cookie if ozon-env rotated tokens internally
     if cookie_val:
@@ -535,7 +557,7 @@ async def get_authed_env(
             )
 
     response.set_cookie(
-        key="app_code", value=current_app_code, httponly=True, samesite="lax"
+        key="app_code", value=current_app_code, httponly=False, samesite="lax"
     )
     logger.info(
         "authed env ready app_code=%s uid=%s",
@@ -603,16 +625,40 @@ async def build_authed_env_from_token(
         if result.fail or not env.user_session:
             raise WsAuthError(result.msg or "Invalid session")
 
-        session = env.user_session
-        admins = _get_app_admins(env)
-        session_uid = str(getattr(session, "uid", "") or "").strip()
+        from app.services.session_auth import session_to_app_session
+        session_uid = str(getattr(env.user_session, "uid", "") or "").strip()
         resolved_app_code = _current_env_app_code(env, settings)
         try:
-            session.app_code = resolved_app_code
-            session.is_admin = session_uid in admins
+            session = session_to_app_session(env.user_session, resolved_app_code)
+            env.user_session = session
         except Exception:
             logger.exception(
-                "failed to patch ws session app_code/is_admin uid=%s",
+                "failed to convert ws session to AppSession uid=%s", session_uid
+            )
+            session = env.user_session
+
+        from app.ozon_env_acl import apply_session_allowed_users
+        from app.ozon_env_acl import apply_session_groups
+        from app.ozon_env_acl import get_admin_uids
+
+        try:
+            await apply_session_groups(env, session)
+        except Exception:
+            logger.exception("failed to set ws session groups uid=%s", session_uid)
+
+        try:
+            admin_uids = await get_admin_uids(env, resolved_app_code)
+        except Exception:
+            logger.exception(
+                "failed to resolve ws admin group uid=%s", session_uid
+            )
+            admin_uids = []
+        try:
+            session.is_admin = session_uid in admin_uids
+            apply_session_allowed_users(session, admin_uids)
+        except Exception:
+            logger.exception(
+                "failed to patch ws session is_admin/allowed_users uid=%s",
                 session_uid,
             )
         return env

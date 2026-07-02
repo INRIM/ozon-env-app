@@ -1,0 +1,28 @@
+services:
+  identity_manager:
+    image: ozonapp.identity_manager:latest
+    build:
+      context: .
+    container_name: ozon-env-identity-manager
+    env_file:
+      # base generico dello stack, poi env specifico del service (override).
+      - ../../.env
+      - path: service.env
+        required: false
+    environment:
+      # MODELS_FOLDER dedicato: evita race con l'app sulla generazione modelli.
+      MODELS_FOLDER: /models_identity
+    volumes:
+      - ../../models:/models
+    restart: unless-stopped
+    networks:
+      - ozn-network
+    logging:
+      options:
+        max-size: 10m
+        max-file: "2"
+
+networks:
+  ozn-network:
+    external: true
+    name: ozn-network

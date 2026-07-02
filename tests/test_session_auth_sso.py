@@ -123,8 +123,21 @@ class _FakeEngine:
         return self.collections[name]
 
 
+class _FakeGroupUsersModel:
+    """Minimal group_users model stand-in (group/users/app_code rows)."""
+
+    def __init__(self, rows=None):
+        self.rows = list(rows or [])
+
+    def get_domain(self, query):
+        return query
+
+    async def find(self, domain, limit=0):
+        return [row.copy() for row in self.rows]
+
+
 class _FakeOzonEnv:
-    def __init__(self, user_docs=None, admins=None):
+    def __init__(self, user_docs=None, group_users=None):
         self._user_coll = _FakeCollection(user_docs)
         self.db = SimpleNamespace(
             engine=_FakeEngine({"user": self._user_coll})
@@ -134,9 +147,9 @@ class _FakeOzonEnv:
                 upload_folder="/uploads",
                 session_expire_hours=12,
                 tz="Europe/Rome",
-                admins=list(admins or []),
             )
         )
+        self._group_users = _FakeGroupUsersModel(group_users)
         self.user_session = None
         self.session_token = ""
         self.upload_folder = ""
@@ -144,6 +157,8 @@ class _FakeOzonEnv:
     def get(self, name: str):
         if name == "user":
             return _FakeUserModel(self._user_coll)
+        if name == "group_users":
+            return self._group_users
         raise ValueError(f"Unknown model: {name}")
 
 
@@ -295,9 +310,20 @@ def test_build_keycloak_session_creates_user_when_not_found():
     assert len(env.db.engine.get_collection("user").replace_calls) >= 1
 
 
-def test_build_keycloak_session_sets_is_admin_from_admins_list():
-    """User uid in admins[] → is_admin=True on auto-creation."""
-    env = _FakeOzonEnv(user_docs=[], admins=["admin.user"])
+def test_build_keycloak_session_sets_is_admin_from_admin_group_users():
+    """User uid in group_users 'admin' group (app_code=mci) → is_admin=True."""
+    env = _FakeOzonEnv(
+        user_docs=[],
+        group_users=[
+            {
+                "group": "admin",
+                "users": ["admin.user"],
+                "app_code": "mci",
+                "active": True,
+                "deleted": 0,
+            }
+        ],
+    )
     settings_admin = SimpleNamespace(
         keycloak_remote_user_header="x-remote-user",
         token_header="Authorization",

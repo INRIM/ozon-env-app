@@ -19,7 +19,9 @@
     "identity": [
       "list_user",
       "list_groups",
-      "list_group_users"
+      "list_group_users",
+      "list_model_groups_rule",
+      "list_model_fields_rule"
     ]
   },
   "pre_datas": [],

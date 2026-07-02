@@ -35,7 +35,8 @@ def _parse_args() -> argparse.Namespace:
         "--admin",
         required=True,
         metavar="UID",
-        help="UID dell'admin base da scrivere in settings.admins.",
+        help="UID dell'admin base: aggiunto a group_users(group=admin) per app_code "
+        "(fonte di is_admin) e, per storico, a settings.admins.",
     )
     parser.add_argument(
         "--base-only",
@@ -89,6 +90,75 @@ async def _seed_settings(cfg: dict, env_settings, admin_uid: str) -> None:
         await env.close_env()
 
 
+async def _seed_admin_group(cfg: dict, env_settings, admin_uid: str) -> None:
+    """Grant admin_uid membership in the 'admin' group_users record for
+    app_code. is_admin is sourced live from group_users, not settings.admins
+    (see app.ozon_env_acl.get_admin_uids / apply_session_groups) — this is
+    now the authoritative way to bootstrap an admin.
+    """
+    from ozonenv.OzonEnv import OzonEnv
+    from app.ozon_env_acl import ADMIN_GROUP_NAME
+
+    app_code = env_settings.app_code
+    rec_name = f"{ADMIN_GROUP_NAME}-{app_code}"
+    env = OzonEnv(cfg=cfg)
+    log.info("seed: group_users admin init env...")
+    await env.init_env()
+    try:
+        group_users_model = env.get("group_users")
+        existing = await group_users_model.load({"rec_name": rec_name})
+        if existing:
+            current_users = list(getattr(existing, "users", []) or [])
+            if admin_uid not in current_users:
+                current_users.append(admin_uid)
+                setattr(existing, "users", current_users)
+                await group_users_model.update(existing)
+                log.info(
+                    "seed: group_users admin updated app_code=%s users=%s",
+                    app_code,
+                    current_users,
+                )
+            else:
+                log.info(
+                    "seed: group_users admin already includes %s (app_code=%s)",
+                    admin_uid,
+                    app_code,
+                )
+            return
+
+        payload = {
+            "rec_name": rec_name,
+            "label": "Admin",
+            "app_code": app_code,
+            "group": ADMIN_GROUP_NAME,
+            "users": [admin_uid],
+            "active": True,
+            "deleted": 0,
+            "default": False,
+            "demo": False,
+            "list_order": 1,
+            "parent": "",
+            "process_id": "",
+            "process_task_id": "",
+            "sys": False,
+            "type": "form",
+            "data_value": {
+                "data_model": "group_users",
+                "rec_name": rec_name,
+                "label": "Admin",
+            },
+        }
+        new_rec = await group_users_model.new(data=payload)
+        await group_users_model.insert(new_rec)
+        log.info(
+            "seed: group_users admin created app_code=%s users=%s",
+            app_code,
+            [admin_uid],
+        )
+    finally:
+        await env.close_env()
+
+
 async def run(args: argparse.Namespace) -> None:
     from app.app_settings import get_env_settings
     from app.deps.app_env import _build_ozon_cfg
@@ -118,7 +188,8 @@ async def run(args: argparse.Namespace) -> None:
 
     log.info("[4/4] seed settings uid=%s ...", args.admin)
     await _seed_settings(cfg, settings, args.admin)
-    log.info("[4/4] settings aggiornato")
+    await _seed_admin_group(cfg, settings, args.admin)
+    log.info("[4/4] settings e group_users admin aggiornati")
 
     log.info("=== BOOTSTRAP COMPLETE ===")
 

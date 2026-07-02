@@ -6,7 +6,14 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 from pydantic import Field
 
+from app.core.OzonEnvApp import _DEFAULT_MODELS_GROUPS_NON_SYS
+from app.core.OzonEnvApp import _DEFAULT_MODELS_RESTRICTED_FIELDS
 from app.services.service import Service
+
+_DEFAULT_ACL_PROPERTIES = {
+    "models_groups": _DEFAULT_MODELS_GROUPS_NON_SYS,
+    "models_restricted_fields": _DEFAULT_MODELS_RESTRICTED_FIELDS,
+}
 
 
 class _Status:
@@ -297,6 +304,7 @@ def test_component_upsert_create_menu_dashboard_generates_defaults_from_payload(
     expected = {
         "rec_name": "demo_component",
         "type": "resource",
+        "properties": _DEFAULT_ACL_PROPERTIES,
     }
     assert env.inserted_components == []
     assert synced == [expected]
@@ -384,7 +392,11 @@ def test_component_upsert_syncs_runtime_without_generating_defaults_by_default()
         )
     )
 
-    expected = {"rec_name": "demo_component", "type": "resource"}
+    expected = {
+        "rec_name": "demo_component",
+        "type": "resource",
+        "properties": _DEFAULT_ACL_PROPERTIES,
+    }
     assert env.inserted_components == [expected]
     assert synced == []
 
@@ -409,7 +421,11 @@ def test_component_upsert_generates_defaults_only_on_insert():
         )
     )
 
-    expected = {"rec_name": "demo_component", "type": "resource"}
+    expected = {
+        "rec_name": "demo_component",
+        "type": "resource",
+        "properties": _DEFAULT_ACL_PROPERTIES,
+    }
     assert env.inserted_components == [expected]
     assert synced == [expected]
 
@@ -440,6 +456,7 @@ def test_component_upsert_does_not_generate_defaults_on_update():
         "rec_name": "demo_component",
         "type": "resource",
         "title": "Updated",
+        "properties": _DEFAULT_ACL_PROPERTIES,
     }
     assert env.inserted_components == [expected]
     assert synced == []
@@ -476,6 +493,7 @@ def test_component_upsert_create_menu_dashboard_generates_defaults_on_update():
         "rec_name": "demo_component",
         "type": "resource",
         "title": "Updated",
+        "properties": _DEFAULT_ACL_PROPERTIES,
     }
     assert env.inserted_components == [expected]
     assert synced == [expected]
@@ -503,3 +521,87 @@ def test_component_upsert_skips_runtime_sync_for_builder_temporary_name():
 
     assert env.inserted_components == []
     assert synced == []
+
+
+def test_make_default_actions_adds_user_and_operator_groups_for_non_sys_component():
+    class FakeActionModel:
+        def __init__(self):
+            self.upserts = []
+
+        async def find(self, *args, **kwargs):
+            # Return some mocked action templates
+            return [
+                SimpleNamespace(
+                    rec_name="list_action",
+                    model="action",
+                    sys=True,
+                    deleted=0,
+                    list_query="{}",
+                    context_button_mode="",
+                    action_type="list",
+                    get_dict=lambda: {
+                        "rec_name": "list_action",
+                        "model": "action",
+                        "sys": True,
+                        "deleted": 0,
+                        "list_query": "{}",
+                        "context_button_mode": "",
+                        "action_type": "list",
+                    }
+                )
+            ]
+
+        async def upsert(self, data, rec_name):
+            self.upserts.append(data)
+            return None
+
+    class FakeMenuModel:
+        async def count(self, *args, **kwargs):
+            return 1
+
+    class FakeEnv(_MissingModelEnv):
+        def __init__(self):
+            super().__init__()
+            self.action_model = FakeActionModel()
+            self.menu_model = FakeMenuModel()
+
+        def get(self, name):
+            if name == "action":
+                return self.action_model
+            if name == "menu_group":
+                return self.menu_model
+            return None
+
+    env = FakeEnv()
+    service = Service(env)
+    
+    # 1. Non-sys component -> should add user and operator to action groups
+    schema_non_sys = {
+        "rec_name": "customer",
+        "type": "resource",
+        "title": "Customer",
+        "sys": False
+    }
+    
+    asyncio.run(service._make_default_actions_for_component(schema_non_sys))
+    
+    assert len(env.action_model.upserts) == 1
+    assert env.action_model.upserts[0]["groups"] == ["user", "operator"]
+    assert env.action_model.upserts[0]["user_function"] == "user"
+
+    # Reset upserts
+    env.action_model.upserts.clear()
+
+    # 2. Sys component -> should not add user and operator to groups
+    schema_sys = {
+        "rec_name": "customer",
+        "type": "resource",
+        "title": "Customer",
+        "sys": True
+    }
+    
+    asyncio.run(service._make_default_actions_for_component(schema_sys))
+    
+    assert len(env.action_model.upserts) == 1
+    assert "groups" not in env.action_model.upserts[0] or env.action_model.upserts[0]["groups"] != ["user", "operator"]
+

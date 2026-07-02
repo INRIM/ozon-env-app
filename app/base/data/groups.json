@@ -4,17 +4,21 @@
     "data_value": {
       "data_model": "groups",
       "rec_name": "admin",
-      "label": "Admin"
+      "label": "Admin",
+      "implied_groups": [],
+      "rule": "{}"
     },
     "default": false,
     "deleted": 0.0,
     "demo": false,
+    "implied_groups": [],
     "label": "Admin",
     "list_order": 1,
     "parent": "",
     "process_id": "",
     "process_task_id": "",
     "rec_name": "admin",
+    "rule": "{}",
     "sys": false,
     "type": "form"
   },
@@ -23,17 +27,21 @@
     "data_value": {
       "data_model": "groups",
       "rec_name": "user",
-      "label": "User"
+      "label": "User",
+      "implied_groups": [],
+      "rule": "{}"
     },
     "default": false,
     "deleted": 0.0,
     "demo": false,
+    "implied_groups": [],
     "label": "User",
     "list_order": 2,
     "parent": "",
     "process_id": "",
     "process_task_id": "",
     "rec_name": "user",
+    "rule": "{}",
     "sys": false,
     "type": "form"
   },
@@ -42,17 +50,21 @@
     "data_value": {
       "data_model": "groups",
       "rec_name": "operator",
-      "label": "Operator"
+      "label": "Operator",
+      "implied_groups": [],
+      "rule": "{}"
     },
     "default": false,
     "deleted": 0.0,
     "demo": false,
+    "implied_groups": ["user"],
     "label": "Operator",
     "list_order": 3,
     "parent": "",
     "process_id": "",
     "process_task_id": "",
     "rec_name": "operator",
+    "rule": "{}",
     "sys": false,
     "type": "form"
   },
@@ -61,17 +73,27 @@
     "data_value": {
       "data_model": "groups",
       "rec_name": "manager",
-      "label": "Manager"
+      "label": "Manager",
+      "implied_groups": [
+        "user",
+        "operator"
+      ],
+      "rule": "{}"
     },
     "default": false,
     "deleted": 0.0,
     "demo": false,
+    "implied_groups": [
+      "user",
+      "operator"
+    ],
     "label": "Manager",
     "list_order": 4,
     "parent": "",
     "process_id": "",
     "process_task_id": "",
     "rec_name": "manager",
+    "rule": "{}",
     "sys": false,
     "type": "form"
   },
@@ -80,17 +102,71 @@
     "data_value": {
       "data_model": "groups",
       "rec_name": "dpo",
-      "label": "DPO"
+      "label": "DPO",
+      "implied_groups": [
+        "gdpr"
+      ],
+      "rule": "{}"
     },
     "default": false,
     "deleted": 0.0,
     "demo": false,
+    "implied_groups": [
+      "gdpr"
+    ],
     "label": "DPO",
     "list_order": 5,
     "parent": "",
     "process_id": "",
     "process_task_id": "",
     "rec_name": "dpo",
+    "rule": "{}",
+    "sys": false,
+    "type": "form"
+  },
+  {
+    "active": true,
+    "data_value": {
+      "data_model": "groups",
+      "rec_name": "technical_operator",
+      "label": "Technical Operator",
+      "implied_groups": [],
+      "rule": "{}"
+    },
+    "default": false,
+    "deleted": 0.0,
+    "demo": false,
+    "implied_groups": [],
+    "label": "Technical Operator",
+    "list_order": 6,
+    "parent": "",
+    "process_id": "",
+    "process_task_id": "",
+    "rec_name": "technical_operator",
+    "rule": "{}",
+    "sys": false,
+    "type": "form"
+  },
+  {
+    "active": true,
+    "data_value": {
+      "data_model": "groups",
+      "rec_name": "gdpr",
+      "label": "GDPR",
+      "implied_groups": [],
+      "rule": "{}"
+    },
+    "default": false,
+    "deleted": 0.0,
+    "demo": false,
+    "implied_groups": [],
+    "label": "GDPR",
+    "list_order": 7,
+    "parent": "",
+    "process_id": "",
+    "process_task_id": "",
+    "rec_name": "gdpr",
+    "rule": "{}",
     "sys": false,
     "type": "form"
   }

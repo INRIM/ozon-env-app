@@ -25,3 +25,14 @@ if [ "${STAGE}" = "local" ]; then
 else
   ansible-playbook -i "${INVENTORY}" "${ROOT_DIR}/ansible/playbooks/deploy.yml" "$@"
 fi
+
+if [ -t 0 ]; then
+  read -rp "Eseguire bootstrap.sh ora? [y/N]: " RUN_BOOTSTRAP
+  case "${RUN_BOOTSTRAP}" in
+    y|Y|yes|YES)
+      "${ROOT_DIR}/bootstrap.sh"
+      ;;
+  esac
+else
+  echo "Input non interattivo: bootstrap.sh non eseguito."
+fi

@@ -3,8 +3,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from fastapi import HTTPException
 from ozonenv.core.BaseModels import CoreModel
 
+from app.core.OzonEnvApp import IDENTITY_MODEL_NAMES
 from app.core.OzonEnvApp import RUNTIME_MODEL_NAME_PATTERN
 from app.services.common import ResponseObjectData
 from app.services.common import make_response_object
@@ -80,6 +82,41 @@ class ActionRuntime:
 
     def __init__(self, service):
         self.service = service
+
+    def _is_action_allowed(self, action: CoreModel) -> bool:
+        session = getattr(self.service, "session", None)
+        if not session:
+            return True
+        is_admin = bool(getattr(session, "is_admin", False))
+        if is_admin:
+            return True
+            
+        user = getattr(session, "user", None) or {}
+        user_groups = set(user.get("groups", []) if isinstance(user, dict) else [])
+        
+        # Check action-specific groups if defined
+        action_groups_raw = getattr(action, "groups", None) or []
+        if isinstance(action_groups_raw, str):
+            action_groups = {g.strip() for g in action_groups_raw.split(",") if g.strip()}
+        elif isinstance(action_groups_raw, (list, set, tuple)):
+            action_groups = {str(g).strip() for g in action_groups_raw if str(g).strip()}
+        else:
+            action_groups = set()
+            
+        if action_groups:
+            # If groups are explicitly set, the user must belong to at least one of them
+            return bool(user_groups & action_groups)
+            
+        # By default check sys/admin actions
+        if getattr(action, "admin", False) or getattr(action, "sys", False):
+            model_name = getattr(action, "model", "") or ""
+            if model_name in IDENTITY_MODEL_NAMES:
+                # Identity layer: accessible only to admin
+                return False
+            # Other system actions: accessible to admin and technical_operator
+            return "technical_operator" in user_groups
+            
+        return True
 
     async def get_action_record(self, action_name: str) -> CoreModel | None:
         action_model = self.service.env.get("action")
@@ -168,7 +205,7 @@ class ActionRuntime:
                     continue
 
                 # --- permission checks ---
-                if action.admin and not is_admin:
+                if not self._is_action_allowed(action):
                     continue
                 if action.write_access and is_public:
                     continue
@@ -261,6 +298,11 @@ class ActionRuntime:
                 },
                 readable=False,
                 editable=False,
+            )
+        if not self._is_action_allowed(action):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Action '{action_name}' is restricted",
             )
 
         action_mode = action.mode
@@ -440,6 +482,11 @@ class ActionRuntime:
                 readable=False,
                 editable=False,
             )
+        if not self._is_action_allowed(action):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Action '{action_name}' is restricted",
+            )
 
         target_model = action.model
         if not target_model:
@@ -535,6 +582,11 @@ class ActionRuntime:
                 },
                 readable=False,
                 editable=False,
+            )
+        if not self._is_action_allowed(action):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Action '{action_name}' is restricted",
             )
 
         target_model = action.model

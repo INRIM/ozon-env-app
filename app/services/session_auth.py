@@ -77,8 +77,10 @@ async def build_keycloak_session(
     app_code: str,
 ) -> AppSession:
     remote_user = _extract_remote_user(request, settings)
-    admins = _get_app_admins(ozon_env)
-    user_record = await _get_or_create_user(ozon_env, remote_user, admins)
+    from app.ozon_env_acl import get_admin_uids
+
+    admin_uids = await get_admin_uids(ozon_env, app_code)
+    user_record = await _get_or_create_user(ozon_env, remote_user, admin_uids)
     user_dict = _model_to_dict(user_record)
 
     access_token, refresh_token = _extract_sso_tokens(request, settings)
@@ -143,7 +145,7 @@ async def build_keycloak_session(
                 user_snapshot.get("owner_personal_type") or ""
             ),
             "owner_job_title": str(user_snapshot.get("owner_job_title") or ""),
-            "is_admin": bool(user_snapshot.get("is_admin", False)),
+            "is_admin": remote_user in admin_uids,
             "use_auth": True,
             "is_api": True,
             "login_complete": True,
@@ -164,6 +166,11 @@ async def build_keycloak_session(
     # Set user_session before persist so ORM owner-tracking has context
     ozon_env.user_session = session
     ozon_env.session_token = session.token
+
+    from app.ozon_env_acl import apply_session_groups
+
+    await apply_session_groups(ozon_env, session)
+
     await persist_user_session(ozon_env, session)
 
     if not getattr(ozon_env, "upload_folder", ""):
@@ -392,21 +399,14 @@ def _extract_remote_user(request: Request, settings: EnvSettings) -> str:
     )
 
 
-def _get_app_admins(ozon_env: OzonEnv) -> list[str]:
-    app_settings = getattr(
-        getattr(ozon_env, "orm", None), "app_settings", None
-    )
-    return [
-        str(uid).strip()
-        for uid in list(getattr(app_settings, "admins", []) or [])
-        if str(uid).strip()
-    ]
-
-
 async def _get_or_create_user(
-    ozon_env: OzonEnv, uid: str, admins: list[str]
+    ozon_env: OzonEnv, uid: str, admin_uids: list[str]
 ) -> Any:
-    """Return existing user CoreModel, or create a new one with is_admin set."""
+    """Return existing user CoreModel, or create a new one with is_admin set.
+
+    is_admin sourced from group_users' 'admin' group (see
+    app.ozon_env_acl.get_admin_uids), not setting_app.admins.
+    """
     user_model = ozon_env.get("user")
     query = {
         "$and": [
@@ -422,7 +422,7 @@ async def _get_or_create_user(
     new_user = {
         "uid": uid,
         "rec_name": uid,
-        "is_admin": uid in admins,
+        "is_admin": uid in admin_uids,
         "active": True,
         "deleted": 0,
     }

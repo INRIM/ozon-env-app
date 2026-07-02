@@ -11,12 +11,134 @@ logger = logging.getLogger("uvicorn.error")
 RUNTIME_MODEL_NAME_PATTERN = r"^[A-Za-z][A-Za-z0-9_]*$"
 _RUNTIME_MODEL_NAME_RE = re.compile(RUNTIME_MODEL_NAME_PATTERN)
 
+# Identity layer: stessa definizione usata in app.services.action_runtime
+# (_is_action_allowed) — modelli esclusi dai default models_groups/
+# models_restricted_fields perche' gestiti a mano (accesso solo admin).
+# model_groups_rule/model_fields_rule sono le tabelle flat del motore ACL
+# stesso: devono restare admin-only per costruzione (deny-by-default).
+IDENTITY_MODEL_NAMES = frozenset(
+    {"user", "groups", "group_users", "model_groups_rule", "model_fields_rule"}
+)
+
+_DEFAULT_MODELS_RESTRICTED_FIELDS: dict[str, Any] = {
+    "fields_rule": {
+        "resticted_fields": [],
+        "allowed_groups": [
+            {
+                "groups": ["gdpr"],
+                "actions": {
+                    "read": True,
+                    "create": True,
+                    "update": True,
+                    "delete": False,
+                },
+            },
+            {
+                "groups": ["dpo"],
+                "actions": {
+                    "read": True,
+                    "create": False,
+                    "update": False,
+                    "delete": False,
+                },
+            },
+        ],
+    },
+    "record_rulse": [
+        {
+            "filters": {"owner_uid": {"$eq": {"var": "user.uid"}}},
+            "actions": {
+                "read": True,
+                "create": True,
+                "update": True,
+                "delete": True,
+            },
+            "resticted_fields": [],
+        }
+    ],
+}
+
+_DEFAULT_MODELS_GROUPS_NON_SYS: dict[str, Any] = {
+    "rules": [
+        {
+            "groups": ["admin"],
+            "actions": {
+                "read": True,
+                "create": True,
+                "update": True,
+                "delete": True,
+                "export": True,
+            },
+        },
+        {
+            "groups": ["user"],
+            "actions": {
+                "read": True,
+                "create": False,
+                "update": False,
+                "delete": False,
+                "export": False,
+            },
+        },
+        {
+            "groups": ["technical_operator"],
+            "actions": {
+                "read": True,
+                "create": False,
+                "update": False,
+                "delete": False,
+                "export": True,
+            },
+        },
+        {
+            "groups": ["operator", "manager", "dpo"],
+            "actions": {
+                "read": True,
+                "create": True,
+                "update": True,
+                "delete": False,
+                "export": True,
+            },
+        },
+    ]
+}
+
+_DEFAULT_MODELS_GROUPS_SYS: dict[str, Any] = {
+    "rules": [
+        {
+            "groups": ["admin"],
+            "actions": {
+                "read": True,
+                "create": True,
+                "update": True,
+                "delete": True,
+                "export": True,
+            },
+        },
+        {
+            "groups": ["technical_operator"],
+            "actions": {
+                "read": True,
+                "create": True,
+                "update": True,
+                "delete": False,
+                "export": True,
+            },
+        },
+    ]
+}
+
 
 def is_runtime_model_name(name: Any) -> bool:
     normalized = str(name or "").strip()
     if not normalized:
         return False
     return bool(_RUNTIME_MODEL_NAME_RE.fullmatch(normalized))
+
+
+def _is_identity_model(schema: dict) -> bool:
+    rec_name = str(schema.get("rec_name", "") or "").strip()
+    return bool(schema.get("sys")) and rec_name in IDENTITY_MODEL_NAMES
 
 
 def normalize_component_properties(schema: Any) -> None:
@@ -30,6 +152,10 @@ def normalize_component_properties(schema: Any) -> None:
             schema["properties"] = properties
         except Exception:
             pass
+
+    if properties is None:
+        properties = {}
+        schema["properties"] = properties
 
     if isinstance(properties, dict):
         # 1. query -> queryformeditable
@@ -57,6 +183,21 @@ def normalize_component_properties(schema: Any) -> None:
                     properties[acl_key] = json.loads(acl_val)
                 except Exception:
                     pass
+
+        # 4. Default models_groups / models_restricted_fields per i record
+        # nuovi (non_sys) e per i sys esistenti/nuovi esclusa identity layer.
+        # setdefault: non tocca override gia' presenti. Vedi app.ozon_env_acl
+        # per l'enforcement effettivo (motore ACL, prossimo step).
+        if not _is_identity_model(schema):
+            default_groups = (
+                _DEFAULT_MODELS_GROUPS_SYS
+                if schema.get("sys")
+                else _DEFAULT_MODELS_GROUPS_NON_SYS
+            )
+            properties.setdefault("models_groups", default_groups)
+            properties.setdefault(
+                "models_restricted_fields", _DEFAULT_MODELS_RESTRICTED_FIELDS
+            )
 
 
 class _RuntimeModelGuardMixin:
@@ -172,4 +313,13 @@ class AppOzonEnv(OzonEnv):
                     "skip runtime refresh for non-runtime component rec_name=%s",
                     model_name,
                 )
+        try:
+            from app.ozon_env_acl.model_rules_sync import sync_model_rules
+
+            await sync_model_rules(self, schema)
+        except Exception:
+            logger.exception(
+                "component rule sync failed rec_name=%s",
+                model_name,
+            )
         return res
