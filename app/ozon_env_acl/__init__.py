@@ -107,6 +107,41 @@ def apply_session_allowed_users(
     return allowed
 
 
+async def apply_session_groups(env: Any, session: Any) -> list[str]:
+    """Popola session.user.groups da group_users (request-scoped, non persiste)."""
+    user = _field(session, "user", None)
+    if not isinstance(user, dict):
+        return []
+    uid = str(_field(session, "uid", "") or user.get("uid") or "").strip()
+    if not uid:
+        return []
+    try:
+        model = env.get("group_users")
+    except Exception:
+        return []
+    if model is None:
+        return []
+    try:
+        domain = model.get_domain({"active": True, "deleted": 0})
+    except Exception:
+        domain = {"active": True, "deleted": 0}
+    try:
+        records = await model.find(domain=domain, limit=0)
+    except Exception:
+        return []
+    groups: set[str] = set()
+    for record in records:
+        data = _obj_to_dict(record)
+        members = _as_set(data.get("users"))
+        if uid in members:
+            group_name = str(data.get("group") or "").strip()
+            if group_name:
+                groups.add(group_name)
+    sorted_groups = sorted(groups)
+    user["groups"] = sorted_groups
+    return sorted_groups
+
+
 def _selector_matches(selector: Any, actor: dict[str, Any]) -> bool:
     if selector in (None, "", {}, [], WILDCARD):
         return True
@@ -147,6 +182,10 @@ def _selector_matches(selector: Any, actor: dict[str, Any]) -> bool:
 
     group_values = _lower_set(selector.get("group") or selector.get("groups"))
     if group_values and not actor["groups"] & group_values:
+        return False
+
+    exclude_group_values = _lower_set(selector.get("exclude_groups"))
+    if exclude_group_values and actor["groups"] & exclude_group_values:
         return False
 
     sector_values = _lower_set(selector.get("sector") or selector.get("sectors"))
@@ -360,6 +399,11 @@ class CompiledFieldAcl:
         items = cloned if isinstance(cloned, list) else [cloned]
         for item in items:
             for field_path in denied:
+                # "*" nega l'intero record (no campo letterale da rimuovere)
+                if field_path == WILDCARD:
+                    if isinstance(item, dict):
+                        item.clear()
+                    continue
                 _delete_path(item, field_path)
             for field_path in obfuscated:
                 _obfuscate_path(item, field_path)
@@ -389,6 +433,75 @@ class CompiledFieldAcl:
         if policy.task_key and policy.task_key not in {WILDCARD, task_key}:
             return False
         return True
+
+
+def _model_groups_to_policies(
+    model_key: str,
+    field_path: str,
+    allowed_groups: list[str],
+) -> list[dict[str, Any]]:
+    if not allowed_groups:
+        return []
+    return [
+        {
+            "model_key": model_key,
+            "field_path": field_path,
+            "operation": operation,
+            "effect": FieldAclEffect.DENY.value,
+            "actor_selector": {
+                "exclude_groups": allowed_groups,
+                "is_admin": False,
+            },
+            "priority": 10,
+        }
+        for operation in (
+            FieldAclOperation.READ.value,
+            FieldAclOperation.INSERT.value,
+            FieldAclOperation.UPDATE.value,
+        )
+    ]
+
+
+def synth_policies_from_component_properties(
+    components: list[Any],
+) -> list[dict[str, Any]]:
+    """Deriva FieldAclPolicy da properties.models_groups/models_restricted_fields, admin esclusi."""
+    synthesized: list[dict[str, Any]] = []
+    for component in components or []:
+        data = _obj_to_dict(component)
+        if not data:
+            continue
+        model_key = str(data.get("rec_name") or "").strip()
+        if not model_key:
+            continue
+        properties = data.get("properties")
+        if isinstance(properties, str):
+            import json
+
+            try:
+                properties = json.loads(properties)
+            except Exception:
+                properties = {}
+        if not isinstance(properties, dict):
+            continue
+
+        allowed_groups = sorted(_as_set(properties.get("models_groups")))
+        synthesized.extend(
+            _model_groups_to_policies(model_key, WILDCARD, allowed_groups)
+        )
+
+        restricted_fields = properties.get("models_restricted_fields")
+        if isinstance(restricted_fields, dict):
+            for field_path, field_groups in restricted_fields.items():
+                if not str(field_path or "").strip():
+                    continue
+                field_allowed = sorted(_as_set(field_groups))
+                synthesized.extend(
+                    _model_groups_to_policies(
+                        model_key, str(field_path), field_allowed
+                    )
+                )
+    return synthesized
 
 
 def compile_field_acl_policies(

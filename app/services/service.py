@@ -27,6 +27,7 @@ from app.services.message_queue import maybe_enqueue_on_save
 from app.ozon_env_acl import CompiledFieldAcl
 from app.ozon_env_acl import compile_field_acl_policies
 from app.ozon_env_acl import enforce_write_acl
+from app.ozon_env_acl import synth_policies_from_component_properties
 
 logger = logging.getLogger("uvicorn.error")
 _COMPONENT_RUNTIME_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
@@ -1678,6 +1679,7 @@ class Service:
         return compiled
 
     async def _load_field_acl_policies(self) -> list[Any]:
+        policies: list[Any] = []
         for model_name in (
             "field_acl_policy",
             "fieldaclpolicy",
@@ -1694,17 +1696,37 @@ class Service:
             except Exception:
                 domain = {"active": True, "deleted": 0}
             try:
-                return await model.find(
+                policies = await model.find(
                     domain=domain,
                     sort="priority:asc,list_order:asc,rec_name:asc",
                     limit=0,
                 )
             except TypeError:
-                return await model.find(domain=domain, limit=0)
+                policies = await model.find(domain=domain, limit=0)
             except Exception:
                 logger.exception("field ACL policy loading failed")
-                return []
-        return []
+                policies = []
+            break
+        return list(policies or []) + await self._load_component_property_acl_policies()
+
+    async def _load_component_property_acl_policies(self) -> list[dict[str, Any]]:
+        """FieldAclPolicy sintetiche da component.properties (vedi app.ozon_env_acl)."""
+        try:
+            component_model = self.env.get("component")
+        except Exception:
+            return []
+        if component_model is None:
+            return []
+        try:
+            domain = component_model.get_domain({"active": True, "deleted": 0})
+        except Exception:
+            domain = {"active": True, "deleted": 0}
+        try:
+            components = await component_model.find(domain=domain, limit=0)
+        except Exception:
+            logger.exception("component ACL properties loading failed")
+            return []
+        return synth_policies_from_component_properties(components)
 
     async def _get_action_record(self, action_name: str) -> CoreModel | None:
         return await self.action_runtime.get_action_record(action_name)

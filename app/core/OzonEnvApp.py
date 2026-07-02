@@ -48,6 +48,16 @@ def normalize_component_properties(schema: Any) -> None:
         if orderby_val is not None:
             properties["sort"] = str(orderby_val)
 
+        # 3. models_groups / models_restricted_fields: JSON string -> dict/list
+        for acl_key in ("models_groups", "models_restricted_fields"):
+            acl_val = properties.get(acl_key)
+            if isinstance(acl_val, str):
+                import json
+                try:
+                    properties[acl_key] = json.loads(acl_val)
+                except Exception:
+                    pass
+
 
 class _RuntimeModelGuardMixin:
     def _filter_runtime_model_names(

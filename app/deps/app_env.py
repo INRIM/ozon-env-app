@@ -509,6 +509,17 @@ async def get_authed_env(
             "failed to set allowed_users uid=%s", session_uid
         )
 
+    # ACL group-based: session.user.groups da group_users. Vedi app/ozon_env_acl.apply_session_groups.
+    try:
+        from app.ozon_env_acl import apply_session_groups
+
+        groups = await apply_session_groups(ozon_env, session)
+        logger.info(
+            "session groups uid=%s groups=%s", session_uid, groups
+        )
+    except Exception:
+        logger.exception("failed to set session groups uid=%s", session_uid)
+
     # BFF cookie mode: refresh cookie if ozon-env rotated tokens internally
     if cookie_val:
         fresh_token_data = getattr(ozon_env, "current_token_data", None)

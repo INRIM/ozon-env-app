@@ -337,5 +337,31 @@
     "label": "Integrations",
     "apps": [],
     "eliminato": 0
+  },
+  {
+    "app_code": "",
+    "parent": "",
+    "process_id": "",
+    "process_task_id": "",
+    "type": "form",
+    "data_value": {
+      "data_model": "menu_group",
+      "admin": true,
+      "rec_name": "identity",
+      "label": "Identity"
+    },
+    "deleted": 0,
+    "list_order": 14,
+    "owner_sector_id": 0,
+    "sys": false,
+    "default": false,
+    "active": true,
+    "demo": false,
+    "childs": [],
+    "rec_name": "identity",
+    "admin": true,
+    "label": "Identity",
+    "apps": [],
+    "eliminato": 0
   }
 ]

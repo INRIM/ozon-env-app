@@ -15,6 +15,11 @@
       "message_queue",
       "standard",
       "design"
+    ],
+    "identity": [
+      "list_user",
+      "list_groups",
+      "list_group_users"
     ]
   },
   "pre_datas": [],
@@ -36,6 +41,12 @@
     },
     {
       "user": "/data/user.json"
+    },
+    {
+      "groups": "/data/groups.json"
+    },
+    {
+      "group_users": "/data/group_users.json"
     },
     {
       "fast_search_config": "/data/fast_search_config.json"

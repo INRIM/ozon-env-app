@@ -1,0 +1,97 @@
+[
+  {
+    "active": true,
+    "data_value": {
+      "data_model": "groups",
+      "rec_name": "admin",
+      "label": "Admin"
+    },
+    "default": false,
+    "deleted": 0.0,
+    "demo": false,
+    "label": "Admin",
+    "list_order": 1,
+    "parent": "",
+    "process_id": "",
+    "process_task_id": "",
+    "rec_name": "admin",
+    "sys": false,
+    "type": "form"
+  },
+  {
+    "active": true,
+    "data_value": {
+      "data_model": "groups",
+      "rec_name": "user",
+      "label": "User"
+    },
+    "default": false,
+    "deleted": 0.0,
+    "demo": false,
+    "label": "User",
+    "list_order": 2,
+    "parent": "",
+    "process_id": "",
+    "process_task_id": "",
+    "rec_name": "user",
+    "sys": false,
+    "type": "form"
+  },
+  {
+    "active": true,
+    "data_value": {
+      "data_model": "groups",
+      "rec_name": "operator",
+      "label": "Operator"
+    },
+    "default": false,
+    "deleted": 0.0,
+    "demo": false,
+    "label": "Operator",
+    "list_order": 3,
+    "parent": "",
+    "process_id": "",
+    "process_task_id": "",
+    "rec_name": "operator",
+    "sys": false,
+    "type": "form"
+  },
+  {
+    "active": true,
+    "data_value": {
+      "data_model": "groups",
+      "rec_name": "manager",
+      "label": "Manager"
+    },
+    "default": false,
+    "deleted": 0.0,
+    "demo": false,
+    "label": "Manager",
+    "list_order": 4,
+    "parent": "",
+    "process_id": "",
+    "process_task_id": "",
+    "rec_name": "manager",
+    "sys": false,
+    "type": "form"
+  },
+  {
+    "active": true,
+    "data_value": {
+      "data_model": "groups",
+      "rec_name": "dpo",
+      "label": "DPO"
+    },
+    "default": false,
+    "deleted": 0.0,
+    "demo": false,
+    "label": "DPO",
+    "list_order": 5,
+    "parent": "",
+    "process_id": "",
+    "process_task_id": "",
+    "rec_name": "dpo",
+    "sys": false,
+    "type": "form"
+  }
+]
