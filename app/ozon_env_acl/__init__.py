@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -11,6 +12,8 @@ from fastapi import status
 
 from app.core.models import FieldAclEffect
 from app.core.models import FieldAclOperation
+
+logger = logging.getLogger("uvicorn.error")
 
 WILDCARD = "*"
 ADMIN_GROUP_NAME = "admin"
@@ -384,30 +387,116 @@ def iter_payload_paths(payload: Any, prefix: str = "") -> set[str]:
     return paths
 
 
+def _is_traversable(value: Any) -> bool:
+    return isinstance(value, dict) or hasattr(value, "__dict__") or hasattr(
+        value, "model_fields"
+    )
+
+
+def _path_get_child(current: Any, part: str) -> Any:
+    if isinstance(current, dict):
+        return current.get(part)
+    return getattr(current, part, None)
+
+
+def _path_has_key(current: Any, part: str) -> bool:
+    if isinstance(current, dict):
+        return part in current
+    return hasattr(current, part)
+
+
+def _path_set(current: Any, part: str, value: Any) -> None:
+    """Best-effort: dict[part]=value oppure setattr(current, part, value)
+    (CoreModel/pydantic instance) — apply_read/find/by_name su model reali
+    ritornano istanze pydantic, non dict, quindi l'oscuramento deve
+    funzionare su entrambi (bug reale osservato: senza questo, obfuscate/
+    restore su dati reali era un no-op silenzioso, la baseline "mascherata"
+    non veniva mai davvero applicata)."""
+    if isinstance(current, dict):
+        current[part] = value
+        return
+    try:
+        setattr(current, part, value)
+    except Exception:
+        logger.warning(
+            "path_set: impossibile impostare '%s' su %s (validazione pydantic?)",
+            part,
+            type(current),
+        )
+
+
+def _path_del(current: Any, part: str) -> None:
+    if isinstance(current, dict):
+        current.pop(part, None)
+        return
+    _path_set(current, part, None)
+
+
+def _clear_record(item: Any) -> None:
+    """WILDCARD DENY: azzera l'intero record. `dict.clear()` per i dict;
+    per istanze pydantic/CoreModel (reali, da find()/by_name() — non
+    dict) non esiste `.clear()`, quindi era un no-op silenzioso: il
+    record DENY-whole-model restava completamente visibile sui dati
+    reali. Fallback: None su ogni field noto del model."""
+    if isinstance(item, dict):
+        item.clear()
+        return
+    field_names = getattr(type(item), "model_fields", None)
+    if field_names is None:
+        field_names = vars(item).keys()
+    for field_name in list(field_names):
+        _path_set(item, field_name, None)
+
+
 def _delete_path(payload: Any, field_path: str) -> None:
-    if not isinstance(payload, dict):
+    if not _is_traversable(payload):
         return
     parts = [part for part in field_path.split(".") if part]
     current = payload
     for part in parts[:-1]:
-        current = current.get(part)
-        if not isinstance(current, dict):
+        current = _path_get_child(current, part)
+        if not _is_traversable(current):
             return
     if parts:
-        current.pop(parts[-1], None)
+        _path_del(current, parts[-1])
 
 
 def _obfuscate_path(payload: Any, field_path: str) -> None:
-    if not isinstance(payload, dict):
+    if not _is_traversable(payload):
         return
     parts = [part for part in field_path.split(".") if part]
     current = payload
     for part in parts[:-1]:
-        current = current.get(part)
-        if not isinstance(current, dict):
+        current = _path_get_child(current, part)
+        if not _is_traversable(current):
             return
-    if parts and parts[-1] in current:
-        current[parts[-1]] = None
+    if parts and _path_has_key(current, parts[-1]):
+        _path_set(current, parts[-1], None)
+
+
+def restore_path(payload: Any, field_path: str, original: Any) -> None:
+    """Inverso di `_obfuscate_path`: ripristina il valore originale su un
+    campo (usato quando `record_rulse` sblocca un campo altrimenti
+    oscurato dalla policy di gruppo, es. record di proprieta' dell'utente)."""
+    if not _is_traversable(payload):
+        return
+    parts = [part for part in field_path.split(".") if part]
+    current = payload
+    for part in parts[:-1]:
+        current = _path_get_child(current, part)
+        if not _is_traversable(current):
+            return
+    if parts:
+        _path_set(current, parts[-1], original)
+
+
+def obfuscate_fields_in_place(payload: dict[str, Any], fields: list[str]) -> None:
+    """Applica `_obfuscate_path` per ciascun campo — usato dai path che
+    saltano l'oscuramento server-side (aggregate obfuscate_fields) per
+    poter valutare `record_rulse` sui valori reali, e devono quindi
+    ri-applicare loro la baseline in Python (es. stream NDJSON)."""
+    for field_path in fields:
+        _obfuscate_path(payload, field_path)
 
 
 def _copy_data(data: Any) -> Any:
@@ -562,8 +651,7 @@ class CompiledFieldAcl:
             for field_path in denied:
                 # "*" nega l'intero record (no campo letterale da rimuovere)
                 if field_path == WILDCARD:
-                    if isinstance(item, dict):
-                        item.clear()
+                    _clear_record(item)
                     continue
                 _delete_path(item, field_path)
             for field_path in obfuscated:
@@ -623,6 +711,186 @@ def _model_groups_to_policies(
     ]
 
 
+def _filter_value_matches(actual: Any, expected: Any) -> bool:
+    if isinstance(expected, dict):
+        if "$eq" in expected:
+            return actual == expected["$eq"]
+        if "$ne" in expected:
+            return actual != expected["$ne"]
+        if "$in" in expected:
+            values = expected["$in"]
+            if not isinstance(values, (list, tuple, set)):
+                return False
+            # Semantica Mongo: $in matcha sia "actual e' uno dei valori" sia
+            # (se actual e' esso stesso un array, es. record["groups"]) "actual
+            # ha almeno un elemento in comune con values".
+            if isinstance(actual, (list, tuple, set)):
+                return bool(set(actual) & set(values))
+            return actual in values
+        if "$nin" in expected:
+            values = expected["$nin"]
+            if not isinstance(values, (list, tuple, set)):
+                return True
+            if isinstance(actual, (list, tuple, set)):
+                return not (set(actual) & set(values))
+            return actual not in values
+        # operatore non supportato: nessun match invece di falso positivo.
+        return False
+    return actual == expected
+
+
+def _record_matches_filters(record: dict[str, Any], filters: dict[str, Any]) -> bool:
+    """Match (non query) di un filtro mongo-shaped contro UN record gia'
+    caricato. Fail-closed di proposito: qualunque forma non riconosciuta
+    (operatore top-level diverso da $and/$or, valore non gestito da
+    `_filter_value_matches`) fa fallire il match invece di farlo passare
+    a vuoto — un falso "match" qui rivela un campo altrimenti oscurato a
+    chiunque, un falso "non match" lascia solo la baseline in vigore
+    (nessuna fuga di dati, solo eccesso di prudenza)."""
+    if not isinstance(filters, dict) or not filters:
+        return False
+    for field_path, expected in filters.items():
+        if field_path == "$and":
+            clauses = expected if isinstance(expected, list) else None
+            if not clauses or not all(
+                _record_matches_filters(record, clause) for clause in clauses
+            ):
+                return False
+            continue
+        if field_path == "$or":
+            clauses = expected if isinstance(expected, list) else None
+            if not clauses or not any(
+                _record_matches_filters(record, clause) for clause in clauses
+            ):
+                return False
+            continue
+        if str(field_path).startswith("$"):
+            # operatore top-level non supportato: fail-closed.
+            return False
+        actual = record.get(field_path) if isinstance(record, dict) else None
+        if not _filter_value_matches(actual, expected):
+            return False
+    return True
+
+
+def evaluate_record_rule_override(
+    record_rulse: list[dict[str, Any]],
+    *,
+    record: dict[str, Any],
+    resolve_var: Any,
+) -> list[str] | None:
+    """Valuta `record_rulse` contro UN record gia' caricato (post-var-resolve).
+
+    `resolve_var` e' un callable `(query_dict) -> query_dict` che risolve i
+    nodi json-logic `{"var": "user.uid"}` presenti in `filters` (iniettato
+    dal chiamante per evitare un import circolare verso app.services.service,
+    che gia' importa questo modulo).
+
+    Se UNA regola matcha il record, ritorna il suo `restricted_fields`:
+    NON e' la lista finale di campi oscurati, e' lo SCOPE di campi che
+    QUESTA regola sblocca (tipicamente `[]` = sblocca tutto quello che la
+    baseline oscura). Il chiamante (`apply_record_rule_override`) fa la
+    differenza insiemistica con la baseline — un campo fuori scope
+    (es. "token" quando la regola copre solo "codicefiscale") resta
+    oscurato anche a match, non viene rivelato per errore.
+
+    Se NESSUNA regola matcha, ritorna None (il chiamante mantiene
+    l'oscuramento di baseline da fields_rule per intero).
+    """
+    if not record_rulse or not isinstance(record, dict):
+        return None
+    rec_name = record.get("rec_name")
+    for index, rule in enumerate(record_rulse):
+        raw_filters = rule.get("filters") or {}
+        resolved_filters = resolve_var(raw_filters) if raw_filters else {}
+        if not isinstance(resolved_filters, dict) or not resolved_filters:
+            logger.debug(
+                "acl.record_rule rec_name=%s rule=%s raw_filters=%s -> skip (filtro vuoto/non risolto)",
+                rec_name,
+                index,
+                raw_filters,
+            )
+            continue
+        matched = _record_matches_filters(record, resolved_filters)
+        logger.debug(
+            "acl.record_rule rec_name=%s rule=%s resolved_filters=%s matched=%s",
+            rec_name,
+            index,
+            resolved_filters,
+            matched,
+        )
+        if matched:
+            raw_restricted = rule.get("restricted_fields")
+            if raw_restricted is None:
+                raw_restricted = rule.get("resticted_fields")
+            reveal_scope = [
+                str(f).strip() for f in (raw_restricted or []) if str(f).strip()
+            ]
+            logger.debug(
+                "acl.record_rule rec_name=%s rule=%s MATCH -> sblocca (dalla baseline) %s",
+                rec_name,
+                index,
+                reveal_scope or "[tutto]",
+            )
+            return reveal_scope
+    logger.debug("acl.record_rule rec_name=%s nessuna regola matcha", rec_name)
+    return None
+
+
+def _read_path(payload: Any, field_path: str) -> Any:
+    if not _is_traversable(payload):
+        return None
+    parts = [part for part in field_path.split(".") if part]
+    current = payload
+    for part in parts[:-1]:
+        current = _path_get_child(current, part)
+        if not _is_traversable(current):
+            return None
+    if parts:
+        return _path_get_child(current, parts[-1])
+    return None
+
+
+def apply_record_rule_override(
+    *,
+    original: dict[str, Any],
+    obfuscated: dict[str, Any],
+    baseline_obfuscated_fields: list[str],
+    record_rulse: list[dict[str, Any]],
+    resolve_var: Any,
+) -> list[str]:
+    """Applica `record_rulse` a UN item gia' passato da
+    `CompiledFieldAcl.apply_read` (baseline `fields_rule`, per-actor).
+
+    Muta `obfuscated` in place: se una regola matcha, `evaluate_record_
+    rule_override` ritorna lo SCOPE di campi che quella regola sblocca —
+    qui si fa la differenza insiemistica con la baseline (`baseline -
+    scope`), NON una sostituzione: un campo oscurato dalla baseline ma
+    FUORI dallo scope della regola (es. "token" quando la regola copre
+    solo "codicefiscale") resta oscurato anche a match. Scope vuoto `[]`
+    = sblocca tutto cio' che la baseline oscura. Se nessuna regola matcha,
+    la baseline resta invariata.
+
+    Ritorna la lista finale di campi oscurati per questo item.
+    """
+    if not record_rulse:
+        return list(baseline_obfuscated_fields)
+    reveal_scope = evaluate_record_rule_override(
+        record_rulse, record=original, resolve_var=resolve_var
+    )
+    if reveal_scope is None:
+        return list(baseline_obfuscated_fields)
+    reveal_all = not reveal_scope
+    reveal_set = set(reveal_scope)
+    final_obfuscated: list[str] = []
+    for field_path in baseline_obfuscated_fields:
+        if reveal_all or field_path in reveal_set:
+            restore_path(obfuscated, field_path, _read_path(original, field_path))
+        else:
+            final_obfuscated.append(field_path)
+    return final_obfuscated
+
+
 def synth_policies_from_component_properties(
     components: list[Any],
 ) -> list[dict[str, Any]]:
@@ -672,6 +940,13 @@ def synth_policies_from_component_properties(
                         model_key, str(field_path), field_allowed
                     )
                 )
+        # Formato nuovo {"fields_rule": ..., "record_rulse": [...]}: la
+        # fonte di verita' per l'enforcement e' `model_fields_rule`
+        # (collection flat, popolata al salva del component da
+        # model_rules_sync.py — component.properties puo' anche non
+        # persistere la config), non component.properties qui. Vedi
+        # Service._load_model_fields_rule_policies /
+        # Service._get_record_rulse.
     return synthesized
 
 

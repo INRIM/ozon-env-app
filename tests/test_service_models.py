@@ -105,6 +105,49 @@ class _UpsertModel(_ListModel):
         return record
 
 
+class _RuleCollection:
+    def __init__(self):
+        self.deleted = []
+        self.inserted = []
+
+    async def delete_many(self, query):
+        self.deleted.append(query)
+
+    async def insert_many(self, rows):
+        self.inserted.extend(rows)
+
+
+class _PassthroughValidatedRecord:
+    def __init__(self, data):
+        self._data = dict(data)
+
+    def get_dict(self, exclude=None):
+        exclude = exclude or set()
+        return {k: v for k, v in self._data.items() if k not in exclude}
+
+
+class _PassthroughModel:
+    """Fake per model_groups_rule/model_fields_rule: model_rules_sync usa
+    env.get(name).new(data=row) per validare la riga via ORM dynamic
+    reale, non piu' le classi statiche ModelGroupsRule/ModelFieldsRule."""
+
+    async def new(self, data):
+        return _PassthroughValidatedRecord(data)
+
+
+class _RuleEngine:
+    def __init__(self):
+        self.groups = _RuleCollection()
+        self.fields = _RuleCollection()
+
+    def get_collection(self, name):
+        if name == "model_groups_rule":
+            return self.groups
+        if name == "model_fields_rule":
+            return self.fields
+        raise AssertionError(f"unexpected collection {name}")
+
+
 class _MissingModelEnv:
     def __init__(self):
         self.user_session = SimpleNamespace(
@@ -115,6 +158,7 @@ class _MissingModelEnv:
         )
         self.orm = SimpleNamespace(
             app_settings=SimpleNamespace(
+                app_code="demo",
                 module_name="demo",
                 version="1.0.0",
                 logo_img_url="",
@@ -142,6 +186,8 @@ class _ComponentHookEnv(_MissingModelEnv):
         super().__init__()
         self._models = {
             "component": _UpsertModel("component", rows=rows or []),
+            "model_groups_rule": _PassthroughModel(),
+            "model_fields_rule": _PassthroughModel(),
         }
         self.inserted_components = []
 
@@ -279,6 +325,57 @@ def test_component_upsert_does_not_sync_runtime_by_default():
     assert synced == []
 
 
+def test_component_upsert_syncs_model_rules_by_default():
+    env = _ComponentHookEnv()
+    rule_engine = _RuleEngine()
+    env.orm.db = SimpleNamespace(engine=rule_engine)
+    service = Service(env)
+
+    asyncio.run(
+        service.upsert(
+            model_name="component",
+            data={
+                "rec_name": "demo_component",
+                "type": "resource",
+                "properties": {
+                    "models_groups": {
+                        "rules": [
+                            {
+                                "groups": ["manager"],
+                                "actions": {"read": True, "update": True},
+                            }
+                        ]
+                    },
+                    "models_restricted_fields": {
+                        "fields_rule": {
+                            "resticted_fields": ["salary"],
+                            "allowed_groups": [
+                                {"groups": ["dpo"], "actions": {"read": True}}
+                            ],
+                        },
+                        "record_rulse": [],
+                    },
+                },
+            },
+            rec_name="demo_component",
+        )
+    )
+
+    assert env.inserted_components == []
+    assert rule_engine.groups.deleted == [
+        {"app_code": "demo", "model": "demo_component"}
+    ]
+    assert rule_engine.fields.deleted == [
+        {"app_code": "demo", "model": "demo_component"}
+    ]
+    assert rule_engine.groups.inserted[0]["rec_name"] == (
+        "mgr.demo.demo_component.manager"
+    )
+    assert rule_engine.fields.inserted[0]["rec_name"] == (
+        "mfr.demo.demo_component.fields.dpo"
+    )
+
+
 def test_component_upsert_create_menu_dashboard_generates_defaults_from_payload():
     env = _ComponentHookEnv()
     service = Service(env)
@@ -308,6 +405,34 @@ def test_component_upsert_create_menu_dashboard_generates_defaults_from_payload(
     }
     assert env.inserted_components == []
     assert synced == [expected]
+
+
+def test_component_upsert_create_menu_dashboard_skips_no_model_component():
+    env = _ComponentHookEnv()
+    service = Service(env)
+    synced = []
+
+    async def fake_make_default_actions(schema):
+        synced.append(schema.copy())
+
+    service._make_default_actions_for_component = fake_make_default_actions
+
+    asyncio.run(
+        service.upsert(
+            model_name="component",
+            data={
+                "rec_name": "demo_no_model_form",
+                "type": "form",
+                "data_model": "no_model",
+                "create_menu_dashboard": True,
+            },
+            rec_name="demo_no_model_form",
+        )
+    )
+
+    # no_model component: niente menu_group ne' action, anche se
+    # create_menu_dashboard e' stato richiesto esplicitamente.
+    assert synced == []
 
 
 def test_component_upsert_create_menu_dashboard_scopes_menu_group_by_apps():
@@ -575,7 +700,7 @@ def test_make_default_actions_adds_user_and_operator_groups_for_non_sys_componen
     env = FakeEnv()
     service = Service(env)
     
-    # 1. Non-sys component -> should add user and operator to action groups
+    # 1. Non-sys component -> operator is enough: it implies user via groups.
     schema_non_sys = {
         "rec_name": "customer",
         "type": "resource",
@@ -584,9 +709,9 @@ def test_make_default_actions_adds_user_and_operator_groups_for_non_sys_componen
     }
     
     asyncio.run(service._make_default_actions_for_component(schema_non_sys))
-    
+
     assert len(env.action_model.upserts) == 1
-    assert env.action_model.upserts[0]["groups"] == ["user", "operator"]
+    assert env.action_model.upserts[0]["groups"] == ["operator"]
     assert env.action_model.upserts[0]["user_function"] == "user"
 
     # Reset upserts
@@ -604,4 +729,3 @@ def test_make_default_actions_adds_user_and_operator_groups_for_non_sys_componen
     
     assert len(env.action_model.upserts) == 1
     assert "groups" not in env.action_model.upserts[0] or env.action_model.upserts[0]["groups"] != ["user", "operator"]
-

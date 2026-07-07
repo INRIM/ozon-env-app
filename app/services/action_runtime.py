@@ -90,10 +90,10 @@ class ActionRuntime:
         is_admin = bool(getattr(session, "is_admin", False))
         if is_admin:
             return True
-            
+
         user = getattr(session, "user", None) or {}
         user_groups = set(user.get("groups", []) if isinstance(user, dict) else [])
-        
+
         # Check action-specific groups if defined
         action_groups_raw = getattr(action, "groups", None) or []
         if isinstance(action_groups_raw, str):
@@ -102,11 +102,11 @@ class ActionRuntime:
             action_groups = {str(g).strip() for g in action_groups_raw if str(g).strip()}
         else:
             action_groups = set()
-            
+
         if action_groups:
             # If groups are explicitly set, the user must belong to at least one of them
             return bool(user_groups & action_groups)
-            
+
         # By default check sys/admin actions
         if getattr(action, "admin", False) or getattr(action, "sys", False):
             model_name = getattr(action, "model", "") or ""
@@ -115,7 +115,7 @@ class ActionRuntime:
                 return False
             # Other system actions: accessible to admin and technical_operator
             return "technical_operator" in user_groups
-            
+
         return True
 
     async def get_action_record(self, action_name: str) -> CoreModel | None:
@@ -261,6 +261,29 @@ class ActionRuntime:
             )
             return None
 
+    async def _get_fast_actions_config(
+            self, action_name: str, action_model: str
+    ) -> dict[str, Any] | None:
+        try:
+            fa_model = self.service.env.get("fast_actions_config")
+            record = await fa_model.load({"model": action_name, "deleted": 0})
+            if not record:
+                return None
+            actions_form_name = str(record.actionsForm or "").strip()
+            if not actions_form_name:
+                return None
+            schema = await self.service._get_component_record(actions_form_name)
+            return {
+                "model": action_model,
+                "schema": schema.components if schema else [],
+                "fast_actions_model": actions_form_name,
+            }
+        except Exception:
+            logger.warning(
+                "fast_actions_config lookup failed action=%s", action_name
+            )
+            return None
+
     def _resolve_list_defaults(
             self,
             action: CoreModel,
@@ -275,7 +298,9 @@ class ActionRuntime:
         action_query_raw = action.list_query
         if action_query_raw in (None, ""):
             action_query_raw = getattr(action, "query", None)
-        resolved_query = self.service._parse_query_dict(action_query_raw)
+        resolved_query = self.service._resolve_query_json_logic_vars(
+            self.service._parse_query_dict(action_query_raw)
+        )
         resolved_order = _normalize_sort_string(action.listOrderString)
         return resolved_query, resolved_order
 
@@ -314,11 +339,11 @@ class ActionRuntime:
         schema_model = action_view_name or action_model
         schema_record = await self.service._get_component_record(schema_model)
         payload_query = query.copy() if isinstance(query, dict) else {}
-        
+
         # 1. Read component properties
         resolved_query = {}
         resolved_sort = ""
-        
+
         schema_properties = getattr(schema_record, "properties", None) or {}
         if isinstance(schema_properties, str):
             try:
@@ -326,7 +351,7 @@ class ActionRuntime:
                 schema_properties = json.loads(schema_properties)
             except Exception:
                 schema_properties = {}
-                
+
         if isinstance(schema_properties, dict):
             # query from queryformeditable
             q_val = schema_properties.get("queryformeditable")
@@ -339,23 +364,28 @@ class ActionRuntime:
                         resolved_query = {}
                 elif isinstance(q_val, dict):
                     resolved_query = q_val.copy()
+                resolved_query = self.service._resolve_query_json_logic_vars(
+                    resolved_query
+                )
             # sort from sort
             resolved_sort = str(schema_properties.get("sort") or "").strip()
-            
+
         # 2. Read action
         action_query_raw = getattr(action, "list_query", None)
         if action_query_raw in (None, ""):
             action_query_raw = getattr(action, "query", None)
-        action_query = self.service._parse_query_dict(action_query_raw)
+        action_query = self.service._resolve_query_json_logic_vars(
+            self.service._parse_query_dict(action_query_raw)
+        )
         if action_query:  # if configured on action, replace
             resolved_query = action_query
-            
+
         action_sort_raw = getattr(action, "listOrderString", None)
         if action_sort_raw:  # if configured on action, replace
             action_sort = _normalize_sort_string(action_sort_raw)
             if action_sort:
                 resolved_sort = action_sort
-                
+
         runtime_order = order.strip() if isinstance(order, str) else ""
         effective_order = runtime_order or resolved_sort
 
@@ -456,6 +486,9 @@ class ActionRuntime:
             fs_config = await self._get_fast_search_config(action_name, action_model)
             if fs_config:
                 response_fields["fast_search"] = fs_config
+            fa_config = await self._get_fast_actions_config(action_name, action_model)
+            if fa_config:
+                response_fields["fast_actions"] = fa_config
             res.title = str(action.title or "")
         res.fields = response_fields
         res.context_actions = await self._get_context_actions(
@@ -471,6 +504,7 @@ class ActionRuntime:
             data: dict[str, Any],
             rec_name: str = "",
     ) -> ResponseObjectData:
+        logger.info(f"handle_post {action_name} rec_name {rec_name} data {data.get('rec_name', False)}")
         action = await self.get_action_record(action_name)
         if not action:
             return ResponseObjectData(
@@ -519,8 +553,11 @@ class ActionRuntime:
             result.next_action_url = next_action_url
             return result
 
-
         if action_type == "copy":
+            target_rec_name = data.get('rec_name', False)
+            action = await self.get_action_record(action_name)
+            target_model = action.model
+            logger.info(f"Copy {target_rec_name} target_model {target_model}")
             source_name = target_rec_name
             if not source_name:
                 return ResponseObjectData(
@@ -537,7 +574,9 @@ class ActionRuntime:
             # form: si salva solo se l'utente fa submit -> niente record fantasma.
             model_obj = self.service.env.get(target_model)
             record = await model_obj.copy({"rec_name": source_name})
+
             if record is None:
+                logger.error(f"duplication Error {model_obj.status.msg}")
                 return ResponseObjectData(
                     mode="action",
                     data={
@@ -549,11 +588,15 @@ class ActionRuntime:
                     readable=False,
                     editable=False,
                 )
+            record =  await model_obj.upsert(record)
+            next_action_url = f"{next_action_url}/{record.rec_name}"
+            logger.info(f"duplicate  {record.rec_name} to url {next_action_url}")
             result = make_response_object(
                 model_obj, mode="form", data=record
             ).content
             result.next_action_url = next_action_url
             return result
+
 
         saved = await self.service.upsert(
             target_model,

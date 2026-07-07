@@ -23,8 +23,6 @@ from app.core.OzonEnvApp import AppOzonEnv
 from app.core.OzonModelApp import OzonModelApp
 from app.core.models import FieldAclPolicy
 from app.core.models import MailTemplate, AppUser
-from app.core.models import ModelFieldsRule
-from app.core.models import ModelGroupsRule
 from app.services.cookie_auth import sign_token
 from app.services.cookie_auth import verify_token
 from app.services.service import Service
@@ -37,9 +35,14 @@ api_key_header = APIKeyHeader(name=settings.token_header, auto_error=False)
 _STATIC_MODELS = [
     ("mail_template", MailTemplate),
     ("field_acl_policy", FieldAclPolicy),
-    ("model_groups_rule", ModelGroupsRule),
-    ("model_fields_rule", ModelFieldsRule),
 ]
+# model_groups_rule/model_fields_rule NON sono statici: hanno un
+# component/form reale (con field type + tableView gia' configurati),
+# quindi restano dynamic model normali (env.init_env/init_models li
+# costruisce dal component, table_columns arriva da li' invece di essere
+# duplicato in Python). Vedi ModelGroupsRule/ModelFieldsRule in
+# app/core/models.py (usate solo per validare le righe di sync, non per
+# la registrazione ORM).
 
 _READ_ONLY_POST_CSRF_EXEMPT_PATHS = {
     "/models/distinct",
@@ -50,7 +53,21 @@ _READ_ONLY_POST_CSRF_EXEMPT_PATHS = {
 
 async def _register_static_models(env: AppOzonEnv) -> None:
     for name, model_class in _STATIC_MODELS:
+        # `env.init_env()` (init_models) puo' aver gia' registrato un model
+        # dinamico per questo nome, rigenerato da un .py stale in
+        # models_folder. `add_static_model` e' un no-op se il nome e' gia'
+        # in `env.models`, quindi va rimosso prima per forzare la
+        # registrazione della classe statica corretta, altrimenti il model
+        # dinamico stale resta attivo per tutta la vita del processo.
+        env.models.pop(name, None)
         await env.orm.add_static_model(name, model_class)
+    # Set esplicito dei nomi VERAMENTE statici (per app.core.OzonEnvApp.
+    # _RuntimeModelGuardMixin._is_app_static_model): non va confuso con
+    # `env.orm.orm_static_models_map`, che ozon-env popola anche per
+    # model dynamic con un .py cache in models_folder — quei model
+    # devono poter rigenerarsi da un save del component, solo questi
+    # (registrati qui sopra) restano fissi sulla classe Pydantic.
+    env.orm.app_static_model_names = {name for name, _ in _STATIC_MODELS}
 
 
 def _build_ozon_cfg(source_settings: Any = None) -> dict:

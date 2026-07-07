@@ -42,12 +42,35 @@ class _Engine:
         return self.collections[name]
 
 
+class _ValidatedRecord:
+    """Passthrough: simula CoreModel.get_dict() senza validazione tipi
+    (le row costruite da model_groups_rows/model_fields_rows sono gia'
+    shaped correttamente dal chiamante, qui serve solo il round-trip
+    async model.new(...).get_dict(...) usato da _validated_row)."""
+
+    def __init__(self, data):
+        self._data = dict(data)
+
+    def get_dict(self, exclude=None):
+        exclude = exclude or set()
+        return {k: v for k, v in self._data.items() if k not in exclude}
+
+
+class _PassthroughModel:
+    async def new(self, data):
+        return _ValidatedRecord(data)
+
+
 class _Env:
     def __init__(self, engine):
         self.orm = SimpleNamespace(
             app_settings=SimpleNamespace(app_code="demo"),
             db=SimpleNamespace(engine=engine),
         )
+        self._passthrough_model = _PassthroughModel()
+
+    def get(self, name):
+        return self._passthrough_model
 
 
 def test_sync_model_rules_writes_flat_rows_using_orm_db_engine():

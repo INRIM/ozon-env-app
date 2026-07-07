@@ -4,9 +4,6 @@ import json
 import logging
 from typing import Any
 
-from app.core.models import ModelFieldsRule
-from app.core.models import ModelGroupsRule
-
 logger = logging.getLogger("uvicorn.error")
 
 _GROUPS_RULE_COLLECTION = "model_groups_rule"
@@ -27,6 +24,18 @@ def _normalize_group(value: Any) -> str:
     return str(value or "").strip().lower()
 
 
+async def _validated_row(env: Any, collection_name: str, row: dict[str, Any]) -> dict[str, Any]:
+    """Valida/normalizza `row` costruendo un record col model REGISTRATO in
+    ORM (dynamic, derivato dal component reale — vedi ModelGroupsRule/
+    ModelFieldsRule in app/core/models.py per il perche' NON si usano
+    quelle classi qui: sarebbero una shape duplicata e potenzialmente
+    disallineata da quella vera che l'ORM usa per leggere/scrivere questa
+    stessa collection)."""
+    model = env.get(collection_name)
+    record = await model.new(data=row)
+    return record.get_dict(exclude={"id"})
+
+
 def _parse_dict_property(raw: Any) -> dict[str, Any] | None:
     if isinstance(raw, dict):
         return raw
@@ -42,8 +51,8 @@ def _parse_dict_property(raw: Any) -> dict[str, Any] | None:
     return None
 
 
-def model_groups_rows(
-    app_code: str, model_name: str, properties: dict[str, Any]
+async def model_groups_rows(
+    env: Any, app_code: str, model_name: str, properties: dict[str, Any]
 ) -> list[dict[str, Any]]:
     """Flatten component.properties.models_groups (formato {"rules": [...]})
     in righe model_groups_rule, una per (app_code, model, group).
@@ -86,12 +95,12 @@ def model_groups_rows(
             "sys": True,
             **ops,
         }
-        rows.append(ModelGroupsRule(**row).model_dump(mode="python", exclude={"id"}))
+        rows.append(await _validated_row(env, _GROUPS_RULE_COLLECTION, row))
     return rows
 
 
-def model_fields_rows(
-    app_code: str, model_name: str, properties: dict[str, Any]
+async def model_fields_rows(
+    env: Any, app_code: str, model_name: str, properties: dict[str, Any]
 ) -> list[dict[str, Any]]:
     """Flatten component.properties.models_restricted_fields in righe
     model_fields_rule — kind "fields" (fields_rule.allowed_groups, una riga
@@ -102,6 +111,11 @@ def model_fields_rows(
     Il formato legacy {field_path: [groups]} manca di entrambe le chiavi
     "fields_rule"/"record_rulse": resta sul path synth_policies_..., qui
     viene ignorato.
+
+    `filters` e' scritto come stringa JSON (campo testo + json editor nel
+    form model_fields_rule, coerente con queryformeditable/altri campi
+    JSON-in-textarea dell'app) — chi legge la riga (Service._get_record_rulse)
+    fa un json.loads difensivo, non un dict tipizzato via ORM.
     """
     raw = _parse_dict_property((properties or {}).get("models_restricted_fields"))
     if raw is None or not ({"fields_rule", "record_rulse"} & raw.keys()):
@@ -139,15 +153,13 @@ def model_fields_rows(
                 "rule_type": "fields",
                 "group": group_name,
                 "restricted_fields": restricted_fields,
-                "filters": {},
+                "filters": "{}",
                 "active": True,
                 "deleted": 0,
                 "sys": True,
                 **ops,
             }
-            rows.append(
-                ModelFieldsRule(**row).model_dump(mode="python", exclude={"id"})
-            )
+            rows.append(await _validated_row(env, _FIELDS_RULE_COLLECTION, row))
 
     record_rulse = raw.get("record_rulse")
     if isinstance(record_rulse, list):
@@ -162,7 +174,7 @@ def model_fields_rows(
                 "rule_type": "record",
                 "group": "",
                 "restricted_fields": list(entry.get("resticted_fields") or []),
-                "filters": dict(entry.get("filters") or {}),
+                "filters": json.dumps(entry.get("filters") or {}, ensure_ascii=False),
                 "active": True,
                 "deleted": 0,
                 "sys": True,
@@ -171,9 +183,7 @@ def model_fields_rows(
                 "update": bool(actions.get("update")),
                 "delete": bool(actions.get("delete")),
             }
-            rows.append(
-                ModelFieldsRule(**row).model_dump(mode="python", exclude={"id"})
-            )
+            rows.append(await _validated_row(env, _FIELDS_RULE_COLLECTION, row))
 
     return rows
 
@@ -196,8 +206,8 @@ async def sync_model_rules(env: Any, schema: dict[str, Any]) -> None:
         if not isinstance(properties, dict):
             properties = {}
 
-        groups_rows = model_groups_rows(app_code, model_name, properties)
-        fields_rows = model_fields_rows(app_code, model_name, properties)
+        groups_rows = await model_groups_rows(env, app_code, model_name, properties)
+        fields_rows = await model_fields_rows(env, app_code, model_name, properties)
 
         engine = _get_db_engine(env)
 

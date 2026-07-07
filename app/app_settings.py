@@ -211,6 +211,16 @@ class EnvSettings(OzonEnvCoreSettings):
 
     asgi_host: str = Field(default="0.0.0.0", validation_alias="ASGI_HOST")
     asgi_port: int = Field(default=8000, validation_alias="ASGI_PORT")
+    # debug abilita i logger.debug() sparsi nel motore ACL/record_rulse
+    # (app.ozon_env_acl, Service._get_record_rulse/list_records/ecc.).
+    log_level: str = Field(default="info", validation_alias="LOG_LEVEL")
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def _normalize_log_level(cls, v: Any) -> str:
+        normalized = str(v or "info").strip().lower()
+        valid = {"critical", "error", "warning", "info", "debug", "trace"}
+        return normalized if normalized in valid else "info"
 
     token_header: str = Field(
         default="Authorization", validation_alias="TOKEN_HEADER"

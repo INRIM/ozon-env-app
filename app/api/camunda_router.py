@@ -199,8 +199,7 @@ async def approve_many(
     payload: Annotated[dict[str, Any], Body(default_factory=dict)],
 ) -> ResponseObject:
     logger.info(
-        "camunda gateway approve_many n=%s",
-        len(payload.get("rec_names") or []),
+        f"camunda gateway approve_many n={len(payload.get("rec_names") or [])} payload: {payload}"
     )
     return await service.complete_many_camunda_gateway_tasks(
         payload, decision="approved"

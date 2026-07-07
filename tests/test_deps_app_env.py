@@ -149,6 +149,7 @@ class _FakeOzonEnv:
         )
         self._group_users = _FakeGroupUsersModel(group_users)
         self.upload_folder = ""
+        self.models = {}
 
     async def session_app(self):
         self.session_app_calls += 1
@@ -394,3 +395,56 @@ def test_get_authed_env_requires_csrf_for_cookie_write_routes(monkeypatch):
 
     assert exc.value.status_code == 403
     assert exc.value.detail == "CSRF validation failed"
+
+
+def test_static_models_implement_basic_model_hooks_used_by_init_model():
+    # OzonModel.init_model() chiama .file_fields()/.tranform_data_value()/
+    # .model_depends() sulla classe statica quando si registra un model via
+    # add_static_model. Se una classe statica estende CoreModel invece di
+    # BasicModel, file_fields() manca e la registrazione esplode con
+    # AttributeError (visto con MailTemplate: bug reale, mascherato per anni
+    # da un .py stale in models_folder che teneva add_static_model in no-op).
+    for _, model_class in app_env._STATIC_MODELS:
+        assert callable(getattr(model_class, "file_fields", None)), (
+            f"{model_class.__name__} must extend BasicModel (file_fields missing)"
+        )
+        model_class.file_fields()
+        model_class.tranform_data_value()
+        model_class.model_depends()
+
+
+def test_register_static_models_clears_stale_dynamic_entry_before_registering():
+    class _StaleModel:
+        pass
+
+    class _FakeOrm:
+        def __init__(self, env):
+            self._env = env
+            self.calls = []
+
+        async def add_static_model(self, name, model_class):
+            # replica la guardia reale di ozon-env: no-op se il nome e'
+            # gia' presente in env.models.
+            self.calls.append((name, name in self._env.models))
+            if name not in self._env.models:
+                self._env.models[name] = model_class
+
+    class _FakeEnv:
+        def __init__(self):
+            self.models = {"mail_template": _StaleModel()}
+            self.orm = None
+
+    env = _FakeEnv()
+    env.orm = _FakeOrm(env)
+
+    asyncio.run(app_env._register_static_models(env))
+
+    # per ogni model statico, la entry preesistente va rimossa PRIMA della
+    # chiamata ad add_static_model, altrimenti il no-op guard di ozon-env
+    # lascerebbe in piedi la classe stale (dinamica) invece di quella statica.
+    for name, was_present_when_called in env.orm.calls:
+        assert was_present_when_called is False
+
+    from app.core.models import MailTemplate
+
+    assert env.models["mail_template"] is MailTemplate

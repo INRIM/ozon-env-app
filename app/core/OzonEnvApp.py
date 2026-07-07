@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 from typing import Any
@@ -200,6 +201,58 @@ def normalize_component_properties(schema: Any) -> None:
             )
 
 
+_ACL_PROPERTY_KEYS = ("models_groups", "models_restricted_fields")
+
+
+def preserve_acl_properties_on_partial_save(
+    schema: dict, existing_component: Any
+) -> None:
+    """Ripristina `models_groups`/`models_restricted_fields` dal component
+    esistente se il nuovo payload di save non le porta.
+
+    `OzonModel.update()` (ozon-env) fa un diff a livello di top-level field
+    tra il documento originale e quello nuovo, poi `$set` sui field
+    cambiati — `properties` e' UN campo atomico, non merge chiave-per-
+    chiave. Un save che tocca solo altre chiavi di properties (es. un
+    editor "report"/rheader/rfooter che ricostruisce properties da zero
+    con solo quelle chiavi) sovrascriverebbe l'intero sotto-documento,
+    cancellando silenziosamente una config ACL impostata in precedenza
+    (bug reale osservato su 'user': models_restricted_fields sparita dopo
+    un save successivo non correlato). Vedi anche la memoria di progetto
+    "ozon-env upsert partial wipe" — stesso pattern, qui applicato a
+    `properties` invece che al record intero.
+    """
+    if not existing_component:
+        return
+    existing_properties = getattr(existing_component, "properties", None)
+    if existing_properties is None and isinstance(existing_component, dict):
+        existing_properties = existing_component.get("properties")
+    if isinstance(existing_properties, str):
+        try:
+            existing_properties = json.loads(existing_properties)
+        except Exception:
+            existing_properties = None
+    if not isinstance(existing_properties, dict):
+        return
+
+    properties = schema.get("properties")
+    if properties is None:
+        properties = {}
+        schema["properties"] = properties
+    if not isinstance(properties, dict):
+        return
+
+    for key in _ACL_PROPERTY_KEYS:
+        if key not in properties and key in existing_properties:
+            logger.info(
+                "preserve_acl_properties: ripristino '%s' su component rec_name=%s"
+                " (assente nel payload di save, presente nell'esistente)",
+                key,
+                schema.get("rec_name"),
+            )
+            properties[key] = existing_properties[key]
+
+
 class _RuntimeModelGuardMixin:
     def _filter_runtime_model_names(
         self,
@@ -245,17 +298,51 @@ class _RuntimeModelGuardMixin:
                 model_name,
             )
             return
+        if not virtual and self._is_app_static_model(model_name):
+            logger.info(
+                "skip runtime add_model for static component model=%s",
+                model_name,
+            )
+            return
         return await super().add_model(
             model_name,
             virtual=virtual,
             data_model=data_model,
         )
 
+    def _is_app_static_model(self, model_name: str) -> bool:
+        """True solo per i model REGISTRATI ESPLICITAMENTE come statici da
+        `_STATIC_MODELS` (app/deps/app_env.py), NON per qualunque nome
+        presente in `orm_static_models_map` — quest'ultimo include anche
+        model che dovrebbero restare dynamic ma hanno semplicemente un
+        .py cache in models_folder (auto-importato da init_models()).
+        Usare `orm_static_models_map` qui bloccherebbe per sempre la
+        rigenerazione/regen di quei model dynamic (bug reale osservato:
+        model_fields_rule/model_groups_rule non si aggiornavano mai dal
+        component, pur non essendo in _STATIC_MODELS)."""
+        return model_name in getattr(self, "app_static_model_names", set())
+
     async def update_model(self, schema, component):
         model_name = str(schema.get("rec_name", "") or "").strip()
         if not is_runtime_model_name(model_name):
             logger.info(
                 "skip runtime update_model for non-runtime component model=%s",
+                model_name,
+            )
+            return
+        if self._is_app_static_model(model_name):
+            # I model statici (FieldAclPolicy, MailTemplate, ...) sono registrati come
+            # classi Pydantic dedicate in app/core/models.py. La base
+            # `OzonOrm.update_model` rigenera il model dallo schema JSON del
+            # component (via ModelMaker) e rimpiazza la registrazione
+            # statica con una dinamica derivata dai tipi del form builder
+            # (es. textarea -> str), rompendo i campi tipizzati (list/dict)
+            # quando si salva/ri-salva lo schema del component da editor.
+            # Va saltato: lo schema del component resta aggiornato (gia'
+            # salvato sopra da insert_update_component), ma il model
+            # registrato in ORM resta la classe statica.
+            logger.info(
+                "skip runtime update_model for static component model=%s",
                 model_name,
             )
             return
@@ -288,10 +375,15 @@ class AppOzonEnv(OzonEnv):
         return AppOzonOrm
 
     async def insert_update_component(self, schema):
-        normalize_component_properties(schema)
         c_model = self.get("component")
         model_name = str(schema.get("rec_name", "") or "").strip()
         component = await c_model.load({"rec_name": model_name})
+        # Va prima del normalize: se il payload non porta models_groups/
+        # models_restricted_fields, ripristina quelle esistenti PRIMA che
+        # normalize_component_properties possa iniettarci un default
+        # fresco (setdefault non toccherebbe piu' nulla a quel punto).
+        preserve_acl_properties_on_partial_save(schema, component)
+        normalize_component_properties(schema)
         new_component = await c_model.new(data=schema)
         should_sync_runtime = is_runtime_model_name(model_name)
 

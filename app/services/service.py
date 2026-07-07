@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 from datetime import datetime
@@ -18,15 +19,19 @@ from .action_runtime import _is_enabled_flag
 from .common import *
 from .formio import get_formio_select_options
 from app.app_settings import get_env_settings
+from app.core.models import FieldAclEffect
 from app.core.models import FieldAclOperation
+from app.core.OzonModelApp import DateEngineApp
 from app.core.service_manager import ServiceManagerCore
 from app.core.service_registry import ServiceRegistryCore
 from app.core.OzonEnvApp import normalize_component_properties
 from app.core.webhooks import WebhookDispatcher
 from app.services.message_queue import maybe_enqueue_on_save
 from app.ozon_env_acl import CompiledFieldAcl
+from app.ozon_env_acl import apply_record_rule_override
 from app.ozon_env_acl import compile_field_acl_policies
 from app.ozon_env_acl import enforce_write_acl
+from app.ozon_env_acl import obfuscate_fields_in_place
 from app.ozon_env_acl import synth_policies_from_component_properties
 
 logger = logging.getLogger("uvicorn.error")
@@ -126,6 +131,22 @@ def _record_to_dict(record: Any) -> dict[str, Any]:
     return {}
 
 
+def _safe_json_dict(raw: Any) -> dict[str, Any]:
+    """`model_fields_rule.filters` e' un campo testo (json editor), non un
+    dict tipizzato via ORM — coerente con queryformeditable/altri campi
+    JSON-in-textarea dell'app. Parse difensivo qui, non a monte."""
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            logger.warning("model_fields_rule.filters non e' JSON valido: %r", raw)
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
 def _normalize_boolean_payload_values(
     data: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
@@ -213,6 +234,8 @@ class Service:
         self.service_registry = ServiceRegistryCore(env)
         self.webhooks = WebhookDispatcher.from_settings(get_env_settings())
         self._compiled_field_acl: CompiledFieldAcl | None = None
+        self._record_rulse_cache: dict[str, list[dict[str, Any]]] = {}
+        self.date_engine = DateEngineApp()
         logger.info(
             "service initialized app_code=%s",
             self.session.app_code,
@@ -881,20 +904,13 @@ class Service:
                 continue
             try:
                 record = await self._get_model(model).by_name(rec_name)
-                process_id = str(
-                    getattr(record, "process_id", "") or ""
-                ).strip()
+                process_id = record.process_id
                 if not process_id:
                     raise ValueError(
                         f"record '{rec_name}' senza process_id"
                     )
-                item_payload = {
-                    **common,
-                    "model": model,
-                    "rec_name": rec_name,
-                }
                 await self.complete_camunda_gateway_task(
-                    process_id, item_payload, decision=decision
+                    process_id, record.get_dict(), decision=decision
                 )
                 results.append({"rec_name": rec_name, "status": "ok"})
             except Exception as exc:  # noqa: BLE001 - un record non blocca il batch
@@ -949,17 +965,73 @@ class Service:
             skip,
             limit,
         )
-        model = self.env.get(envelope.content.model)
-        return model.stream_find(
+        model_name = envelope.content.model
+        model = self.env.get(model_name)
+        baseline_obfuscate_fields = envelope.content.obfucated_fields or []
+        record_rulse = await self._get_record_rulse(model_name)
+        logger.info(
+            "acl.stream_record model=%s baseline_obfuscate_fields=%s record_rulse_count=%s",
+            model_name,
+            baseline_obfuscate_fields,
+            len(record_rulse),
+        )
+        if not record_rulse:
+            return model.stream_find(
+                domain=envelope.content.query,
+                sort=normalized_order,
+                skip=skip,
+                limit=limit,
+                pipeline_items=pipeline_items,
+                obfuscate_fields=baseline_obfuscate_fields,
+                fields=envelope.content.fields,
+                batch_size=envelope.content.batch_size,
+            )
+        # record_rulse presente: niente oscuramento server-side (altrimenti
+        # il valore reale non e' piu' recuperabile per l'eventuale
+        # override), si applica tutto in Python riga per riga.
+        cursor = model.stream_find(
             domain=envelope.content.query,
             sort=normalized_order,
             skip=skip,
             limit=limit,
             pipeline_items=pipeline_items,
-            obfuscate_fields=envelope.content.obfucated_fields,
+            obfuscate_fields=[],
             fields=envelope.content.fields,
             batch_size=envelope.content.batch_size,
         )
+        return self._apply_record_rulse_to_stream(
+            cursor, record_rulse, baseline_obfuscate_fields
+        )
+
+    async def _apply_record_rulse_to_stream(
+        self,
+        cursor: Any,
+        record_rulse: list[dict[str, Any]],
+        baseline_obfuscate_fields: list[str],
+    ):
+        async for item in cursor:
+            original_dict = _record_to_dict(item)
+            obfuscated_dict = _record_to_dict(item)
+            obfuscate_fields_in_place(obfuscated_dict, baseline_obfuscate_fields)
+            final_fields = apply_record_rule_override(
+                original=original_dict,
+                obfuscated=obfuscated_dict,
+                baseline_obfuscated_fields=baseline_obfuscate_fields,
+                record_rulse=record_rulse,
+                resolve_var=self._resolve_query_json_logic_vars,
+            )
+            logger.info(
+                "acl.stream_record rec_name=%s baseline=%s final=%s "
+                "sample_field_value=%s",
+                original_dict.get("rec_name"),
+                baseline_obfuscate_fields,
+                final_fields,
+                {
+                    f: obfuscated_dict.get(f)
+                    for f in baseline_obfuscate_fields
+                },
+            )
+            yield obfuscated_dict
 
     async def list_records(
         self,
@@ -996,9 +1068,23 @@ class Service:
             set(denied_read_fields + obfuscate_read_fields)
         )
         logger.info(
+            "acl.list_records model=%s denied=%s obfuscate=%s read_mask_fields=%s",
+            model_name,
+            denied_read_fields,
+            obfuscate_read_fields,
+            read_mask_fields,
+        )
+        logger.info(
             "service.list_records total_count=%s domain=%s",
             total_count,
             domain,
+        )
+        record_rulse = await self._get_record_rulse(model_name)
+        logger.info(
+            "acl.list_records model=%s record_rulse_count=%s stream=%s",
+            model_name,
+            len(record_rulse),
+            resp_stream,
         )
         if resp_stream:
             response = make_response_object(
@@ -1013,24 +1099,80 @@ class Service:
                 can_create=True,
                 total_count=total_count,
             )
-            response.content.obfucated_fields = read_mask_fields
+            response.content.obfucated_fields = sorted(
+                set(obfuscate_fields or []) | set(read_mask_fields)
+            )
             return response
+        # Se il model ha record_rulse, l'oscuramento server-side ACL (via
+        # aggregate obfuscate_fields, ozonenv/core/OzonOrm.py:2139) va
+        # saltato per i campi read_mask_fields: una regola record puo'
+        # dover "svelare" un campo oscurato dalla baseline (es. e' un mio
+        # record), ma il valore reale non e' piu' recuperabile se e' gia'
+        # stato annullato in query — l'oscuramento ACL resta comunque
+        # garantito subito dopo da acl.apply_read + apply_record_rule_
+        # override, lato Python. Un `obfuscate_fields` esplicito passato
+        # dal chiamante (non ACL, non soggetto a override) resta invece
+        # sempre server-side.
+        find_obfuscate_fields = sorted(
+            set(obfuscate_fields or [])
+            | (set() if record_rulse else set(read_mask_fields))
+        )
+        logger.info(
+            "acl.list_records model=%s find_obfuscate_fields=%s (caller=%s read_mask=%s skipped_for_record_rulse=%s)",
+            model_name,
+            find_obfuscate_fields,
+            obfuscate_fields or [],
+            read_mask_fields,
+            bool(record_rulse),
+        )
         data = await record_model.find(
             domain=domain,
             sort=normalized_order,
             skip=skip,
             limit=limit,
             pipeline_items=pipeline_items,
-            obfuscate_fields=sorted(
-                set(obfuscate_fields or []) | set(read_mask_fields)
-            ),
+            obfuscate_fields=find_obfuscate_fields,
             fields=fields,
         )
+        original_items = [
+            _record_to_dict(item) for item in data
+        ] if isinstance(data, list) else []
         data, applied_obfuscate_fields = acl.apply_read(
             model_key=model_name,
             app_key=str(getattr(self.session, "app_code", "")),
             data=data,
         )
+        logger.info(
+            "acl.list_records model=%s apply_read obfuscated=%s rows=%s",
+            model_name,
+            applied_obfuscate_fields,
+            len(data) if isinstance(data, list) else 0,
+        )
+        if record_rulse and isinstance(data, list):
+            data = [_record_to_dict(item) for item in data]
+            per_item_fields: set[str] = set()
+            for original_dict, obfuscated_dict in zip(original_items, data):
+                item_fields = apply_record_rule_override(
+                    original=original_dict,
+                    obfuscated=obfuscated_dict,
+                    baseline_obfuscated_fields=applied_obfuscate_fields,
+                    record_rulse=record_rulse,
+                    resolve_var=self._resolve_query_json_logic_vars,
+                )
+                logger.debug(
+                    "acl.record_rulse model=%s rec_name=%s baseline=%s final=%s",
+                    model_name,
+                    original_dict.get("rec_name"),
+                    applied_obfuscate_fields,
+                    item_fields,
+                )
+                per_item_fields |= set(item_fields)
+            applied_obfuscate_fields = sorted(per_item_fields)
+            logger.info(
+                "acl.list_records model=%s record_rulse applied, union_obfuscated=%s",
+                model_name,
+                applied_obfuscate_fields,
+            )
         list_hook = await self.webhooks.emit(
             "data.after_list",
             context=self._webhook_context(model_name=model_name),
@@ -1125,14 +1267,12 @@ class Service:
                     )
                 ),
             )
-        elif (
-            model_name == "component"
-            and record is not None
-            and create_menu_dashboard
-        ):
-            await self._create_menu_dashboard_for_component(
-                _record_to_dict(record)
-            )
+        elif model_name == "component" and record is not None:
+            await self._sync_component_rules(_record_to_dict(record))
+            if create_menu_dashboard:
+                await self._create_menu_dashboard_for_component(
+                    _record_to_dict(record)
+                )
         if record is not None:
             # Auto-enqueue mail se il component del model lo richiede
             # (component.properties.send_mail_create/update). Best-effort.
@@ -1152,6 +1292,24 @@ class Service:
                 payload=_record_to_dict(record),
             )
         return make_response_object(record_model, mode="form", data=record)
+
+    async def _sync_component_rules(self, schema: dict[str, Any]) -> None:
+        if not isinstance(schema, dict) or not schema:
+            return
+        model_name = str(schema.get("rec_name", "") or "").strip()
+        try:
+            from app.ozon_env_acl.model_rules_sync import sync_model_rules
+
+            await sync_model_rules(self.env, schema)
+            logger.info(
+                "component hook: model rule sync ok rec_name=%s",
+                model_name,
+            )
+        except Exception:
+            logger.exception(
+                "component hook: model rule sync failed rec_name=%s",
+                model_name,
+            )
 
     async def _sync_component_runtime(
         self,
@@ -1191,6 +1349,12 @@ class Service:
         if not _is_runtime_component_name(model_name):
             logger.info(
                 "component hook: skip menu dashboard invalid rec_name=%s",
+                model_name,
+            )
+            return
+        if str(schema.get("data_model", "") or "").strip().lower() == "no_model":
+            logger.info(
+                "component hook: skip menu dashboard for no_model component=%s",
                 model_name,
             )
             return
@@ -1256,13 +1420,37 @@ class Service:
             "service.load_record model=%s rec_name=%s", model, rec_name
         )
         record_model = self._get_model(model)
-        record = await record_model.by_name(rec_name)
+        raw_record = await record_model.by_name(rec_name)
+        original_dict = _record_to_dict(raw_record)
         acl = await self._get_compiled_field_acl()
         record, obfuscate_fields = acl.apply_read(
             model_key=model,
             app_key=str(getattr(self.session, "app_code", "")),
-            data=record,
+            data=raw_record,
         )
+        logger.info(
+            "acl.load_record model=%s rec_name=%s baseline_obfuscated=%s",
+            model,
+            rec_name,
+            obfuscate_fields,
+        )
+        record_rulse = await self._get_record_rulse(model)
+        if record_rulse:
+            obfuscated_dict = _record_to_dict(record)
+            obfuscate_fields = apply_record_rule_override(
+                original=original_dict,
+                obfuscated=obfuscated_dict,
+                baseline_obfuscated_fields=obfuscate_fields,
+                record_rulse=record_rulse,
+                resolve_var=self._resolve_query_json_logic_vars,
+            )
+            record = obfuscated_dict
+            logger.info(
+                "acl.load_record model=%s rec_name=%s after_record_rulse=%s",
+                model,
+                rec_name,
+                obfuscate_fields,
+            )
         read_hook = await self.webhooks.emit(
             "data.after_read",
             context=self._webhook_context(model_name=model, rec_name=rec_name),
@@ -1698,15 +1886,100 @@ class Service:
             return FieldAclOperation.UPDATE.value
         return FieldAclOperation.INSERT.value
 
+    async def _get_record_rulse(
+        self, model_key: str
+    ) -> list[dict[str, Any]]:
+        """Righe `model_fields_rule` (rule_type="record") per `model_key`,
+        scoped per app_code corrente (cache per-request): regole
+        data-dependent, valutate per record da `apply_record_rule_override`
+        — non compilabili in `CompiledFieldAcl` (che e' actor-only, niente
+        contesto riga).
+
+        Fonte di verita': la collection `model_fields_rule` (popolata al
+        salva del component da `app.ozon_env_acl.model_rules_sync`), NON
+        `component.properties` — quest'ultima puo' non persistere la
+        config (es. `user` e' un identity model escluso dai default, ma un
+        admin puo' comunque aver configurato la regola via builder in
+        passato: il sync l'ha scritta in `model_fields_rule` a prescindere)."""
+        if model_key in self._record_rulse_cache:
+            logger.info(
+                "acl.record_rulse model=%s cache_hit count=%s",
+                model_key,
+                len(self._record_rulse_cache[model_key]),
+            )
+            return self._record_rulse_cache[model_key]
+        record_rulse: list[dict[str, Any]] = []
+        app_code = str(getattr(self.session, "app_code", "") or "")
+        try:
+            rule_model = self.env.get("model_fields_rule")
+            if rule_model is not None:
+                domain = {
+                    "$and": [
+                        {"app_code": app_code},
+                        {"model": model_key},
+                        {"rule_type": "record"},
+                        {"active": True},
+                        {"deleted": 0},
+                    ]
+                }
+                rows = await rule_model.find(domain=domain, limit=0)
+                for row in rows or []:
+                    data = _record_to_dict(row)
+                    record_rulse.append(
+                        {
+                            "filters": _safe_json_dict(data.get("filters")),
+                            "restricted_fields": data.get("restricted_fields")
+                            or [],
+                        }
+                    )
+        except Exception:
+            logger.warning(
+                "record_rulse lookup failed model=%s", model_key
+            )
+            record_rulse = []
+        logger.info(
+            "acl.record_rulse model=%s app_code=%s rows_found=%s rules=%s",
+            model_key,
+            app_code,
+            len(record_rulse),
+            record_rulse,
+        )
+        self._record_rulse_cache[model_key] = record_rulse
+        return record_rulse
+
     async def _get_compiled_field_acl(self) -> CompiledFieldAcl:
         cached = getattr(self.session, "compiled_field_acl", None)
         if isinstance(cached, CompiledFieldAcl):
+            logger.info(
+                "acl.compile cache_hit (session) policies=%s",
+                len(cached.policies),
+            )
             return cached
         if self._compiled_field_acl is not None:
+            logger.info(
+                "acl.compile cache_hit (service) policies=%s",
+                len(self._compiled_field_acl.policies),
+            )
             return self._compiled_field_acl
 
         policies = await self._load_field_acl_policies()
+        session_user = getattr(self.session, "user", None)
+        session_groups = (
+            session_user.get("groups") if isinstance(session_user, dict) else None
+        )
+        logger.info(
+            "acl.compile app_code=%s uid=%s groups=%s is_admin=%s total_raw_policies=%s",
+            str(getattr(self.session, "app_code", "")),
+            str(getattr(self.session, "uid", "")),
+            session_groups,
+            bool(getattr(self.session, "is_admin", False)),
+            len(policies),
+        )
         compiled = compile_field_acl_policies(policies, session=self.session)
+        logger.info(
+            "acl.compile compiled_policies=%s",
+            len(compiled.policies),
+        )
         self._compiled_field_acl = compiled
         try:
             object.__setattr__(self.session, "compiled_field_acl", compiled)
@@ -1743,7 +2016,22 @@ class Service:
                 logger.exception("field ACL policy loading failed")
                 policies = []
             break
-        return list(policies or []) + await self._load_component_property_acl_policies()
+        static_count = len(policies or [])
+        component_property_policies = (
+            await self._load_component_property_acl_policies()
+        )
+        model_fields_rule_policies = await self._load_model_fields_rule_policies()
+        logger.info(
+            "acl.load_policies static=%s component_properties=%s model_fields_rule=%s",
+            static_count,
+            len(component_property_policies),
+            len(model_fields_rule_policies),
+        )
+        return (
+            list(policies or [])
+            + component_property_policies
+            + model_fields_rule_policies
+        )
 
     async def _load_component_property_acl_policies(self) -> list[dict[str, Any]]:
         """FieldAclPolicy sintetiche da component.properties (vedi app.ozon_env_acl)."""
@@ -1763,6 +2051,88 @@ class Service:
             logger.exception("component ACL properties loading failed")
             return []
         return synth_policies_from_component_properties(components)
+
+    async def _load_model_fields_rule_policies(self) -> list[dict[str, Any]]:
+        """FieldAclPolicy OBFUSCATE sintetiche da `model_fields_rule`
+        (rule_type="fields"), scoped per app_code corrente — fonte di
+        verita' per l'oscuramento per-gruppo (vedi `_get_record_rulse` per
+        l'equivalente per-record, rule_type="record").
+
+        Una riga = (model, group) con la lista COMPLETA dei campi
+        ristretti per quel model e `read` = quel gruppo puo' leggerli in
+        chiaro. Piu' righe (gruppi diversi) per lo stesso (model, campo)
+        vanno unite in UNA policy con `exclude_groups` = unione di tutti i
+        gruppi ammessi: `read_masks` oscura se ALMENO UNA policy che
+        matcha lo dice, quindi una policy per gruppo separata negherebbe
+        un attore che sta nel gruppo A ma non nel gruppo B, anche se A da
+        solo basterebbe.
+
+        Niente bypass admin (a differenza di `models_groups`/legacy
+        `models_restricted_fields`, che escludono admin via
+        `is_admin: False`): un campo GDPR-style non deve diventare visibile
+        solo perche' l'attore e' admin — solo gruppo o record_rulse
+        sbloccano il campo, admin incluso (comportamento confermato
+        dall'utente dopo che l'admin vedeva il campo in chiaro su tutta la
+        lista).
+        """
+        try:
+            rule_model = self.env.get("model_fields_rule")
+        except Exception:
+            return []
+        if rule_model is None:
+            return []
+        app_code = str(getattr(self.session, "app_code", "") or "")
+        domain = {
+            "$and": [
+                {"app_code": app_code},
+                {"rule_type": "fields"},
+                {"active": True},
+                {"deleted": 0},
+            ]
+        }
+        try:
+            rows = await rule_model.find(domain=domain, limit=0)
+        except Exception:
+            logger.exception("model_fields_rule policy loading failed")
+            return []
+        logger.info(
+            "acl.model_fields_rule_policies app_code=%s fields_rows_found=%s",
+            app_code,
+            len(rows or []),
+        )
+        groups_by_field: dict[tuple[str, str], set[str]] = {}
+        for row in rows or []:
+            data = _record_to_dict(row)
+            if not data.get("read"):
+                continue
+            model_key = str(data.get("model") or "").strip()
+            group = str(data.get("group") or "").strip()
+            if not model_key or not group:
+                continue
+            for field_path in data.get("restricted_fields") or []:
+                field_path = str(field_path).strip()
+                if not field_path:
+                    continue
+                groups_by_field.setdefault((model_key, field_path), set()).add(
+                    group
+                )
+        policies = [
+            {
+                "model_key": model_key,
+                "field_path": field_path,
+                "operation": FieldAclOperation.READ.value,
+                "effect": FieldAclEffect.OBFUSCATE.value,
+                "actor_selector": {"exclude_groups": sorted(groups)},
+                "priority": 10,
+            }
+            for (model_key, field_path), groups in groups_by_field.items()
+        ]
+        logger.info(
+            "acl.model_fields_rule_policies app_code=%s policies=%s",
+            app_code,
+            policies,
+        )
+        return policies
 
     async def _get_action_record(self, action_name: str) -> CoreModel | None:
         return await self.action_runtime.get_action_record(action_name)
@@ -1795,6 +2165,63 @@ class Service:
         if isinstance(data, str) and "_user_" in data:
             attr_name = data.replace("_user_", "")
             return getattr(self.session, attr_name, data)
+        return data
+
+    def _resolve_json_logic_var(self, spec: Any) -> Any:
+        """
+        Risolve un singolo nodo json-logic `{"var": ...}` letto da
+        `action.list_query`. Namespace supportati:
+        - `user.<attr>` / `session.<attr>` / `app.<attr>`: attributo (anche
+          annidato) letto dalla sessione corrente (`self.session`).
+        - `now`, `now-3h`, `now+3d-3h`, ...: datetime UTC aware relativo a
+          adesso, vedi `_resolve_now_expr`.
+        Forma json-logic completa `{"var": ["path", default]}` supportata:
+        se il path non risolve, ritorna `default` (default: None).
+        """
+        if isinstance(spec, list):
+            path = spec[0] if spec else ""
+            default = spec[1] if len(spec) > 1 else None
+        else:
+            path = spec
+            default = None
+        path = str(path or "").strip()
+        if not path:
+            return default
+
+        if path == "now" or path.startswith("now+") or path.startswith("now-"):
+            resolved = self.date_engine.resolve_relative_expr(path)
+            return resolved if resolved is not None else default
+
+        segments = path.split(".")
+        if segments[0] not in ("user", "session", "app"):
+            return default
+
+        value: Any = self.session
+        for segment in segments[1:]:
+            if value is None:
+                break
+            if isinstance(value, dict):
+                value = value.get(segment)
+            else:
+                value = getattr(value, segment, None)
+        return value if value is not None else default
+
+    def _resolve_query_json_logic_vars(self, data: Any) -> Any:
+        """
+        Cammina ricorsivamente un query dict (tipicamente `action.list_query`
+        gia' parsato) e sostituisce ogni nodo `{"var": ...}` col valore
+        risolto da `_resolve_json_logic_var`. Non tocca nessun altro
+        operatore Mongo/json-logic: passa attraverso invariati.
+        """
+        if isinstance(data, dict):
+            if set(data.keys()) == {"var"}:
+                return self._resolve_json_logic_var(data["var"])
+            return {
+                key: self._resolve_query_json_logic_vars(value)
+                for key, value in data.items()
+            }
+        if isinstance(data, list):
+            return [self._resolve_query_json_logic_vars(item) for item in data]
         return data
 
     def _parse_query_dict(self, query_value: Any) -> dict[str, Any]:
@@ -1912,7 +2339,9 @@ class Service:
 
         number = 0
         if rec_b.mode == "list":
-            list_query = self._parse_query_dict(rec_b.list_query)
+            list_query = self._resolve_query_json_logic_vars(
+                self._parse_query_dict(rec_b.list_query)
+            )
             q = await self._default_query(cc_model, list_query)
             number = await self._count_base(cc_model, q)
 

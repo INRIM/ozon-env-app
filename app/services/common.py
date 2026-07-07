@@ -157,6 +157,33 @@ _COMPONENT_DEFAULT_COLUMNS: dict[str, str] = {
 }
 
 
+def _extract_table_columns(schema: Any) -> dict[str, str]:
+    columns: dict[str, str] = {}
+
+    def visit(items: Any) -> None:
+        if not isinstance(items, list):
+            return
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("key") or "").strip()
+            if key and item.get("tableView") is True:
+                columns[key] = str(item.get("label") or key)
+
+            visit(item.get("components"))
+            for col in item.get("columns") or []:
+                if isinstance(col, dict):
+                    visit(col.get("components"))
+            for row in item.get("rows") or []:
+                if isinstance(row, list):
+                    for cell in row:
+                        if isinstance(cell, dict):
+                            visit(cell.get("components"))
+
+    visit(schema)
+    return columns
+
+
 def make_response_object(
     model: OzonModelBase = None,
     mode: str = None,
@@ -235,7 +262,7 @@ def make_response_object(
             process_status=process_status,
         )
         if mode in ["list_stream", "list"]:
-            content.columns = model.table_columns
+            content.columns = _extract_table_columns(schema) or model.table_columns
             if not content.columns and model.data_model == "component":
                 content.columns = _COMPONENT_DEFAULT_COLUMNS
             content.filter_kyes = model.model.filter_keys()

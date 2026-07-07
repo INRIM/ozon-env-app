@@ -24,6 +24,44 @@ class _FakeRecord:
         self.rec_name = rec_name
 
 
+class _FakeSchemaModelWithTableView:
+    def schema(self):
+        return {
+            "components": [
+                {"key": "visible", "label": "Visible", "tableView": True},
+                {"key": "hidden", "label": "Hidden", "tableView": False},
+                {
+                    "type": "columns",
+                    "columns": [
+                        {
+                            "components": [
+                                {
+                                    "key": "nested_visible",
+                                    "label": "Nested Visible",
+                                    "tableView": True,
+                                }
+                            ]
+                        }
+                    ],
+                },
+            ]
+        }
+
+    def filter_keys(self):
+        return {}
+
+
+class _FakeOzonModelWithTableView(_FakeOzonModel):
+    def __init__(self):
+        super().__init__()
+        self.model = _FakeSchemaModelWithTableView()
+        self.table_columns = {
+            "visible": "Visible",
+            "hidden": "Hidden",
+            "nested_visible": "Nested Visible",
+        }
+
+
 def test_make_response_object_list_data_does_not_require_rec_name_attr():
     model = _FakeOzonModel()
     payload = [{"rec_name": "CUST-1"}, {"rec_name": "CUST-2"}]
@@ -35,6 +73,18 @@ def test_make_response_object_list_data_does_not_require_rec_name_attr():
     assert resp.content.data == payload
     assert resp.content.rec_name == ""
     assert resp.content.columns == {"rec_name": "Rec Name"}
+
+
+def test_make_response_object_list_columns_follow_formio_table_view():
+    model = _FakeOzonModelWithTableView()
+    payload = [{"visible": "yes", "hidden": "no"}]
+
+    resp = make_response_object(model=model, mode="list", data=payload)
+
+    assert resp.content.columns == {
+        "visible": "Visible",
+        "nested_visible": "Nested Visible",
+    }
 
 
 def test_make_response_object_form_extracts_rec_name_from_dict():
