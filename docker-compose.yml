@@ -19,8 +19,8 @@ services:
     depends_on:
       - ozonenv_app_db
     networks:
-      - ozn-network
-      - camunda-8-local
+      - default
+      - ${CAMUNDA_NETWORK}
     logging:
       options:
         max-size: 10m
@@ -40,7 +40,7 @@ services:
       - ./database/scripts/init_db.js:/docker-entrypoint-initdb.d/init_db.js:ro
     restart: unless-stopped
     networks:
-      - ozn-network
+      - default
     ports:
       - "22222:27017"
     ulimits:
@@ -53,6 +53,6 @@ services:
         max-file: "3"
 
 networks:
-  ozn-network:
-    name: ozn-network
-  camunda-8-local:
+  default:
+    name: ${NETWORK}
+  ${CAMUNDA_NETWORK}:

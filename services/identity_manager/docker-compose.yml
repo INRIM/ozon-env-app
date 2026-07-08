@@ -16,13 +16,13 @@ services:
       - ../../models:/models
     restart: unless-stopped
     networks:
-      - ozn-network
+      - default
     logging:
       options:
         max-size: 10m
         max-file: "2"
 
 networks:
-  ozn-network:
+  default:
     external: true
-    name: ozn-network
+    name: ${NETWORK}
