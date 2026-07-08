@@ -23,25 +23,31 @@ non tracciato — in attesa di essere spostato nel progetto corretto). Per lo
 stop dello stack locale resta `./stop.sh` (`docker compose stop`, nessuna
 dipendenza da Ansible).
 
-## CI (GitLab)
+## CI (GitLab + GitHub)
 
-`.gitlab-ci.yml` builda e pusha su branch `master`/`1.0` le immagini
-tracciate in questo repo:
+Due pipeline parallele, stesso scope immagini, build su branch `master`/`1.0`:
 
-| Job | Dockerfile | Registry path |
-|-----|-----------|----------------|
-| `build-app` | `Dockerfile` | `${CI_REGISTRY_IMAGE}` |
-| `build-db` | `database/Dockerfile-mongo` | `${CI_REGISTRY_IMAGE}/db` |
-| `build-mail-sender` | `services/mail_sender/Dockerfile` | `${CI_REGISTRY_IMAGE}/mail-sender` |
-| `build-calendar-scheduler` | `services/calendar_scheduler/Dockerfile` | `${CI_REGISTRY_IMAGE}/calendar-scheduler` |
-| `build-identity-manager` | `services/identity_manager/Dockerfile` | `${CI_REGISTRY_IMAGE}/identity-manager` |
-| `build-keycloak-manager` | `manager/keycloak-manager/Dockerfile` | `${CI_REGISTRY_IMAGE}/keycloak-manager` |
+- **GitLab** (`.gitlab-ci.yml`, registry gitlab.ininrim.it) — un job per immagine,
+  `IMG_REF` = `${CI_REGISTRY_IMAGE}` (+ sub-path per le non-app), tag
+  `${CI_COMMIT_SHORT_SHA}` + `latest`.
+- **GitHub** (`.github/workflows/docker-build.yml`, GHCR) — job unico a matrix,
+  stesso set di immagini, tag short-sha + `latest`, build multi-platform
+  `linux/amd64,linux/arm64` (via `docker/setup-qemu-action`).
 
-Ogni job tagga `${CI_COMMIT_SHORT_SHA}` + `latest`. `workers/ozon_camunda_worker`
-e `services/people_sync` **non** sono in questa pipeline: hanno repo e
-`.gitlab-ci.yml` propri. Quando anche `mail_sender`/`calendar_scheduler`/
-`identity_manager` verranno splittati in repo dedicati, i job corrispondenti
-vanno tolti da qui.
+| Immagine | Dockerfile | GitLab `IMG_REF` | GHCR path |
+|----------|-----------|-------------------|-----------|
+| app | `Dockerfile` | `${CI_REGISTRY_IMAGE}` | `ghcr.io/inrim/ozon-env-app` |
+| db | `database/Dockerfile-mongo` | `${CI_REGISTRY_IMAGE}/db` | `.../db` |
+| mail-sender | `services/mail_sender/Dockerfile` | `${CI_REGISTRY_IMAGE}/mail-sender` | `.../mail-sender` |
+| calendar-scheduler | `services/calendar_scheduler/Dockerfile` | `${CI_REGISTRY_IMAGE}/calendar-scheduler` | `.../calendar-scheduler` |
+| identity-manager | `services/identity_manager/Dockerfile` | `${CI_REGISTRY_IMAGE}/identity-manager` | `.../identity-manager` |
+| keycloak-manager | `manager/keycloak-manager/Dockerfile` | `${CI_REGISTRY_IMAGE}/keycloak-manager` | `.../keycloak-manager` |
+
+`workers/ozon_camunda_worker` e `services/people_sync` **non** sono in
+nessuna delle due pipeline: hanno repo e CI propri (`services/people_sync`
+ha gia' il suo `.gitlab-ci.yml`, single-image, nel suo repo). Quando anche
+`mail_sender`/`calendar_scheduler`/`identity_manager` verranno splittati in
+repo dedicati, i job corrispondenti vanno tolti da entrambi i file qui.
 
 ### Services Registry core
 
