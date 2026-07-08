@@ -1,4 +1,0 @@
-ozonapp_stage: dev
-ozonapp_project_root: /opt/ozon-env-app
-ozonapp_sync_sources: true
-ozonapp_service_branch: new_release

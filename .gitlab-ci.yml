@@ -1,0 +1,73 @@
+stages:
+  - build
+
+.build-image:
+  stage: build
+  image: docker:25
+  services:
+    - docker:dind
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
+  script:
+    - >
+      docker build
+      --network host
+      -f "${CI_PROJECT_DIR}/${DOCKERFILE}"
+      -t "${IMG_REF}:${CI_COMMIT_SHORT_SHA}"
+      -t "${IMG_REF}:latest"
+      "${CI_PROJECT_DIR}/${BUILD_CONTEXT}"
+    - docker push "${IMG_REF}:${CI_COMMIT_SHORT_SHA}"
+    - docker push "${IMG_REF}:latest"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master" || $CI_COMMIT_BRANCH == "1.0"'
+
+# ozon-env-app (core, ozonapp.app)
+build-app:
+  extends: .build-image
+  variables:
+    DOCKERFILE: Dockerfile
+    BUILD_CONTEXT: "."
+    IMG_REF: "${CI_REGISTRY_IMAGE}"
+
+# mongo custom (ozonapp.db)
+build-db:
+  extends: .build-image
+  variables:
+    DOCKERFILE: database/Dockerfile-mongo
+    BUILD_CONTEXT: database
+    IMG_REF: "${CI_REGISTRY_IMAGE}/db"
+
+# companion services (ognuno col proprio pyproject/uv.lock, ma ancora
+# tracciati in questo repo — niente .gitlab-ci.yml proprio finche' non
+# vengono splittati in repo dedicati)
+build-mail-sender:
+  extends: .build-image
+  variables:
+    DOCKERFILE: services/mail_sender/Dockerfile
+    BUILD_CONTEXT: services/mail_sender
+    IMG_REF: "${CI_REGISTRY_IMAGE}/mail-sender"
+
+build-calendar-scheduler:
+  extends: .build-image
+  variables:
+    DOCKERFILE: services/calendar_scheduler/Dockerfile
+    BUILD_CONTEXT: services/calendar_scheduler
+    IMG_REF: "${CI_REGISTRY_IMAGE}/calendar-scheduler"
+
+build-identity-manager:
+  extends: .build-image
+  variables:
+    DOCKERFILE: services/identity_manager/Dockerfile
+    BUILD_CONTEXT: services/identity_manager
+    IMG_REF: "${CI_REGISTRY_IMAGE}/identity-manager"
+
+build-keycloak-manager:
+  extends: .build-image
+  variables:
+    DOCKERFILE: manager/keycloak-manager/Dockerfile
+    BUILD_CONTEXT: manager/keycloak-manager
+    IMG_REF: "${CI_REGISTRY_IMAGE}/keycloak-manager"
+
+# NON qui (repo/pipeline propria):
+# - workers/ozon_camunda_worker
+# - services/people_sync

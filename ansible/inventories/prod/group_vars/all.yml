@@ -1,4 +1,0 @@
-ozonapp_stage: prod
-ozonapp_project_root: /srv/services/nob/ozon-env-app
-ozonapp_sync_sources: true
-ozonapp_service_branch: main

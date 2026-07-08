@@ -32,3 +32,5 @@ people_sync
 dist
 workers
 uploads
+# provato qui ma non e' il progetto giusto: da spostare, tenuto solo locale
+ansible-deploy/
