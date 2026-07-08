@@ -96,7 +96,7 @@ omit = [
 
 [tool.uv.sources]
 ozon-env = { git = "https://github.com/inrim/ozon-env.git", rev = "4.0.2" }
-ozon-env-api = { git = "https://gitlab.ininrim.it/inrimsi/microservice/services-apps/ozon-env-api.git" }
+ozon-env-api = { git = "https://github.com/INRIM/ozon-env-api.git" }
 
 [project]
 name = "ozon-env-app"

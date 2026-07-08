@@ -671,7 +671,7 @@ dependencies = [
 [[package]]
 name = "ozon-env-api"
 version = "0.1.1"
-source = { git = "https://gitlab.ininrim.it/inrimsi/microservice/services-apps/ozon-env-api.git#f86a548bf263e0f6e846032514ee992c4a34ed64" }
+source = { git = "https://github.com/INRIM/ozon-env-api.git#f86a548bf263e0f6e846032514ee992c4a34ed64" }
 dependencies = [
     { name = "fastapi" },
     { name = "ozon-env" },
@@ -712,7 +712,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28" },
     { name = "itsdangerous", specifier = ">=2.2" },
     { name = "ozon-env", git = "https://github.com/inrim/ozon-env.git?rev=4.0.2" },
-    { name = "ozon-env-api", git = "https://gitlab.ininrim.it/inrimsi/microservice/services-apps/ozon-env-api.git" },
+    { name = "ozon-env-api", git = "https://github.com/INRIM/ozon-env-api.git" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
     { name = "pyzeebe", specifier = ">=4.5,<5.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.35.0" },
