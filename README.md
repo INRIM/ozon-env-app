@@ -14,35 +14,34 @@ ozon-env lib is a api system to interact with Service App project
 For information about the Service App project,
 see https://github.com/INRIM/service-app
 
-## Deploy (Ansible)
+## Deploy (Ansible) — spostato
 
-Build / deploy / update via Ansible. Primo argomento = target env
-(`local` | `dev` | `prod`, default `local`). Dettagli in
-[`ansible/README.md`](ansible/README.md).
+Il deploy via Ansible (`build.sh`/`deploy.sh`/`update.sh`, `ansible/`,
+`ansible.cfg`) e' stato provato in questo repo ma non e' il progetto giusto
+dove deve stare: e' stato raccolto in `ansible-deploy/` (locale, gitignored,
+non tracciato — in attesa di essere spostato nel progetto corretto). Per lo
+stop dello stack locale resta `./stop.sh` (`docker compose stop`, nessuna
+dipendenza da Ansible).
 
-```bash
-./build.sh  [local|dev|prod]              # build immagini (default local)
-./deploy.sh [local|dev|prod]              # build + docker compose up -d
-./update.sh [local|dev|prod] [service]    # ricrea un servizio (default app)
-./stop.sh                                 # ferma lo stack locale
-```
+## CI (GitLab)
 
-Esempi:
+`.gitlab-ci.yml` builda e pusha su branch `master`/`1.0` le immagini
+tracciate in questo repo:
 
-```bash
-./build.sh                  # local
-./build.sh prod
-./deploy.sh                 # local
-./deploy.sh prod
-./update.sh dev app
-```
+| Job | Dockerfile | Registry path |
+|-----|-----------|----------------|
+| `build-app` | `Dockerfile` | `${CI_REGISTRY_IMAGE}` |
+| `build-db` | `database/Dockerfile-mongo` | `${CI_REGISTRY_IMAGE}/db` |
+| `build-mail-sender` | `services/mail_sender/Dockerfile` | `${CI_REGISTRY_IMAGE}/mail-sender` |
+| `build-calendar-scheduler` | `services/calendar_scheduler/Dockerfile` | `${CI_REGISTRY_IMAGE}/calendar-scheduler` |
+| `build-identity-manager` | `services/identity_manager/Dockerfile` | `${CI_REGISTRY_IMAGE}/identity-manager` |
+| `build-keycloak-manager` | `manager/keycloak-manager/Dockerfile` | `${CI_REGISTRY_IMAGE}/keycloak-manager` |
 
-| Script | Cosa fa | Note |
-|--------|---------|------|
-| `build.sh` | `uv lock` (opt) + `build_imges.sh` → immagini `ozonapp.db` + `ozonapp.app` | **solo immagini, non avvia** lo stack. `uv lock`/build richiedono **VPN** (`--network host`). |
-| `deploy.sh` | build immagini `ozonapp.db` + `ozonapp.app` → `docker compose up -d` | non esegue setup-db, bootstrap o health check. |
-| `update.sh` | ricrea il servizio del compose (default `app`) | `-e ozonapp_update_build=true` per rebuild immagini prima. |
-| `stop.sh` | `docker compose stop` (locale) | |
+Ogni job tagga `${CI_COMMIT_SHORT_SHA}` + `latest`. `workers/ozon_camunda_worker`
+e `services/people_sync` **non** sono in questa pipeline: hanno repo e
+`.gitlab-ci.yml` propri. Quando anche `mail_sender`/`calendar_scheduler`/
+`identity_manager` verranno splittati in repo dedicati, i job corrispondenti
+vanno tolti da qui.
 
 ### Services Registry core
 
@@ -124,29 +123,9 @@ Il match degli `events` è esatto (o `*` per tutti): per ricevere la famiglia
 calendar elencare entrambi gli eventi, es. `"events":
 ["calendar.task.completed","calendar.task.failed"]`.
 
-### Target env
-
-- **`local`** (default) → in-place nel repo (`ozonapp_sync_sources=false`).
-- **`dev` / `prod`** → `ansible/inventories/<env>/hosts.yml`, host remoto,
-  clone/aggiornamento in `ozonapp_project_root` (`ozonapp_sync_sources=true`).
-- `ANSIBLE_INVENTORY=...` resta come override esplicito dell'inventory.
-
-Il primo argomento e' interpretato come env solo se ∈ `{local,dev,prod}`.
-
-### Opzioni utili
-
-```bash
-./build.sh -e ozonapp_uv_lock=true          # esegue uv lock (VPN)
-./deploy.sh prod                            # build + docker compose up -d
-./deploy.sh -e ozonapp_deploy_build=false   # solo docker compose up -d
-```
-
-### Gestione `.env`
-
-Precedenza: `OZONAPP_DOTENV_CONTENT` (raw CI) → `OZONAPP_ENV_VARS` (mappa CI,
-template) → fallback `.env.example`. **Un `.env` esistente non viene mai
-sovrascritto** (contiene segreti reali). La validazione delle chiavi `.env`
-in deploy e' opt-in con `-e ozonapp_validate_deploy_env=true`.
+> Target env, opzioni ansible-playbook e gestione `.env` per il deploy:
+> documentati in `ansible-deploy/ansible/README.md` (locale, non tracciato
+> qui — vedi sezione sopra).
 
 ## Installation
 
