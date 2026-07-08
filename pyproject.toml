@@ -24,7 +24,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.dependencies]
 python = ">=3.14,<4.0"
-ozon-env-api = { git = "https://gitlab.ininrim.it/inrimsi/microservice/services-apps/ozon-env-api.git" }
+ozon-env-api = { git = "https://github.com/INRIM/ozon-env-api.git" }
 fastapi = ">=0.136.1"
 uvicorn = { version = ">=0.35.0", extras = ["standard"] }
 python-dotenv = ">=1.1.1"
