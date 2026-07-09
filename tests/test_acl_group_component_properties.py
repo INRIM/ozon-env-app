@@ -3,9 +3,24 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+from fastapi import HTTPException
+
+from app.ozon_env_acl import _record_matches_filters
 from app.ozon_env_acl import apply_session_groups
 from app.ozon_env_acl import synth_policies_from_component_properties
 from app.services.service import Service
+
+
+def _domain_matches(row, domain):
+    """Domain vuoto ({}) = match tutto (semantica list senza filtro); un
+    domain non vuoto e' un filtro mongo-shaped valutato con la stessa
+    matching logic (fail-closed $and/$or/$in) usata in produzione per
+    valutare record_rulse — necessario per verificare che
+    record_rule_read_domain narrowi davvero i risultati, non solo che
+    costruisca la clausola giusta."""
+    if not domain:
+        return True
+    return _record_matches_filters(row, domain)
 
 
 class _Status:
@@ -35,7 +50,7 @@ class _RecordModel:
         return query
 
     async def count(self, domain):
-        return len(self.rows)
+        return len([row for row in self.rows if _domain_matches(row, domain)])
 
     async def find(
         self,
@@ -47,7 +62,9 @@ class _RecordModel:
         obfuscate_fields=None,
         fields=None,
     ):
-        return [row.copy() for row in self.rows]
+        return [
+            row.copy() for row in self.rows if _domain_matches(row, domain)
+        ]
 
     async def by_name(self, name):
         for row in self.rows:
@@ -67,7 +84,8 @@ class _RecordModel:
         batch_size=0,
     ):
         for row in self.rows:
-            yield row.copy()
+            if _domain_matches(row, domain):
+                yield row.copy()
 
 
 class _ComponentModel:
@@ -839,6 +857,291 @@ def test_record_rulse_varies_per_row_in_streamed_list():
     by_rec_name = {row["rec_name"]: row for row in rows}
     assert by_rec_name["u1"]["codicefiscale"] == "MINE123"
     assert by_rec_name["u2"]["codicefiscale"] is None
+
+
+class _SysFlagComponentModel:
+    """Fake per la collection `component` — usata SOLO da
+    Service._is_sys_model per decidere se il model e' config condivisa
+    (sys=True, enforcement record_rulse saltato) o un documento applicativo
+    (sys=False, enforcement attivo). Ritorna un oggetto con attributo `.sys`
+    (non un dict) — Service._is_sys_model legge `component.sys` diretto,
+    coerente con un vero record ORM."""
+
+    def __init__(self, sys_by_model):
+        self._sys_by_model = sys_by_model
+
+    def get_domain(self, query):
+        return query
+
+    async def by_name(self, name):
+        if name not in self._sys_by_model:
+            return None
+        return SimpleNamespace(rec_name=name, sys=self._sys_by_model[name])
+
+
+def _owner_only_record_rule(model="modulo_dati_persona", app_code="demo"):
+    """Riga model_fields_rule rule_type=record — la stessa iniettata di
+    default da normalize_component_properties su ogni component non-
+    identity (owner_uid == user.uid -> read/create/update/delete=True)."""
+    return {
+        "app_code": app_code,
+        "model": model,
+        "rule_type": "record",
+        "group": "",
+        "restricted_fields": [],
+        "filters": {"owner_uid": {"$eq": {"var": "user.uid"}}},
+        "read": True,
+        "create": True,
+        "update": True,
+        "delete": True,
+        "active": True,
+        "deleted": 0,
+    }
+
+
+def test_load_record_non_sys_denies_non_owner():
+    """Task: "readonly regole per apertura/accesso ai documenti di cui non
+    sei proprietario, altrimenti nascosto o readonly". Model non-sys, non
+    owner, nessuna regola matcha -> fail-closed, record nascosto (404)."""
+    docs = _RecordModel(
+        "modulo_dati_persona",
+        rows=[{"rec_name": "d1", "owner_uid": "u2", "name": "Other"}],
+    )
+    env = _Env(
+        {
+            "modulo_dati_persona": docs,
+            "model_fields_rule": _ModelFieldsRuleModel(
+                [_owner_only_record_rule()]
+            ),
+            "component": _SysFlagComponentModel(
+                {"modulo_dati_persona": False}
+            ),
+        },
+        session=_session(uid="u1"),
+    )
+    service = Service(env)
+
+    try:
+        asyncio.run(service.load_record("modulo_dati_persona", "d1"))
+        assert False, "expected HTTPException 404"
+    except HTTPException as exc:
+        assert exc.status_code == 404
+
+
+def test_load_record_non_sys_owner_full_access():
+    """Stesso model, ma l'utente e' owner: regola matcha, read/update=True
+    -> record visibile ed editable."""
+    docs = _RecordModel(
+        "modulo_dati_persona",
+        rows=[{"rec_name": "d1", "owner_uid": "u1", "name": "Mine"}],
+    )
+    env = _Env(
+        {
+            "modulo_dati_persona": docs,
+            "model_fields_rule": _ModelFieldsRuleModel(
+                [_owner_only_record_rule()]
+            ),
+            "component": _SysFlagComponentModel(
+                {"modulo_dati_persona": False}
+            ),
+        },
+        session=_session(uid="u1"),
+    )
+    service = Service(env)
+
+    response = asyncio.run(service.load_record("modulo_dati_persona", "d1"))
+
+    assert response.content.readable is True
+    assert response.content.editable is True
+
+
+def test_load_record_non_sys_matched_rule_readonly_when_update_false():
+    """Una regola puo' matchare e concedere solo read (update=False) ->
+    record visibile ma readonly, non hidden."""
+    docs = _RecordModel(
+        "modulo_dati_persona",
+        rows=[{"rec_name": "d1", "owner_uid": "u2", "name": "Shared"}],
+    )
+    read_only_rule = {
+        **_owner_only_record_rule(),
+        "filters": {"rec_name": {"$eq": "d1"}},
+        "update": False,
+    }
+    env = _Env(
+        {
+            "modulo_dati_persona": docs,
+            "model_fields_rule": _ModelFieldsRuleModel([read_only_rule]),
+            "component": _SysFlagComponentModel(
+                {"modulo_dati_persona": False}
+            ),
+        },
+        session=_session(uid="u1"),
+    )
+    service = Service(env)
+
+    response = asyncio.run(service.load_record("modulo_dati_persona", "d1"))
+
+    assert response.content.readable is True
+    assert response.content.editable is False
+
+
+def test_load_record_non_sys_admin_bypasses_ownership():
+    """Admin bypassa l'enforcement record-level, coerente col bypass legacy
+    di models_groups/models_restricted_fields (diverso dal fields_rule GDPR-
+    style, che non lo concede)."""
+    docs = _RecordModel(
+        "modulo_dati_persona",
+        rows=[{"rec_name": "d1", "owner_uid": "u2", "name": "Other"}],
+    )
+    env = _Env(
+        {
+            "modulo_dati_persona": docs,
+            "model_fields_rule": _ModelFieldsRuleModel(
+                [_owner_only_record_rule()]
+            ),
+            "component": _SysFlagComponentModel(
+                {"modulo_dati_persona": False}
+            ),
+        },
+        session=_session(uid="admin1", is_admin=True),
+    )
+    service = Service(env)
+
+    response = asyncio.run(service.load_record("modulo_dati_persona", "d1"))
+
+    assert response.content.readable is True
+    assert response.content.editable is True
+
+
+def test_load_record_sys_model_bypasses_record_rulse():
+    """Model sys (config condivisa: action/menu_group/settings/user...) non
+    e' soggetto all'enforcement hide/readonly anche se ha lo stesso
+    record_rulse owner-only iniettato di default — l'ownership per-record
+    non ha senso su config condivisa, gia' regolata da models_groups."""
+    docs = _RecordModel(
+        "settings", rows=[{"rec_name": "s1", "owner_uid": "u2", "name": "Cfg"}]
+    )
+    env = _Env(
+        {
+            "settings": docs,
+            "model_fields_rule": _ModelFieldsRuleModel(
+                [_owner_only_record_rule(model="settings")]
+            ),
+            "component": _SysFlagComponentModel({"settings": True}),
+        },
+        session=_session(uid="u1"),
+    )
+    service = Service(env)
+
+    response = asyncio.run(service.load_record("settings", "s1"))
+
+    assert response.content.readable is True
+    assert response.content.editable is True
+
+
+def test_load_record_unknown_sys_flag_fails_open_bypasses_enforcement():
+    """Se il lookup del component fallisce (non registrato/errore), il
+    model e' trattato come sys (enforcement saltato) — fail-open per questa
+    feature specifica: il rischio di bloccare per errore config condivisa e'
+    peggiore del rischio di non restringere un record realmente non-sys."""
+    docs = _RecordModel(
+        "modulo_dati_persona",
+        rows=[{"rec_name": "d1", "owner_uid": "u2", "name": "Other"}],
+    )
+    env = _Env(
+        {
+            "modulo_dati_persona": docs,
+            "model_fields_rule": _ModelFieldsRuleModel(
+                [_owner_only_record_rule()]
+            ),
+            # "component" non registrato: env.get("component") solleva KeyError.
+        },
+        session=_session(uid="u1"),
+    )
+    service = Service(env)
+
+    response = asyncio.run(service.load_record("modulo_dati_persona", "d1"))
+
+    assert response.content.readable is True
+    assert response.content.editable is True
+
+
+def test_list_records_non_sys_hides_non_owned_rows():
+    """list_records su model non-sys: le righe non-owned e non coperte da
+    nessuna regola spariscono dalla lista (non solo oscurate a livello di
+    campo) — narrowing lato domain, non post-filter in Python."""
+    docs = _RecordModel(
+        "modulo_dati_persona",
+        rows=[
+            {"rec_name": "d1", "owner_uid": "u1", "name": "Mine"},
+            {"rec_name": "d2", "owner_uid": "u2", "name": "Other"},
+        ],
+    )
+    env = _Env(
+        {
+            "modulo_dati_persona": docs,
+            "model_fields_rule": _ModelFieldsRuleModel(
+                [_owner_only_record_rule()]
+            ),
+            "component": _SysFlagComponentModel(
+                {"modulo_dati_persona": False}
+            ),
+        },
+        session=_session(uid="u1"),
+    )
+    service = Service(env)
+
+    response = asyncio.run(
+        service.list_records(
+            model_name="modulo_dati_persona",
+            query={},
+            order="",
+            skip=0,
+            limit=10,
+        )
+    )
+
+    rec_names = {row["rec_name"] for row in response.content.data}
+    assert rec_names == {"d1"}
+    assert response.content.total_count == 1
+
+
+def test_list_records_non_sys_no_rule_at_all_unrestricted():
+    """Se il model non ha ALCUN record_rulse configurato, resta senza
+    restrizioni (nessuna regressione su model senza fields_rule/record_
+    rulse mai configurate)."""
+    docs = _RecordModel(
+        "modulo_dati_persona",
+        rows=[
+            {"rec_name": "d1", "owner_uid": "u1", "name": "Mine"},
+            {"rec_name": "d2", "owner_uid": "u2", "name": "Other"},
+        ],
+    )
+    env = _Env(
+        {
+            "modulo_dati_persona": docs,
+            "model_fields_rule": _ModelFieldsRuleModel([]),
+            "component": _SysFlagComponentModel(
+                {"modulo_dati_persona": False}
+            ),
+        },
+        session=_session(uid="u1"),
+    )
+    service = Service(env)
+
+    response = asyncio.run(
+        service.list_records(
+            model_name="modulo_dati_persona",
+            query={},
+            order="",
+            skip=0,
+            limit=10,
+        )
+    )
+
+    rec_names = {row["rec_name"] for row in response.content.data}
+    assert rec_names == {"d1", "d2"}
+    assert response.content.total_count == 2
 
 
 def test_apply_session_groups_matches_uid_in_group_users():

@@ -546,9 +546,15 @@ def test_groups_save_action_is_visible_in_form_context():
 
 def test_sys_schemas_have_default_acl_properties_excluding_identity_layer():
     """I record sys esistenti in components.json (esclusa identity layer:
-    user/groups/group_users, accesso solo admin) devono avere models_groups/
-    models_restricted_fields di default gia' valorizzati — coerenti con
-    quanto normalize_component_properties inietta per i nuovi record."""
+    groups/group_users/model_groups_rule/model_fields_rule, accesso solo
+    admin) devono avere models_groups/models_restricted_fields di default
+    gia' valorizzati — coerenti con quanto normalize_component_properties
+    inietta per i nuovi record.
+
+    "user" e' identity layer ma NON e' escluso come gli altri: porta
+    volutamente fields_rule/record_rulse (GDPR codicefiscale, ownership)
+    configurati per l'enforcement ACL — vedi [[acl-groups-models-groups-
+    property]]. Gli altri quattro restano puramente admin-only."""
     from app.core.OzonEnvApp import IDENTITY_MODEL_NAMES
     from app.core.OzonEnvApp import _DEFAULT_MODELS_GROUPS_SYS
     from app.core.OzonEnvApp import _DEFAULT_MODELS_RESTRICTED_FIELDS
@@ -562,6 +568,8 @@ def test_sys_schemas_have_default_acl_properties_excluding_identity_layer():
     for component in sys_components:
         rec_name = component["rec_name"]
         properties = component.get("properties") or {}
+        if rec_name == "user":
+            continue
         if rec_name in IDENTITY_MODEL_NAMES:
             assert "models_groups" not in properties, rec_name
             assert "models_restricted_fields" not in properties, rec_name

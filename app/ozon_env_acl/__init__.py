@@ -837,6 +837,102 @@ def evaluate_record_rule_override(
     return None
 
 
+_RECORD_ACTION_KEYS: tuple[str, ...] = ("read", "create", "update", "delete")
+_FULL_RECORD_ACCESS: dict[str, bool] = {key: True for key in _RECORD_ACTION_KEYS}
+_NO_RECORD_ACCESS: dict[str, bool] = {key: False for key in _RECORD_ACTION_KEYS}
+
+
+def evaluate_record_rule_access(
+    record_rulse: list[dict[str, Any]],
+    *,
+    record: dict[str, Any],
+    resolve_var: Any,
+) -> dict[str, bool] | None:
+    """Valuta `record_rulse` (rule_type="record") contro UN record e ritorna
+    le azioni concesse (read/create/update/delete) dalla PRIMA regola che
+    matcha, o None se nessuna regola matcha.
+
+    Stessa matching logic (filtri risolti via resolve_var + _record_matches_
+    filters) di evaluate_record_rule_override, ma legge il campo azioni della
+    riga invece di restricted_fields — vista diversa della stessa riga
+    model_fields_rule. None (nessun match) e' fail-closed: il chiamante
+    (record_rule_access) nega tutto, non concede la baseline."""
+    if not record_rulse or not isinstance(record, dict):
+        return None
+    rec_name = record.get("rec_name")
+    for index, rule in enumerate(record_rulse):
+        raw_filters = rule.get("filters") or {}
+        resolved_filters = resolve_var(raw_filters) if raw_filters else {}
+        if not isinstance(resolved_filters, dict) or not resolved_filters:
+            continue
+        if _record_matches_filters(record, resolved_filters):
+            actions = {
+                key: bool(rule.get(key, False)) for key in _RECORD_ACTION_KEYS
+            }
+            logger.debug(
+                "acl.record_rule_access rec_name=%s rule=%s MATCH -> %s",
+                rec_name,
+                index,
+                actions,
+            )
+            return actions
+    logger.debug(
+        "acl.record_rule_access rec_name=%s nessuna regola matcha", rec_name
+    )
+    return None
+
+
+def record_rule_access(
+    *,
+    record_rulse: list[dict[str, Any]],
+    record: dict[str, Any],
+    resolve_var: Any,
+    is_admin: bool,
+) -> dict[str, bool]:
+    """Azioni concesse (read/create/update/delete) su UN record gia' caricato,
+    secondo record_rulse — apertura/accesso a documenti non di proprieta'.
+
+    Fail-closed: se il model ha record_rulse configurato e nessuna regola
+    matcha il record (non e' il tuo record, non sei nel gruppo coperto),
+    nega tutto — niente fallback alla baseline (a differenza del field-
+    masking, qui "nessun match" e' proprio negazione di accesso al record).
+    Se il model non ha record_rulse, resta senza restrizioni. Admin bypassa
+    sempre (coerente col bypass legacy di models_groups/models_restricted_
+    fields — diverso dal fields_rule GDPR-style, che non lo concede)."""
+    if is_admin or not record_rulse:
+        return dict(_FULL_RECORD_ACCESS)
+    granted = evaluate_record_rule_access(
+        record_rulse, record=record, resolve_var=resolve_var
+    )
+    if granted is None:
+        return dict(_NO_RECORD_ACCESS)
+    return granted
+
+
+def record_rule_read_domain(
+    record_rulse: list[dict[str, Any]],
+    *,
+    resolve_var: Any,
+) -> dict[str, Any]:
+    """Domain mongo che restringe una query alle sole righe leggibili secondo
+    record_rulse, per un attore NON admin — OR dei filtri risolti (gia'
+    scoped sull'utente corrente via resolve_var) di ogni regola con
+    read=True. Se nessuna regola concede read, ritorna un domain che non
+    matcha nulla (fail-closed: un OR vuoto in mongo matcherebbe tutto, qui
+    deve invece nascondere tutto)."""
+    clauses: list[dict[str, Any]] = []
+    for rule in record_rulse:
+        if not rule.get("read", False):
+            continue
+        raw_filters = rule.get("filters") or {}
+        resolved = resolve_var(raw_filters) if raw_filters else {}
+        if isinstance(resolved, dict) and resolved:
+            clauses.append(resolved)
+    if not clauses:
+        return {"rec_name": {"$in": []}}
+    return {"$or": clauses}
+
+
 def _read_path(payload: Any, field_path: str) -> Any:
     if not _is_traversable(payload):
         return None

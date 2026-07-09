@@ -32,6 +32,8 @@ from app.ozon_env_acl import apply_record_rule_override
 from app.ozon_env_acl import compile_field_acl_policies
 from app.ozon_env_acl import enforce_write_acl
 from app.ozon_env_acl import obfuscate_fields_in_place
+from app.ozon_env_acl import record_rule_access
+from app.ozon_env_acl import record_rule_read_domain
 from app.ozon_env_acl import synth_policies_from_component_properties
 
 logger = logging.getLogger("uvicorn.error")
@@ -235,6 +237,7 @@ class Service:
         self.webhooks = WebhookDispatcher.from_settings(get_env_settings())
         self._compiled_field_acl: CompiledFieldAcl | None = None
         self._record_rulse_cache: dict[str, list[dict[str, Any]]] = {}
+        self._sys_model_cache: dict[str, bool] = {}
         self.date_engine = DateEngineApp()
         logger.info(
             "service initialized app_code=%s",
@@ -1058,6 +1061,19 @@ class Service:
         )
         record_model = self._get_model(model_name)
         domain = record_model.get_domain(query)
+        record_rulse = await self._get_record_rulse(model_name)
+        is_admin = bool(getattr(self.session, "is_admin", False))
+        is_sys_model = await self._is_sys_model(model_name)
+        if record_rulse and not is_admin and not is_sys_model:
+            read_domain = record_rule_read_domain(
+                record_rulse, resolve_var=self._resolve_query_json_logic_vars
+            )
+            domain = _merge_query(domain, read_domain)
+            logger.info(
+                "acl.list_records model=%s record_rulse read-scope domain narrowed=%s",
+                model_name,
+                domain,
+            )
         total_count = await record_model.count(domain=domain)
         acl = await self._get_compiled_field_acl()
         denied_read_fields, obfuscate_read_fields = acl.read_masks(
@@ -1079,7 +1095,6 @@ class Service:
             total_count,
             domain,
         )
-        record_rulse = await self._get_record_rulse(model_name)
         logger.info(
             "acl.list_records model=%s record_rulse_count=%s stream=%s",
             model_name,
@@ -1422,6 +1437,29 @@ class Service:
         record_model = self._get_model(model)
         raw_record = await record_model.by_name(rec_name)
         original_dict = _record_to_dict(raw_record)
+        record_rulse = await self._get_record_rulse(model)
+        is_admin = bool(getattr(self.session, "is_admin", False))
+        is_sys_model = await self._is_sys_model(model)
+        record_access = record_rule_access(
+            record_rulse=record_rulse,
+            record=original_dict,
+            resolve_var=self._resolve_query_json_logic_vars,
+            is_admin=is_admin or is_sys_model,
+        )
+        logger.info(
+            "acl.load_record model=%s rec_name=%s is_admin=%s is_sys_model=%s record_rulse_count=%s access=%s",
+            model,
+            rec_name,
+            is_admin,
+            is_sys_model,
+            len(record_rulse),
+            record_access,
+        )
+        if not record_access["read"]:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Record '{rec_name}' not found",
+            )
         acl = await self._get_compiled_field_acl()
         record, obfuscate_fields = acl.apply_read(
             model_key=model,
@@ -1434,7 +1472,6 @@ class Service:
             rec_name,
             obfuscate_fields,
         )
-        record_rulse = await self._get_record_rulse(model)
         if record_rulse:
             obfuscated_dict = _record_to_dict(record)
             obfuscate_fields = apply_record_rule_override(
@@ -1458,7 +1495,13 @@ class Service:
         )
         if isinstance(read_hook.payload, dict):
             record = read_hook.payload
-        response = make_response_object(record_model, mode="form", data=record)
+        response = make_response_object(
+            record_model,
+            mode="form",
+            data=record,
+            readable=record_access["read"],
+            editable=record_access["update"],
+        )
         response.content.obfucated_fields = obfuscate_fields
         return response
 
@@ -1930,6 +1973,10 @@ class Service:
                             "filters": _safe_json_dict(data.get("filters")),
                             "restricted_fields": data.get("restricted_fields")
                             or [],
+                            "read": bool(data.get("read", False)),
+                            "create": bool(data.get("create", False)),
+                            "update": bool(data.get("update", False)),
+                            "delete": bool(data.get("delete", False)),
                         }
                     )
         except Exception:
@@ -1946,6 +1993,37 @@ class Service:
         )
         self._record_rulse_cache[model_key] = record_rulse
         return record_rulse
+
+    async def _is_sys_model(self, model_key: str) -> bool:
+        """True se il component che definisce `model_key` ha `sys=True`
+        (config applicativa condivisa: action, menu_group, settings, user,
+        ecc. — vedi IDENTITY_MODEL_NAMES/_DEFAULT_MODELS_GROUPS_SYS in
+        app.core.OzonEnvApp). Questi NON sono "documenti" di un singolo
+        utente: l'ownership per-record non ha senso li', sono gia' regolati
+        per gruppo da models_groups. L'enforcement hide/readonly di
+        record_rulse (record_rule_access) si applica solo ai model non-sys
+        (dati applicativi/plugin: modulo_dati_persona, ext_service, ecc.) —
+        altrimenti la regola owner_uid iniettata di default da
+        normalize_component_properties su OGNI component nasconderebbe
+        config condivisa a chiunque non ne sia il creatore.
+
+        Fail-open a True (sys, quindi enforcement SALTATO) se il lookup
+        fallisce o il model non ha un component registrato: qui il rischio
+        di rottura (bloccare per errore config condivisa) e' peggiore del
+        rischio di non restringere un record realmente non-sys."""
+        if model_key in self._sys_model_cache:
+            return self._sys_model_cache[model_key]
+        is_sys = True
+        try:
+            component_model = self.env.get("component")
+            if component_model is not None:
+                component = await component_model.by_name(model_key)
+                if component is not None:
+                    is_sys = bool(component.sys)
+        except Exception:
+            logger.warning("_is_sys_model lookup failed model=%s", model_key)
+        self._sys_model_cache[model_key] = is_sys
+        return is_sys
 
     async def _get_compiled_field_acl(self) -> CompiledFieldAcl:
         cached = getattr(self.session, "compiled_field_acl", None)
