@@ -11464,14 +11464,16 @@
       {
         "label": "Restricted Fields",
         "description": "Lista JSON dei campi ristretti (solo rule_type=fields).",
-        "autoExpand": false,
         "tableView": false,
         "key": "restricted_fields",
-        "properties": {
-          "jeditor": "y"
-        },
-        "type": "textarea",
-        "input": true
+        "properties": {},
+        "type": "select",
+        "input": true,
+        "multiple": true,
+        "dataSrc": "values",
+        "data": {
+          "values": []
+        }
       },
       {
         "label": "Filters",
