@@ -33,7 +33,9 @@ class _AppService(OzonEnvApiService):
         from app.deps.app_env import sync_app_settings_startup
 
         await sync_app_settings_startup()
-        installer = PluginInstaller(cfg=_build_ozon_cfg())
+        installer = PluginInstaller(
+            cfg=_build_ozon_cfg(), app_code=settings.app_code
+        )
         await installer.run(
             discover_plugins(
                 plugins_dir=settings.plugins_folder,

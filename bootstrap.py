@@ -183,7 +183,7 @@ async def run(args: argparse.Namespace) -> None:
 
     log.info("[3/4] installo plugin nel DB...")
     cfg = _build_ozon_cfg()
-    await PluginInstaller(cfg=cfg).run(plugins)
+    await PluginInstaller(cfg=cfg, app_code=settings.app_code).run(plugins)
     log.info("[3/4] plugin installati")
 
     log.info("[4/4] seed settings uid=%s ...", args.admin)
