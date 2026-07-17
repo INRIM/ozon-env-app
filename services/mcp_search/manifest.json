@@ -1,0 +1,18 @@
+{
+  "code": "mcp_search",
+  "kind": "mcp-server",
+  "network": "ozn-network",
+  "shared_volumes": [],
+  "env_requires": [
+    "MCP_SEARCH_OZON_BASE_URL"
+  ],
+  "endpoint": "/mcp",
+  "image": "ozonapp.mcp_search:latest",
+  "build_context": ".",
+  "repo": "",
+  "version": "local",
+  "compose_file": "docker-compose.yml",
+  "health": {
+    "type": "docker-healthcheck"
+  }
+}

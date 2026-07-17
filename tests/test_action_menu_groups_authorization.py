@@ -94,10 +94,30 @@ def test_schema_components_have_groups_field():
 
 
 def test_is_action_allowed():
-    # Setup ActionRuntime
+    # Setup ActionRuntime. _is_action_allowed e' async: per le action
+    # admin/sys senza gruppo esplicito, la visibilita' passa ora da
+    # Service._get_model_group_access (model_groups_rule), non da un
+    # euristica hardcoded — questo fake riproduce il fail-closed reale:
+    # "user" e' un IDENTITY_MODEL_NAME (nessuna riga mai sintetizzata di
+    # default -> nega tutti i non-admin), "standard" ha una riga che
+    # concede read a technical_operator (comportamento sys di default).
     service = SimpleNamespace(
         session=FakeUserSession(is_admin=False, groups=["technical_operator"])
     )
+
+    async def _fake_model_group_access(model_name):
+        no_access = {
+            "read": False, "create": False, "update": False,
+            "delete": False, "export": False,
+        }
+        if service.session.is_admin:
+            return {k: True for k in no_access}
+        groups = set(service.session.user.get("groups", []))
+        if model_name == "standard" and "technical_operator" in groups:
+            return {**no_access, "read": True}
+        return no_access
+
+    service._get_model_group_access = _fake_model_group_access
     runtime = ActionRuntime(service)
 
     # 1. Admin action on identity layer is not allowed for technical_operator
@@ -107,7 +127,7 @@ def test_is_action_allowed():
         model="user",
         groups=[]
     )
-    assert runtime._is_action_allowed(action_user) is False
+    assert asyncio.run(runtime._is_action_allowed(action_user)) is False
 
     # 2. Admin action on standard model is allowed for technical_operator
     action_std = SimpleNamespace(
@@ -116,7 +136,7 @@ def test_is_action_allowed():
         model="standard",
         groups=[]
     )
-    assert runtime._is_action_allowed(action_std) is True
+    assert asyncio.run(runtime._is_action_allowed(action_std)) is True
 
     # 3. Action with explicit group restriction is allowed if user belongs to the group
     action_explicit = SimpleNamespace(
@@ -126,17 +146,17 @@ def test_is_action_allowed():
         groups=["special_operator"]
     )
     # user is technical_operator, not special_operator -> False
-    assert runtime._is_action_allowed(action_explicit) is False
+    assert asyncio.run(runtime._is_action_allowed(action_explicit)) is False
 
     # user has special_operator -> True
     service.session.user["groups"] = ["special_operator"]
-    assert runtime._is_action_allowed(action_explicit) is True
+    assert asyncio.run(runtime._is_action_allowed(action_explicit)) is True
 
     # 4. Admin is always allowed
     service.session.is_admin = True
     service.session.user["groups"] = []
-    assert runtime._is_action_allowed(action_user) is True
-    assert runtime._is_action_allowed(action_explicit) is True
+    assert asyncio.run(runtime._is_action_allowed(action_user)) is True
+    assert asyncio.run(runtime._is_action_allowed(action_explicit)) is True
 
 
 def test_is_menu_group_allowed():

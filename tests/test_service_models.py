@@ -152,7 +152,11 @@ class _MissingModelEnv:
     def __init__(self):
         self.user_session = SimpleNamespace(
             app_code="demo",
-            is_admin=False,
+            # admin: questi test esercitano side-effect dell'upsert su
+            # "component" (sync/menu-dashboard), non l'ACL a livello di
+            # model — model_groups_rule (fail-closed per i non-admin) non
+            # e' quello sotto test qui.
+            is_admin=True,
             uid="u1",
             user={"uid": "u1"},
         )

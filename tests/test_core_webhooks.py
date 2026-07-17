@@ -74,6 +74,10 @@ class _Env:
         self.user_session = SimpleNamespace(
             app_code="demo",
             uid="u1",
+            # admin: questo test esercita il webhook data.before_write, non
+            # l'ACL a livello di model (model_groups_rule, fail-closed per
+            # i non-admin, non e' registrato in questo env fake).
+            is_admin=True,
             user={"uid": "u1"},
         )
         self.orm = SimpleNamespace(app_settings=SimpleNamespace(admins=[]))

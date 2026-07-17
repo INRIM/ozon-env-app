@@ -15,10 +15,17 @@ _RUNTIME_MODEL_NAME_RE = re.compile(RUNTIME_MODEL_NAME_PATTERN)
 # Identity layer: stessa definizione usata in app.services.action_runtime
 # (_is_action_allowed) — modelli esclusi dai default models_groups/
 # models_restricted_fields perche' gestiti a mano (accesso solo admin).
-# model_groups_rule/model_fields_rule sono le tabelle flat del motore ACL
-# stesso: devono restare admin-only per costruzione (deny-by-default).
+# model_groups_rule/model_fields_rule/field_acl_policy sono le tabelle del
+# motore ACL stesso: devono restare admin-only per costruzione (deny-by-default).
 IDENTITY_MODEL_NAMES = frozenset(
-    {"user", "groups", "group_users", "model_groups_rule", "model_fields_rule"}
+    {
+        "user",
+        "groups",
+        "group_users",
+        "model_groups_rule",
+        "model_fields_rule",
+        "field_acl_policy",
+    }
 )
 
 _DEFAULT_MODELS_RESTRICTED_FIELDS: dict[str, Any] = {

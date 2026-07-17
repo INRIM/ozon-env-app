@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
 import re
+import shutil
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
@@ -52,25 +55,36 @@ def _validate_attachment_id(attachment_id: str) -> str:
     return normalized
 
 
-async def read_upload_content(
+async def stage_upload_to_tmp(
     upload: UploadFile,
     *,
     max_bytes: int,
-) -> bytes:
-    chunks: list[bytes] = []
+    tmp_dir: Path,
+) -> tuple[Path, int]:
+    """Scrive l'upload in /tmp (staging area per la scansione ClamAV) senza
+    tenerlo tutto in RAM. Il chiamante e' responsabile di spostare o
+    cancellare il file restituito."""
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    fd, raw_name = tempfile.mkstemp(dir=tmp_dir, prefix="upload-")
+    tmp_path = Path(raw_name)
     size = 0
-    while True:
-        chunk = await upload.read(_CHUNK_SIZE)
-        if not chunk:
-            break
-        size += len(chunk)
-        if size > max_bytes:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail="File exceeds configured upload limit",
-            )
-        chunks.append(chunk)
-    return b"".join(chunks)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            while True:
+                chunk = await upload.read(_CHUNK_SIZE)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > max_bytes:
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail="File exceeds configured upload limit",
+                    )
+                handle.write(chunk)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    return tmp_path, size
 
 
 async def first_upload_file(request: Request) -> UploadFile:
@@ -92,34 +106,41 @@ async def save_formio_attachment(
 ) -> dict[str, Any]:
     upload = await first_upload_file(request)
     filename = _safe_filename(upload.filename or "")
-    content = await read_upload_content(
+    tmp_path, size = await stage_upload_to_tmp(
         upload,
         max_bytes=settings.max_upload_size_bytes,
+        tmp_dir=settings.clamav_tmp_dir,
     )
 
     try:
-        scan = await scan_upload_non_blocking(ClamAVScanner(settings), content)
-    except AntivirusFileInfectedError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"File infected: {exc.signature}",
-        ) from exc
-    if (
-        scan.status == AttachmentScanStatus.ERROR
-        and settings.clamav_fail_closed
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=scan.signature or "Antivirus scan unavailable",
-        )
+        try:
+            scan = await scan_upload_non_blocking(
+                ClamAVScanner(settings), tmp_path
+            )
+        except AntivirusFileInfectedError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"File infected: {exc.signature}",
+            ) from exc
+        if (
+            scan.status == AttachmentScanStatus.ERROR
+            and settings.clamav_fail_closed
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=scan.signature or "Antivirus scan unavailable",
+            )
 
-    root = _attachment_dir(settings, app_code)
-    root.mkdir(parents=True, exist_ok=True)
-    attachment_id = uuid.uuid4().hex
-    suffix = Path(filename).suffix
-    stored_name = f"{attachment_id}{suffix}"
-    file_path = root / stored_name
-    file_path.write_bytes(content)
+        root = _attachment_dir(settings, app_code)
+        root.mkdir(parents=True, exist_ok=True)
+        attachment_id = uuid.uuid4().hex
+        suffix = Path(filename).suffix
+        stored_name = f"{attachment_id}{suffix}"
+        file_path = root / stored_name
+        shutil.move(str(tmp_path), str(file_path))
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
     content_type = (
         upload.content_type
@@ -132,7 +153,7 @@ async def save_formio_attachment(
         "storage": "url",
         "name": filename,
         "originalName": filename,
-        "size": len(content),
+        "size": size,
         "type": content_type,
         "url": url,
         "path": url,

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import struct
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
+
+from aioclamd import BufferTooLongError
+from aioclamd import ClamdAsyncClient
+from aioclamd import ClamdError
 
 from app.app_settings import EnvSettings
 from app.core.models import AttachmentScanStatus
@@ -32,33 +36,30 @@ class AntivirusScanResult:
     engine: str = "clamav"
 
 
-def parse_clamav_response(response: str) -> AntivirusScanResult:
-    message = response.strip("\0 \n\r\t")
-    if not message:
+def _parse_instream_result(result: dict | None) -> AntivirusScanResult:
+    if not result:
         raise AntivirusUnavailableError("ClamAV returned an empty response")
 
-    if message.endswith("OK"):
+    _, (status, reason) = next(iter(result.items()))
+
+    if status == "OK":
         return AntivirusScanResult(
             status=AttachmentScanStatus.CLEAN,
             signature="",
             scanned_at=now_utc(),
         )
 
-    if message.endswith("FOUND"):
-        _, _, signature = message.partition(":")
-        infected_signature = signature.removesuffix("FOUND").strip(" :")
-        raise AntivirusFileInfectedError(
-            infected_signature or "unknown-signature"
-        )
+    if status == "FOUND":
+        raise AntivirusFileInfectedError(reason or "unknown-signature")
 
-    raise AntivirusUnavailableError(f"Unexpected ClamAV response: {message}")
+    raise AntivirusUnavailableError(f"Unexpected ClamAV response: {status} {reason}")
 
 
 class ClamAVScanner:
     def __init__(self, settings: EnvSettings) -> None:
         self.settings = settings
 
-    async def scan_bytes(self, content: bytes) -> AntivirusScanResult:
+    async def scan_file(self, file_path: Path) -> AntivirusScanResult:
         if not self.settings.clamav_enabled:
             return AntivirusScanResult(
                 status=AttachmentScanStatus.SKIPPED,
@@ -67,53 +68,36 @@ class ClamAVScanner:
                 engine="clamav-disabled",
             )
 
-        if len(content) > self.settings.clamav_max_stream_bytes:
+        if file_path.stat().st_size > self.settings.clamav_max_stream_bytes:
             raise AntivirusUnavailableError(
                 "File exceeds configured ClamAV streaming limit"
             )
 
-        writer = None
+        client = ClamdAsyncClient(
+            self.settings.clamav_host,
+            self.settings.clamav_port,
+        )
         try:
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(
-                    self.settings.clamav_host,
-                    self.settings.clamav_port,
-                ),
-                timeout=self.settings.clamav_timeout_seconds,
-            )
-            writer.write(b"zINSTREAM\0")
-
-            chunk_size = 64 * 1024
-            for offset in range(0, len(content), chunk_size):
-                chunk = content[offset : offset + chunk_size]
-                writer.write(struct.pack(">I", len(chunk)))
-                writer.write(chunk)
-
-            writer.write(struct.pack(">I", 0))
-            await asyncio.wait_for(
-                writer.drain(),
-                timeout=self.settings.clamav_timeout_seconds,
-            )
-            raw_response = await asyncio.wait_for(
-                reader.readuntil(b"\0"),
-                timeout=self.settings.clamav_timeout_seconds,
-            )
-            return parse_clamav_response(
-                raw_response.decode("utf-8", errors="replace")
-            )
+            with file_path.open("rb") as handle:
+                result = await asyncio.wait_for(
+                    client.instream(handle),
+                    timeout=self.settings.clamav_timeout_seconds,
+                )
         except AntivirusFileInfectedError:
             raise
-        except (OSError, asyncio.TimeoutError, asyncio.IncompleteReadError) as exc:
+        except BufferTooLongError as exc:
+            raise AntivirusUnavailableError(
+                "File exceeds ClamAV StreamMaxLength"
+            ) from exc
+        except (ClamdError, OSError, asyncio.TimeoutError) as exc:
             raise AntivirusUnavailableError("Unable to scan file with ClamAV") from exc
-        finally:
-            if writer is not None:
-                writer.close()
-                await writer.wait_closed()
+
+        return _parse_instream_result(result)
 
 
 async def scan_upload_non_blocking(
     scanner: ClamAVScanner | None,
-    content: bytes,
+    file_path: Path,
 ) -> AntivirusScanResult:
     if scanner is None:
         return AntivirusScanResult(
@@ -123,7 +107,7 @@ async def scan_upload_non_blocking(
             engine="disabled",
         )
     try:
-        return await scanner.scan_bytes(content)
+        return await scanner.scan_file(file_path)
     except AntivirusUnavailableError as exc:
         return AntivirusScanResult(
             status=AttachmentScanStatus.ERROR,

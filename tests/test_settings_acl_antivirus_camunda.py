@@ -115,7 +115,11 @@ class _Env:
         self.user_session = session or SimpleNamespace(
             app_code="demo",
             uid="u1",
-            is_admin=False,
+            # admin: questi test esercitano il motore field_acl_policy
+            # (model_key/field_path/effect), non model_groups_rule (non
+            # registrato in questo env fake, fail-closed per i non-admin
+            # lo bloccherebbe prima ancora del field ACL sotto test).
+            is_admin=True,
             user={
                 "uid": "u1",
                 "user_role": "base",
@@ -209,6 +213,30 @@ def test_env_settings_rejects_fail_closed_stream_limit_smaller_than_upload_limit
             max_upload_size_mb=25,
             clamav_max_stream_mb=10,
         )
+
+
+def test_cookie_secure_defaults_true():
+    settings = EnvSettings(app_code="demo")
+    assert settings.cookie_secure is True
+
+
+def test_session_secret_falls_back_to_stable_random_value_when_unset():
+    """SESSION_SECRET non impostato non deve piu' produrre il vecchio
+    default hardcoded, ma deve restare stabile tra istanze diverse dello
+    stesso processo (get_env_settings() non fa caching, vedi commento su
+    _FALLBACK_SESSION_SECRET in app_settings.py) — altrimenti un cookie
+    firmato in una richiesta non verificherebbe piu' nella successiva."""
+    first = EnvSettings(app_code="demo")
+    second = EnvSettings(app_code="demo")
+
+    assert first.session_secret != "dev-session-secret-change-me"
+    assert first.session_secret == second.session_secret
+    assert len(first.session_secret) >= 32
+
+
+def test_session_secret_honors_explicit_env_value():
+    settings = EnvSettings(app_code="demo", session_secret="explicit-secret")
+    assert settings.session_secret == "explicit-secret"
 
 
 def test_get_env_settings_loads_env_local(tmp_path, monkeypatch):
@@ -385,13 +413,148 @@ def test_field_acl_denies_update_and_audits_attempt():
     assert audit.docs[0]["operation"] == "update"
 
 
-def test_antivirus_unavailable_is_reported_without_blocking_upload():
+def test_list_records_rejects_disallowed_query_operator():
+    customer = _RecordModel(
+        "customer",
+        rows=[{"rec_name": "c1", "name": "Ada", "secret": "classified"}],
+    )
+    env = _Env({"customer": customer})
+    service = Service(env)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            service.list_records(
+                model_name="customer",
+                query={"$where": "this.secret == 'classified'"},
+                order="",
+                skip=0,
+                limit=10,
+            )
+        )
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail["operator"] == "$where"
+
+
+def test_list_records_rejects_query_on_acl_denied_field():
+    customer = _RecordModel(
+        "customer",
+        rows=[{"rec_name": "c1", "name": "Ada", "salary": 100}],
+    )
+    policies = _PolicyModel(
+        [
+            {
+                "model_key": "customer",
+                "field_path": "salary",
+                "operation": "read",
+                "effect": "deny",
+                "actor_selector": "*",
+                "active": True,
+                "deleted": 0,
+            }
+        ]
+    )
+    env = _Env({"customer": customer, "field_acl_policy": policies})
+    service = Service(env)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            service.list_records(
+                model_name="customer",
+                query={"salary": {"$gt": 50}},
+                order="",
+                skip=0,
+                limit=10,
+            )
+        )
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail["fields"] == ["salary"]
+
+
+def test_list_records_rejects_sort_on_acl_denied_field():
+    """order=salary:desc + limit=1 e' lo stesso oracle del filtro: rivela
+    il ranking (quindi il valore) di un campo mascherato in output senza
+    mai leggerlo dal payload di risposta."""
+    customer = _RecordModel(
+        "customer",
+        rows=[{"rec_name": "c1", "name": "Ada", "salary": 100}],
+    )
+    policies = _PolicyModel(
+        [
+            {
+                "model_key": "customer",
+                "field_path": "salary",
+                "operation": "read",
+                "effect": "deny",
+                "actor_selector": "*",
+                "active": True,
+                "deleted": 0,
+            }
+        ]
+    )
+    env = _Env({"customer": customer, "field_acl_policy": policies})
+    service = Service(env)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            service.list_records(
+                model_name="customer",
+                query={},
+                order="salary:desc",
+                skip=0,
+                limit=1,
+            )
+        )
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail["fields"] == ["salary"]
+
+
+def test_list_records_allows_ordinary_query_on_open_field():
+    customer = _RecordModel(
+        "customer",
+        rows=[{"rec_name": "c1", "name": "Ada", "salary": 100}],
+    )
+    policies = _PolicyModel(
+        [
+            {
+                "model_key": "customer",
+                "field_path": "salary",
+                "operation": "read",
+                "effect": "deny",
+                "actor_selector": "*",
+                "active": True,
+                "deleted": 0,
+            }
+        ]
+    )
+    env = _Env({"customer": customer, "field_acl_policy": policies})
+    service = Service(env)
+
+    response = asyncio.run(
+        service.list_records(
+            model_name="customer",
+            query={"name": {"$eq": "Ada"}},
+            order="",
+            skip=0,
+            limit=10,
+        )
+    )
+
+    assert response.content.data[0]["name"] == "Ada"
+
+
+def test_antivirus_unavailable_is_reported_without_blocking_upload(tmp_path):
     class OfflineScanner:
-        async def scan_bytes(self, content):
+        async def scan_file(self, file_path):
             raise AntivirusUnavailableError("clamav offline")
 
+    payload = tmp_path / "payload.bin"
+    payload.write_bytes(b"payload")
+
     result = asyncio.run(
-        scan_upload_non_blocking(OfflineScanner(), b"payload")
+        scan_upload_non_blocking(OfflineScanner(), payload)
     )
 
     assert result.status == AttachmentScanStatus.ERROR

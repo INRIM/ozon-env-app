@@ -684,31 +684,165 @@ class CompiledFieldAcl:
         return True
 
 
-def _model_groups_to_policies(
+# Query field-ACL gate — Mongo non ha privilegi a livello di colonna (a
+# differenza di Postgres/Supabase RLS+column grants): un filtro find()
+# client-controlled puo' leggere il valore reale di un campo mascherato in
+# output da CompiledFieldAcl (apply_read gira DOPO la query, sui dati gia'
+# estratti — vedi Service.list_records). Questo modulo colma il buco
+# rifiutando query che referenziano campi denied/obfuscate per l'attore
+# corrente, PRIMA che la query tocchi il DB.
+#
+# Allowlist, non blocklist: l'obiettivo e' l'estrazione COMPLETA dei field
+# path referenziati in un filtro find-style. Una blocklist di operatori
+# pericolosi ($where/$expr/...) lascerebbe aperti operatori non ancora
+# previsti; un allowlist chiuso rende l'estrazione dei path affidabile per
+# costruzione — qualunque operatore fuori lista viene rifiutato a priori.
+_ALLOWED_QUERY_OPERATORS = frozenset(
+    {
+        "$eq",
+        "$ne",
+        "$in",
+        "$nin",
+        "$gt",
+        "$gte",
+        "$lt",
+        "$lte",
+        "$and",
+        "$or",
+        "$nor",
+        "$not",
+        "$exists",
+        "$all",
+        "$size",
+        "$elemMatch",
+        "$regex",
+        "$options",
+    }
+)
+
+# Operatori il cui valore va ri-attraversato allo STESSO field path corrente
+# (contengono sotto-espressioni sullo stesso campo, non letterali). $all e'
+# incluso perche' puo' annidare $elemMatch (`{field: {$all: [{$elemMatch:
+# {...}}]}}`); per liste di letterali puri la ricorsione e' un no-op.
+_QUERY_OPERATORS_RECURSE_SAME_PATH = frozenset({"$elemMatch", "$not", "$all"})
+# Operatori il cui valore e' una lista di sotto-filtri indipendenti.
+_QUERY_OPERATORS_RECURSE_LIST = frozenset({"$and", "$or", "$nor"})
+
+
+class QueryAclError(Exception):
+    """Base per errori di validazione di un filtro find() client-controlled."""
+
+
+class QueryOperatorNotAllowedError(QueryAclError):
+    def __init__(self, operator: str) -> None:
+        super().__init__(operator)
+        self.operator = operator
+
+
+class QueryFieldAclDeniedError(QueryAclError):
+    def __init__(self, fields: list[str]) -> None:
+        super().__init__(", ".join(fields))
+        self.fields = fields
+
+
+def extract_query_field_paths(query: Any, *, _prefix: str = "") -> set[str]:
+    """Cammina un filtro Mongo find-style (NON una pipeline aggregate)
+    raccogliendo i field path referenziati come chiavi non-operatore.
+    Solleva QueryOperatorNotAllowedError per qualunque operatore fuori da
+    _ALLOWED_QUERY_OPERATORS ($where/$expr/$function/$accumulator inclusi:
+    non c'e' modo affidabile di estrarne i field path referenziati)."""
+    paths: set[str] = set()
+    if isinstance(query, dict):
+        for key, value in query.items():
+            if key.startswith("$"):
+                if key not in _ALLOWED_QUERY_OPERATORS:
+                    raise QueryOperatorNotAllowedError(key)
+                if key in _QUERY_OPERATORS_RECURSE_SAME_PATH:
+                    paths |= extract_query_field_paths(value, _prefix=_prefix)
+                elif key in _QUERY_OPERATORS_RECURSE_LIST:
+                    paths |= extract_query_field_paths(value, _prefix=_prefix)
+                # altri operatori consentiti ($eq/$in/$gt/...) hanno un
+                # valore letterale: nessun field path aggiuntivo da estrarre
+                continue
+            field_path = f"{_prefix}.{key}" if _prefix else key
+            paths.add(field_path)
+            paths |= extract_query_field_paths(value, _prefix=field_path)
+    elif isinstance(query, (list, tuple)):
+        for item in query:
+            paths |= extract_query_field_paths(item, _prefix=_prefix)
+    return paths
+
+
+def assert_query_field_acl(
+    acl: CompiledFieldAcl,
+    *,
     model_key: str,
-    field_path: str,
-    allowed_groups: list[str],
-) -> list[dict[str, Any]]:
-    if not allowed_groups:
-        return []
-    return [
+    query: dict[str, Any] | None,
+    app_key: str = "",
+) -> None:
+    """Rifiuta un filtro find() client-controlled che referenzia campi
+    denied/obfuscate per l'attore corrente (oracle bypass: apply_read
+    maschera solo l'output, non il filtro — vedi commento sopra)."""
+    if not query:
+        return
+    referenced = extract_query_field_paths(query)
+    if not referenced:
+        return
+    denied, obfuscated = acl.read_masks(model_key=model_key, app_key=app_key)
+    blocked = set(denied) | set(obfuscated)
+    if not blocked:
+        return
+    hit = sorted(
         {
-            "model_key": model_key,
-            "field_path": field_path,
-            "operation": operation,
-            "effect": FieldAclEffect.DENY.value,
-            "actor_selector": {
-                "exclude_groups": allowed_groups,
-                "is_admin": False,
-            },
-            "priority": 10,
+            field_path
+            for field_path in referenced
+            if any(_path_matches(b, field_path) for b in blocked)
         }
-        for operation in (
-            FieldAclOperation.READ.value,
-            FieldAclOperation.INSERT.value,
-            FieldAclOperation.UPDATE.value,
-        )
-    ]
+    )
+    if hit:
+        raise QueryFieldAclDeniedError(hit)
+
+
+def extract_order_field_paths(normalized_order: str) -> set[str]:
+    """Estrae i field path da una order string gia' normalizzata
+    'field:asc,field2:desc' (vedi Service._normalize_order). Il sort e' lo
+    stesso oracle del filtro: ordinare su un campo mascherato e navigare
+    skip/limit rivela il ranking (quindi il valore) senza mai leggerlo dal
+    payload di risposta."""
+    paths: set[str] = set()
+    for token in (normalized_order or "").split(","):
+        token = token.strip()
+        if not token:
+            continue
+        field = token.split(":", 1)[0].strip()
+        if field:
+            paths.add(field)
+    return paths
+
+
+def assert_order_field_acl(
+    acl: CompiledFieldAcl,
+    *,
+    model_key: str,
+    normalized_order: str,
+    app_key: str = "",
+) -> None:
+    referenced = extract_order_field_paths(normalized_order)
+    if not referenced:
+        return
+    denied, obfuscated = acl.read_masks(model_key=model_key, app_key=app_key)
+    blocked = set(denied) | set(obfuscated)
+    if not blocked:
+        return
+    hit = sorted(
+        {
+            field_path
+            for field_path in referenced
+            if any(_path_matches(b, field_path) for b in blocked)
+        }
+    )
+    if hit:
+        raise QueryFieldAclDeniedError(hit)
 
 
 def _filter_value_matches(actual: Any, expected: Any) -> bool:
@@ -837,6 +971,45 @@ def evaluate_record_rule_override(
     return None
 
 
+_MODEL_ACTION_KEYS: tuple[str, ...] = ("read", "create", "update", "delete", "export")
+_FULL_MODEL_ACCESS: dict[str, bool] = {key: True for key in _MODEL_ACTION_KEYS}
+_NO_MODEL_ACCESS: dict[str, bool] = {key: False for key in _MODEL_ACTION_KEYS}
+
+
+def model_group_access(
+    model_groups_rule: list[dict[str, Any]],
+    *,
+    actor_groups: Any,
+    is_admin: bool,
+) -> dict[str, bool]:
+    """Azioni concesse (read/create/update/delete/export) a livello di
+    MODEL secondo `model_groups_rule` — righe `(group -> azioni)` per il
+    model gia' filtrato dal chiamante (`Service._get_model_groups_rule`
+    scopa gia' per `app_code`+`model`).
+
+    Fail-closed: se nessuna riga copre un gruppo dell'attore (model senza
+    righe configurate INCLUSO — es. sync mai avvenuto, o model in
+    `IDENTITY_MODEL_NAMES`), nega tutto. Diverso da `record_rulse`/
+    `fields_rule`: qui e' un permesso di tipo CRUD sul MODEL intero, non
+    un dato personale — admin bypassa sempre (coerente con l'enforcement
+    legacy di `models_groups`)."""
+    if is_admin:
+        return dict(_FULL_MODEL_ACCESS)
+    groups = _lower_set(actor_groups)
+    granted = dict(_NO_MODEL_ACCESS)
+    matched = False
+    for row in model_groups_rule or []:
+        group = str(row.get("group") or "").strip().lower()
+        if not group or group not in groups:
+            continue
+        matched = True
+        for key in _MODEL_ACTION_KEYS:
+            granted[key] = granted[key] or bool(row.get(key, False))
+    if not matched:
+        return dict(_NO_MODEL_ACCESS)
+    return granted
+
+
 _RECORD_ACTION_KEYS: tuple[str, ...] = ("read", "create", "update", "delete")
 _FULL_RECORD_ACCESS: dict[str, bool] = {key: True for key in _RECORD_ACTION_KEYS}
 _NO_RECORD_ACCESS: dict[str, bool] = {key: False for key in _RECORD_ACTION_KEYS}
@@ -887,7 +1060,7 @@ def record_rule_access(
     record_rulse: list[dict[str, Any]],
     record: dict[str, Any],
     resolve_var: Any,
-    is_admin: bool,
+    bypass_ownership: bool,
 ) -> dict[str, bool]:
     """Azioni concesse (read/create/update/delete) su UN record gia' caricato,
     secondo record_rulse — apertura/accesso a documenti non di proprieta'.
@@ -896,10 +1069,16 @@ def record_rule_access(
     matcha il record (non e' il tuo record, non sei nel gruppo coperto),
     nega tutto — niente fallback alla baseline (a differenza del field-
     masking, qui "nessun match" e' proprio negazione di accesso al record).
-    Se il model non ha record_rulse, resta senza restrizioni. Admin bypassa
-    sempre (coerente col bypass legacy di models_groups/models_restricted_
-    fields — diverso dal fields_rule GDPR-style, che non lo concede)."""
-    if is_admin or not record_rulse:
+    Se il model non ha record_rulse, resta senza restrizioni.
+
+    `bypass_ownership` NON e' "is_admin": e' vero solo per i model sys
+    (config condivisa, l'ownership per-record non ha senso li' — vedi
+    `Service._is_sys_model`). Un admin puro NON bypassa piu' l'ownership
+    su un model non-sys: coerente col `fields_rule` GDPR-style, che non
+    concede bypass admin — solo una regola che matcha davvero (es. un
+    `actor_selector`/filtro che copre esplicitamente il gruppo admin)
+    concede accesso."""
+    if bypass_ownership or not record_rulse:
         return dict(_FULL_RECORD_ACCESS)
     granted = evaluate_record_rule_access(
         record_rulse, record=record, resolve_var=resolve_var
@@ -985,65 +1164,6 @@ def apply_record_rule_override(
         else:
             final_obfuscated.append(field_path)
     return final_obfuscated
-
-
-def synth_policies_from_component_properties(
-    components: list[Any],
-) -> list[dict[str, Any]]:
-    """Deriva FieldAclPolicy da properties.models_groups/models_restricted_fields, admin esclusi."""
-    synthesized: list[dict[str, Any]] = []
-    for component in components or []:
-        data = _obj_to_dict(component)
-        if not data:
-            continue
-        model_key = str(data.get("rec_name") or "").strip()
-        if not model_key:
-            continue
-        properties = data.get("properties")
-        if isinstance(properties, str):
-            import json
-
-            try:
-                properties = json.loads(properties)
-            except Exception:
-                properties = {}
-        if not isinstance(properties, dict):
-            continue
-
-        # Formato legacy (list/CSV di nomi gruppo) -> policy sintetiche
-        # DENY-by-exclusion. Il nuovo formato {"rules": [...]} (vedi
-        # app.core.OzonEnvApp defaults) e' spec-data per il motore ACL non
-        # ancora costruito: e' un dict, non list/str, quindi qui va ignorato
-        # esplicitamente — altrimenti _as_set lo stringifica in un unico
-        # gruppo-fantasma e nega tutto a tutti i non-admin.
-        models_groups_raw = properties.get("models_groups")
-        if not isinstance(models_groups_raw, dict):
-            allowed_groups = sorted(_as_set(models_groups_raw))
-            synthesized.extend(
-                _model_groups_to_policies(model_key, WILDCARD, allowed_groups)
-            )
-
-        restricted_fields = properties.get("models_restricted_fields")
-        if isinstance(restricted_fields, dict) and not (
-            {"fields_rule", "record_rulse"} & restricted_fields.keys()
-        ):
-            for field_path, field_groups in restricted_fields.items():
-                if not str(field_path or "").strip():
-                    continue
-                field_allowed = sorted(_as_set(field_groups))
-                synthesized.extend(
-                    _model_groups_to_policies(
-                        model_key, str(field_path), field_allowed
-                    )
-                )
-        # Formato nuovo {"fields_rule": ..., "record_rulse": [...]}: la
-        # fonte di verita' per l'enforcement e' `model_fields_rule`
-        # (collection flat, popolata al salva del component da
-        # model_rules_sync.py — component.properties puo' anche non
-        # persistere la config), non component.properties qui. Vedi
-        # Service._load_model_fields_rule_policies /
-        # Service._get_record_rulse.
-    return synthesized
 
 
 def compile_field_acl_policies(

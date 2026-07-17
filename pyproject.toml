@@ -97,12 +97,14 @@ omit = [
 [tool.uv.sources]
 ozon-env = { git = "https://github.com/inrim/ozon-env.git", rev = "4.0.2" }
 ozon-env-api = { git = "https://github.com/INRIM/ozon-env-api.git" }
+aioclamd = { git = "https://github.com/INRIM/aioclamd.git" }
 
 [project]
 name = "ozon-env-app"
 version = "1.0.0"
 requires-python = ">=3.14,<4.0"
 dependencies = [
+    "aioclamd",
     "camunda-orchestration-sdk>=9.0.0",
     "fastapi>=0.116.0",
     "grpcio>=1.66,<2.0",

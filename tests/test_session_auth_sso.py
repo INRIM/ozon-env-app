@@ -226,7 +226,14 @@ def test_build_keycloak_session_reads_sso_tokens_from_headers():
     assert session.sso_token == access_token
     assert session.sso_refresh == "refresh-1"
     assert session.sso_expire is not None
-    assert persisted["sso_refresh"] == "refresh-1"
+    # token/sso_token/sso_refresh sono `exclude=True` su AppSession (vedi
+    # docs/SECURITY_KEYCLOAK_TOKEN_ANALYSIS.it.md): il bundle Keycloak
+    # raw resta disponibile in memoria per la request corrente
+    # (session.sso_refresh sopra) ma non viene piu' scritto nel
+    # documento `user` da questo path.
+    assert "sso_refresh" not in persisted
+    assert "sso_token" not in persisted
+    assert "token" not in persisted
     assert session.uid == "kc.user"
 
 

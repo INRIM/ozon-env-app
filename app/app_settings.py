@@ -1,5 +1,6 @@
 import json
 import os
+import secrets
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,16 @@ from pydantic import AliasChoices
 from pydantic import Field
 from pydantic import field_validator
 from pydantic import model_validator
+
+# Fallback quando SESSION_SECRET non e' impostato — generato una volta a
+# import del modulo, NON per-istanza: `get_env_settings()` costruisce un
+# nuovo `EnvSettings` ad ogni chiamata (nessuna cache), quindi un
+# `default_factory` valutato per-istanza produrrebbe un secret diverso ad
+# ogni richiesta e romperebbe la verifica delle firme itsdangerous tra una
+# richiesta e l'altra. Stabile per la vita del processo, sconosciuto
+# dall'esterno (a differenza del vecchio default hardcoded) — vedi
+# docs/SECURITY_KEYCLOAK_TOKEN_ANALYSIS.it.md finding #5.
+_FALLBACK_SESSION_SECRET = secrets.token_urlsafe(32)
 
 
 def _iter_env_aliases(field_name: str, alias: Any) -> list[str]:
@@ -235,12 +246,20 @@ class EnvSettings(OzonEnvCoreSettings):
         validation_alias="EXTERNAL_BASE_URL",
     )
 
+    # Se SESSION_SECRET non e' impostato, i cookie firmati restano
+    # comunque non forgeable da chi conosce solo il codice sorgente (vedi
+    # _FALLBACK_SESSION_SECRET sopra), al prezzo di invalidare le sessioni
+    # esistenti ad ogni riavvio del processo — E di rompere la verifica tra
+    # worker/repliche diversi (ognuno genera il proprio fallback), quindi
+    # e' un net positivo solo per run singolo-processo/dev. Va impostato
+    # esplicitamente per qualunque deploy con web_concurrency > 1 o piu'
+    # repliche (gia' richiesto da ansible-deploy).
     session_secret: str = Field(
-        default="dev-session-secret-change-me",
+        default_factory=lambda: _FALLBACK_SESSION_SECRET,
         validation_alias="SESSION_SECRET",
     )
     cookie_secure: bool = Field(
-        default=False, validation_alias="COOKIE_SECURE"
+        default=True, validation_alias="COOKIE_SECURE"
     )
     auth_cookie_name: str = Field(
         default="ozon_session", validation_alias="AUTH_COOKIE_NAME"
@@ -454,6 +473,9 @@ class EnvSettings(OzonEnvCoreSettings):
     clamav_max_stream_mb: int = Field(
         default=25,
         validation_alias="CLAMAV_MAX_STREAM_MB",
+    )
+    clamav_tmp_dir: Path = Field(
+        default=Path("/tmp"), validation_alias="CLAMAV_TMP_DIR"
     )
 
     plugins_folder: Path = Field(

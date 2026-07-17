@@ -6,7 +6,6 @@ from typing import Any
 from fastapi import HTTPException
 from ozonenv.core.BaseModels import CoreModel
 
-from app.core.OzonEnvApp import IDENTITY_MODEL_NAMES
 from app.core.OzonEnvApp import RUNTIME_MODEL_NAME_PATTERN
 from app.services.common import ResponseObjectData
 from app.services.common import make_response_object
@@ -83,7 +82,7 @@ class ActionRuntime:
     def __init__(self, service):
         self.service = service
 
-    def _is_action_allowed(self, action: CoreModel) -> bool:
+    async def _is_action_allowed(self, action: CoreModel) -> bool:
         session = getattr(self.service, "session", None)
         if not session:
             return True
@@ -107,14 +106,19 @@ class ActionRuntime:
             # If groups are explicitly set, the user must belong to at least one of them
             return bool(user_groups & action_groups)
 
-        # By default check sys/admin actions
+        # Nessun override esplicito: per le action sys/admin, la visibilita'
+        # e' decisa dal gate CRUD model-level (model_groups_rule) sul model
+        # target dell'action, non piu' da un euristica hardcoded — un
+        # model in IDENTITY_MODEL_NAMES resta admin-only "gratis" perche'
+        # normalize_component_properties non gli inietta mai default
+        # models_groups (nessuna riga -> model_group_access fail-closed
+        # nega tutti i non-admin), senza bisogno di un check dedicato qui.
         if getattr(action, "admin", False) or getattr(action, "sys", False):
             model_name = getattr(action, "model", "") or ""
-            if model_name in IDENTITY_MODEL_NAMES:
-                # Identity layer: accessible only to admin
-                return False
-            # Other system actions: accessible to admin and technical_operator
-            return "technical_operator" in user_groups
+            if not model_name:
+                return "technical_operator" in user_groups
+            access = await self.service._get_model_group_access(model_name)
+            return bool(access.get("read", False))
 
         return True
 
@@ -205,7 +209,7 @@ class ActionRuntime:
                     continue
 
                 # --- permission checks ---
-                if not self._is_action_allowed(action):
+                if not await self._is_action_allowed(action):
                     continue
                 if action.write_access and is_public:
                     continue
@@ -324,7 +328,7 @@ class ActionRuntime:
                 readable=False,
                 editable=False,
             )
-        if not self._is_action_allowed(action):
+        if not await self._is_action_allowed(action):
             raise HTTPException(
                 status_code=403,
                 detail=f"Action '{action_name}' is restricted",
@@ -516,7 +520,7 @@ class ActionRuntime:
                 readable=False,
                 editable=False,
             )
-        if not self._is_action_allowed(action):
+        if not await self._is_action_allowed(action):
             raise HTTPException(
                 status_code=403,
                 detail=f"Action '{action_name}' is restricted",
@@ -626,7 +630,7 @@ class ActionRuntime:
                 readable=False,
                 editable=False,
             )
-        if not self._is_action_allowed(action):
+        if not await self._is_action_allowed(action):
             raise HTTPException(
                 status_code=403,
                 detail=f"Action '{action_name}' is restricted",

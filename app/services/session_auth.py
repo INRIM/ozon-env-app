@@ -90,7 +90,18 @@ async def build_keycloak_session(
     created_at, expires_at = _session_window(ozon_env)
     now_ts = datetime.now().timestamp()
 
-    existing_token = str(user_dict.get("token") or "").strip()
+    # `user.token` puo' essere un dict (bundle Keycloak raw scritto da
+    # ozonenv.core.OzonOrm.persist_user_token ad ogni richiesta autenticata
+    # in modalita' bearer/keycloak, vedi docs/SECURITY_KEYCLOAK_TOKEN_ANALYSIS.it.md
+    # finding #7) invece della stringa opaca che questo path si aspetta —
+    # in quel caso str(dict) produrrebbe un id-spazzatura, quindi si
+    # rigenera un id nuovo invece di riusare un valore non-stringa.
+    raw_existing_token = user_dict.get("token")
+    existing_token = (
+        raw_existing_token.strip()
+        if isinstance(raw_existing_token, str)
+        else ""
+    )
 
     payload = user_dict.copy()
     payload.update(
@@ -313,7 +324,7 @@ def _resolve_expire_datetime(tokens: dict[str, Any]) -> datetime | None:
     raw_expires_in = tokens.get("expires_in")
     try:
         expires_in = int(raw_expires_in)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         expires_in = 0
     if expires_in > 0:
         return datetime.now(timezone.utc) + timedelta(seconds=expires_in)
@@ -494,7 +505,7 @@ def _full_name(user_snapshot: dict[str, Any]) -> str:
 def _int_value(value: Any) -> int:
     try:
         return int(value or 0)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return 0
 
 
@@ -516,7 +527,7 @@ def _session_window(ozon_env: OzonEnv) -> tuple[datetime, datetime]:
     tz = getattr(app_settings, "tz", "Europe/Rome")
     try:
         expire_hours = int(session_expire_hours or 12)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         expire_hours = 12
     dte = DateEngineApp(TZ=tz)
     return dte.gen_datetime_min_max_hours(

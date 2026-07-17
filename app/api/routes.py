@@ -154,6 +154,8 @@ async def get_session(
         getattr(ozon_env.user_session, "app_code", ""),
     )
     session_data = ozon_env.user_session.get_dict()
+    for sensitive_key in ("token", "sso_token", "sso_refresh", "claims"):
+        session_data.pop(sensitive_key, None)
     logger.info("get session response ready")
     return session_data
 

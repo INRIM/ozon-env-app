@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from app.api import routes as api_routes
 from app.app import app
 from app.app_settings import EnvSettings
+from app.core.models import AttachmentScanStatus
 from app.deps.app_env import get_authed_env
 from app.deps.app_env import get_ozon_env
 from app.deps.app_env import get_service
@@ -280,7 +281,12 @@ def test_get_session():
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["token"] == "ok-token-1"
+    # token/sso_token/sso_refresh/claims non devono mai comparire nella
+    # risposta di /get_session (vedi docs/SECURITY_KEYCLOAK_TOKEN_ANALYSIS.it.md).
+    assert "token" not in body
+    assert "sso_token" not in body
+    assert "sso_refresh" not in body
+    assert "claims" not in body
     assert body["user_uid"] == "U-1"
     assert body["app_code"] == "test-app"
 
@@ -304,7 +310,7 @@ def test_get_session_with_fallback_serializer():
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["token"] == "fallback-token"
+    assert "token" not in body
     assert body["user_uid"] == "U-fallback"
     assert body["app_code"] == "test-app"
     app.dependency_overrides.clear()
@@ -806,6 +812,80 @@ def test_client_attachment_upload_download_delete(monkeypatch, tmp_path):
         headers={"Authorization": "Bearer ok-token"},
     )
     assert missing.status_code == 404
+
+
+def test_client_attachment_upload_infected_destroys_file(monkeypatch, tmp_path):
+    from app.services import antivirus as antivirus_module
+
+    async def _fake_instream(self, buffer):
+        return {"stream": ("FOUND", "Eicar-Test-Signature")}
+
+    monkeypatch.setattr(
+        antivirus_module.ClamdAsyncClient, "instream", _fake_instream
+    )
+
+    upload_root = tmp_path / "uploads"
+    clamav_tmp_dir = tmp_path / "clamav-tmp"
+    factory = Factory()
+    monkeypatch.setattr(
+        api_routes,
+        "get_env_settings",
+        lambda: EnvSettings(
+            app_code="test-app",
+            upload_root=upload_root,
+            clamav_enabled=True,
+            clamav_tmp_dir=clamav_tmp_dir,
+        ),
+    )
+    client = make_client(factory)
+
+    upload = client.post(
+        "/client/attachment",
+        headers={"Authorization": "Bearer ok-token"},
+        files={"file": ("virus.txt", b"infected payload", "text/plain")},
+    )
+
+    assert upload.status_code == 422
+    assert not upload_root.exists() or not any(upload_root.rglob("*"))
+    assert not any(clamav_tmp_dir.glob("upload-*"))
+
+
+def test_client_attachment_upload_clean_scan_stores_file(monkeypatch, tmp_path):
+    from app.services import antivirus as antivirus_module
+
+    async def _fake_instream(self, buffer):
+        return {"stream": ("OK", None)}
+
+    monkeypatch.setattr(
+        antivirus_module.ClamdAsyncClient, "instream", _fake_instream
+    )
+
+    upload_root = tmp_path / "uploads"
+    clamav_tmp_dir = tmp_path / "clamav-tmp"
+    factory = Factory()
+    monkeypatch.setattr(
+        api_routes,
+        "get_env_settings",
+        lambda: EnvSettings(
+            app_code="test-app",
+            upload_root=upload_root,
+            clamav_enabled=True,
+            clamav_tmp_dir=clamav_tmp_dir,
+        ),
+    )
+    client = make_client(factory)
+
+    upload = client.post(
+        "/client/attachment",
+        headers={"Authorization": "Bearer ok-token"},
+        files={"file": ("hello.txt", b"hello world", "text/plain")},
+    )
+
+    assert upload.status_code == 200
+    body = upload.json()
+    assert body["size"] == 11
+    assert body["scan"]["status"] == str(AttachmentScanStatus.CLEAN)
+    assert not any(clamav_tmp_dir.glob("upload-*"))
 
 
 def test_client_record_attachment_download(monkeypatch, tmp_path):

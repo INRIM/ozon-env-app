@@ -28,13 +28,17 @@ from app.core.OzonEnvApp import normalize_component_properties
 from app.core.webhooks import WebhookDispatcher
 from app.services.message_queue import maybe_enqueue_on_save
 from app.ozon_env_acl import CompiledFieldAcl
+from app.ozon_env_acl import QueryFieldAclDeniedError
+from app.ozon_env_acl import QueryOperatorNotAllowedError
 from app.ozon_env_acl import apply_record_rule_override
+from app.ozon_env_acl import assert_order_field_acl
+from app.ozon_env_acl import assert_query_field_acl
 from app.ozon_env_acl import compile_field_acl_policies
 from app.ozon_env_acl import enforce_write_acl
+from app.ozon_env_acl import model_group_access
 from app.ozon_env_acl import obfuscate_fields_in_place
 from app.ozon_env_acl import record_rule_access
 from app.ozon_env_acl import record_rule_read_domain
-from app.ozon_env_acl import synth_policies_from_component_properties
 
 logger = logging.getLogger("uvicorn.error")
 _COMPONENT_RUNTIME_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
@@ -237,6 +241,7 @@ class Service:
         self.webhooks = WebhookDispatcher.from_settings(get_env_settings())
         self._compiled_field_acl: CompiledFieldAcl | None = None
         self._record_rulse_cache: dict[str, list[dict[str, Any]]] = {}
+        self._model_groups_rule_cache: dict[str, list[dict[str, Any]]] = {}
         self._sys_model_cache: dict[str, bool] = {}
         self.date_engine = DateEngineApp()
         logger.info(
@@ -245,6 +250,14 @@ class Service:
         )
 
     def _is_menu_group_allowed(self, group: CoreModel) -> bool:
+        """NON usa model_groups_rule (a differenza di ActionRuntime.
+        _is_action_allowed): un `menu_group` e' una cartella di
+        navigazione che raggruppa action su MODEL diversi (nessun campo
+        `model` sul component `menu_group`, vedi app/base/schema/
+        components.json) — non esiste un singolo model da controllare
+        qui. Il campo `groups`/`admin` sul menu_group resta l'unico
+        meccanismo di visibilita' a questo livello, ortogonale all'ACL
+        dati per model."""
         session = getattr(self, "session", None)
         if not session:
             return True
@@ -970,6 +983,27 @@ class Service:
         )
         model_name = envelope.content.model
         model = self.env.get(model_name)
+        acl = await self._get_compiled_field_acl()
+        try:
+            assert_order_field_acl(
+                acl,
+                model_key=model_name,
+                normalized_order=normalized_order,
+                app_key=str(getattr(self.session, "app_code", "")),
+            )
+        except QueryFieldAclDeniedError as exc:
+            logger.warning(
+                "acl.stream_record model=%s order references ACL-denied fields=%s",
+                model_name,
+                exc.fields,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "message": "Order references ACL-denied fields",
+                    "fields": exc.fields,
+                },
+            ) from exc
         baseline_obfuscate_fields = envelope.content.obfucated_fields or []
         record_rulse = await self._get_record_rulse(model_name)
         logger.info(
@@ -1060,7 +1094,53 @@ class Service:
             resp_stream,
         )
         record_model = self._get_model(model_name)
+        acl = await self._get_compiled_field_acl()
+        app_key = str(getattr(self.session, "app_code", ""))
+        try:
+            assert_query_field_acl(
+                acl, model_key=model_name, query=query, app_key=app_key
+            )
+            assert_order_field_acl(
+                acl,
+                model_key=model_name,
+                normalized_order=normalized_order,
+                app_key=app_key,
+            )
+        except QueryOperatorNotAllowedError as exc:
+            logger.warning(
+                "acl.list_records model=%s query operator not allowed=%s",
+                model_name,
+                exc.operator,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "message": "Query operator not allowed",
+                    "operator": exc.operator,
+                },
+            ) from exc
+        except QueryFieldAclDeniedError as exc:
+            logger.warning(
+                "acl.list_records model=%s query references ACL-denied fields=%s",
+                model_name,
+                exc.fields,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "message": "Query references ACL-denied fields",
+                    "fields": exc.fields,
+                },
+            ) from exc
+
         domain = record_model.get_domain(query)
+        model_access = await self._get_model_group_access(model_name)
+        if not model_access["read"]:
+            domain = _merge_query(domain, {"rec_name": {"$in": []}})
+            logger.info(
+                "acl.list_records model=%s model_access denies read, domain forced empty",
+                model_name,
+            )
         record_rulse = await self._get_record_rulse(model_name)
         is_admin = bool(getattr(self.session, "is_admin", False))
         is_sys_model = await self._is_sys_model(model_name)
@@ -1075,10 +1155,9 @@ class Service:
                 domain,
             )
         total_count = await record_model.count(domain=domain)
-        acl = await self._get_compiled_field_acl()
         denied_read_fields, obfuscate_read_fields = acl.read_masks(
             model_key=model_name,
-            app_key=str(getattr(self.session, "app_code", "")),
+            app_key=app_key,
         )
         read_mask_fields = sorted(
             set(denied_read_fields + obfuscate_read_fields)
@@ -1109,9 +1188,9 @@ class Service:
                 query=domain,
                 fields=fields,
                 batch_size=batch_size,
-                readable=True,
-                editable=True,
-                can_create=True,
+                readable=model_access["read"],
+                editable=model_access["update"],
+                can_create=model_access["create"],
                 total_count=total_count,
             )
             response.content.obfucated_fields = sorted(
@@ -1205,6 +1284,9 @@ class Service:
             data=data,
             query=query,
             total_count=total_count,
+            readable=model_access["read"],
+            editable=model_access["update"],
+            can_create=model_access["create"],
         )
         response.content.obfucated_fields = sorted(
             set(obfuscate_fields or []) | set(applied_obfuscate_fields)
@@ -1234,6 +1316,25 @@ class Service:
         operation = await self._resolve_write_operation(
             record_model, rec_name, data
         )
+        model_access = await self._get_model_group_access(model_name)
+        model_op_key = (
+            "create" if operation == FieldAclOperation.INSERT.value else "update"
+        )
+        if not model_access.get(model_op_key, False):
+            logger.info(
+                "acl.upsert model=%s operation=%s denied by model_groups_rule access=%s",
+                model_name,
+                operation,
+                model_access,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "message": "Model ACL denied",
+                    "model": model_name,
+                    "operation": operation,
+                },
+            )
         write_hook = await self.webhooks.emit(
             "data.before_write",
             context=self._webhook_context(
@@ -1437,6 +1538,7 @@ class Service:
         record_model = self._get_model(model)
         raw_record = await record_model.by_name(rec_name)
         original_dict = _record_to_dict(raw_record)
+        model_access = await self._get_model_group_access(model)
         record_rulse = await self._get_record_rulse(model)
         is_admin = bool(getattr(self.session, "is_admin", False))
         is_sys_model = await self._is_sys_model(model)
@@ -1444,18 +1546,24 @@ class Service:
             record_rulse=record_rulse,
             record=original_dict,
             resolve_var=self._resolve_query_json_logic_vars,
-            is_admin=is_admin or is_sys_model,
+            bypass_ownership=is_sys_model,
         )
+        final_read = model_access["read"] and record_access["read"]
+        final_update = model_access["update"] and record_access["update"]
         logger.info(
-            "acl.load_record model=%s rec_name=%s is_admin=%s is_sys_model=%s record_rulse_count=%s access=%s",
+            "acl.load_record model=%s rec_name=%s is_admin=%s is_sys_model=%s "
+            "model_access=%s record_rulse_count=%s record_access=%s final_read=%s final_update=%s",
             model,
             rec_name,
             is_admin,
             is_sys_model,
+            model_access,
             len(record_rulse),
             record_access,
+            final_read,
+            final_update,
         )
-        if not record_access["read"]:
+        if not final_read:
             raise HTTPException(
                 status_code=404,
                 detail=f"Record '{rec_name}' not found",
@@ -1499,8 +1607,8 @@ class Service:
             record_model,
             mode="form",
             data=record,
-            readable=record_access["read"],
-            editable=record_access["update"],
+            readable=final_read,
+            editable=final_update,
         )
         response.content.obfucated_fields = obfuscate_fields
         return response
@@ -1994,6 +2102,70 @@ class Service:
         self._record_rulse_cache[model_key] = record_rulse
         return record_rulse
 
+    async def _get_model_groups_rule(
+        self, model_key: str
+    ) -> list[dict[str, Any]]:
+        """Righe `model_groups_rule` per `model_key`, scoped per app_code
+        corrente (cache per-request) — fonte di verita' per il gate CRUD a
+        livello di MODEL (`Service._get_model_group_access`), popolata dal
+        sync al salva del component (`app.ozon_env_acl.model_rules_sync`)."""
+        if model_key in self._model_groups_rule_cache:
+            return self._model_groups_rule_cache[model_key]
+        rows: list[dict[str, Any]] = []
+        app_code = str(getattr(self.session, "app_code", "") or "")
+        try:
+            rule_model = self.env.get("model_groups_rule")
+            if rule_model is not None:
+                domain = {
+                    "$and": [
+                        {"app_code": app_code},
+                        {"model": model_key},
+                        {"active": True},
+                        {"deleted": 0},
+                    ]
+                }
+                found = await rule_model.find(domain=domain, limit=0)
+                for row in found or []:
+                    rows.append(_record_to_dict(row))
+        except Exception:
+            logger.warning(
+                "model_groups_rule lookup failed model=%s", model_key
+            )
+            rows = []
+        logger.info(
+            "acl.model_groups_rule model=%s app_code=%s rows_found=%s",
+            model_key,
+            app_code,
+            len(rows),
+        )
+        self._model_groups_rule_cache[model_key] = rows
+        return rows
+
+    async def _get_model_group_access(self, model_key: str) -> dict[str, bool]:
+        """Azioni concesse (read/create/update/delete/export) a livello di
+        MODEL per l'attore corrente, secondo `model_groups_rule` — gate
+        indipendente da `record_rulse`/`fields_rule` (quelli sono per
+        campo/riga, questo e' CRUD sul model intero). Fail-closed se
+        nessuna riga copre un gruppo dell'attore (admin bypassa sempre,
+        vedi `app.ozon_env_acl.model_group_access`)."""
+        rows = await self._get_model_groups_rule(model_key)
+        is_admin = bool(getattr(self.session, "is_admin", False))
+        session_user = getattr(self.session, "user", None)
+        actor_groups = (
+            session_user.get("groups") if isinstance(session_user, dict) else []
+        )
+        access = model_group_access(
+            rows, actor_groups=actor_groups or [], is_admin=is_admin
+        )
+        logger.info(
+            "acl.model_group_access model=%s is_admin=%s groups=%s access=%s",
+            model_key,
+            is_admin,
+            actor_groups,
+            access,
+        )
+        return access
+
     async def _is_sys_model(self, model_key: str) -> bool:
         """True se il component che definisce `model_key` ha `sys=True`
         (config applicativa condivisa: action, menu_group, settings, user,
@@ -2095,40 +2267,13 @@ class Service:
                 policies = []
             break
         static_count = len(policies or [])
-        component_property_policies = (
-            await self._load_component_property_acl_policies()
-        )
         model_fields_rule_policies = await self._load_model_fields_rule_policies()
         logger.info(
-            "acl.load_policies static=%s component_properties=%s model_fields_rule=%s",
+            "acl.load_policies static=%s model_fields_rule=%s",
             static_count,
-            len(component_property_policies),
             len(model_fields_rule_policies),
         )
-        return (
-            list(policies or [])
-            + component_property_policies
-            + model_fields_rule_policies
-        )
-
-    async def _load_component_property_acl_policies(self) -> list[dict[str, Any]]:
-        """FieldAclPolicy sintetiche da component.properties (vedi app.ozon_env_acl)."""
-        try:
-            component_model = self.env.get("component")
-        except Exception:
-            return []
-        if component_model is None:
-            return []
-        try:
-            domain = component_model.get_domain({"active": True, "deleted": 0})
-        except Exception:
-            domain = {"active": True, "deleted": 0}
-        try:
-            components = await component_model.find(domain=domain, limit=0)
-        except Exception:
-            logger.exception("component ACL properties loading failed")
-            return []
-        return synth_policies_from_component_properties(components)
+        return list(policies or []) + model_fields_rule_policies
 
     async def _load_model_fields_rule_policies(self) -> list[dict[str, Any]]:
         """FieldAclPolicy OBFUSCATE sintetiche da `model_fields_rule`

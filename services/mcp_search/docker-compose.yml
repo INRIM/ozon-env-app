@@ -1,0 +1,23 @@
+services:
+  mcp_search:
+    image: ozonapp.mcp_search:latest
+    build:
+      context: .
+    container_name: ozon-env-mcp-search
+    env_file:
+      - path: service.env
+        required: false
+    ports:
+      - "${MCP_SEARCH_PUBLISHED_PORT:-8090}:8090"
+    restart: unless-stopped
+    networks:
+      - default
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  default:
+    external: true
+    name: ${NETWORK}

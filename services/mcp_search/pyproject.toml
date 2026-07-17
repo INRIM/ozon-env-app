@@ -1,0 +1,26 @@
+[project]
+name = "mcp-search"
+version = "0.1.0"
+description = "MCP server: 1 read-only tool (find, no aggregate) proxying ozon-env-app on behalf of the calling user's own forwarded bearer token"
+readme = "README.md"
+requires-python = ">=3.12,<4.0"
+dependencies = [
+    "fastmcp>=3.4,<4",
+    "httpx>=0.28,<1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mcp_search"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

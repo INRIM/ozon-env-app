@@ -57,8 +57,12 @@ async def model_groups_rows(
     """Flatten component.properties.models_groups (formato {"rules": [...]})
     in righe model_groups_rule, una per (app_code, model, group).
 
-    Il formato legacy (list/CSV di nomi gruppo) NON e' un dict: resta sul
-    path synth_policies_from_component_properties, qui viene ignorato.
+    Il formato legacy (list/CSV di nomi gruppo) NON e' un dict: nessun
+    ramo lo gestisce piu' (retirato insieme a
+    synth_policies_from_component_properties, mai popolato dai default
+    correnti) — un component con quel formato NON produce righe qui,
+    quindi il model resta senza righe model_groups_rule per i non-admin
+    (fail-closed, vedi Service._get_model_group_access).
     """
     raw = _parse_dict_property((properties or {}).get("models_groups"))
     if raw is None:
@@ -109,8 +113,10 @@ async def model_fields_rows(
     Chiavi input con typo (resticted_fields, record_rulse) parsate as-is: e'
     il formato scritto da normalize_component_properties/i default seed.
     Il formato legacy {field_path: [groups]} manca di entrambe le chiavi
-    "fields_rule"/"record_rulse": resta sul path synth_policies_..., qui
-    viene ignorato.
+    "fields_rule"/"record_rulse": nessun ramo lo gestisce piu' (retirato
+    insieme a synth_policies_from_component_properties, mai popolato dai
+    default correnti) — un component con quel formato non produce righe
+    qui.
 
     `filters` e' scritto come stringa JSON (campo testo + json editor nel
     form model_fields_rule, coerente con queryformeditable/altri campi

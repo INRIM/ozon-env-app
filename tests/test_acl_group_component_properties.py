@@ -7,7 +7,6 @@ from fastapi import HTTPException
 
 from app.ozon_env_acl import _record_matches_filters
 from app.ozon_env_acl import apply_session_groups
-from app.ozon_env_acl import synth_policies_from_component_properties
 from app.services.service import Service
 
 
@@ -88,23 +87,6 @@ class _RecordModel:
                 yield row.copy()
 
 
-class _ComponentModel:
-    def __init__(self, components):
-        self.components = components
-
-    def get_domain(self, query):
-        return query
-
-    async def find(self, domain, limit=0):
-        return [c.copy() for c in self.components]
-
-    async def by_name(self, name):
-        for component in self.components:
-            if component.get("rec_name") == name:
-                return component.copy()
-        return None
-
-
 class _ModelFieldsRuleModel:
     """Fake per la collection `model_fields_rule` — fonte di verita' letta
     da Service._get_record_rulse/_load_model_fields_rule_policies (NON
@@ -127,6 +109,48 @@ class _ModelFieldsRuleModel:
             return True
 
         return [row.copy() for row in self.rows if matches(row)]
+
+
+class _ModelGroupsRuleModel:
+    """Fake per la collection `model_groups_rule` — fonte di verita' letta
+    da Service._get_model_group_access (gate CRUD a livello di MODEL,
+    fail-closed per i non-admin: senza una riga che copra il gruppo
+    dell'attore, l'accesso e' negato PRIMA di arrivare a fields_rule/
+    record_rulse)."""
+
+    def __init__(self, rows):
+        self.rows = rows
+
+    def get_domain(self, query):
+        return query
+
+    async def find(self, domain, limit=0):
+        clauses = domain.get("$and", [domain]) if isinstance(domain, dict) else []
+
+        def matches(row):
+            for clause in clauses:
+                for key, expected in clause.items():
+                    if row.get(key) != expected:
+                        return False
+            return True
+
+        return [row.copy() for row in self.rows if matches(row)]
+
+
+def _model_group_row(model, group, *, read=True, create=False, update=False,
+                      delete=False, export=False, app_code="demo"):
+    return {
+        "app_code": app_code,
+        "model": model,
+        "group": group,
+        "read": read,
+        "create": create,
+        "update": update,
+        "delete": delete,
+        "export": export,
+        "active": True,
+        "deleted": 0,
+    }
 
 
 class _GroupUsersModel:
@@ -157,6 +181,15 @@ class _UserRuleModel:
 
 
 class _Env:
+    """`model_groups_rule` di default: se il chiamante non registra la
+    propria fake (i test che esercitano davvero il gate model-level lo
+    fanno esplicitamente), sintetizza righe permissive full-CRUD per i
+    gruppi della sessione su ogni model registrato — rappresenta lo
+    stato "sync gia' avvenuto, ACL di default configurata" di una vera
+    installazione, cosi' i test che esercitano fields_rule/record_rulse
+    (un layer DIVERSO e piu' fine) non devono ripetere lo stesso
+    boilerplate model-level in ognuno."""
+
     def __init__(self, models, session):
         self.user_session = session
         self.orm = SimpleNamespace(
@@ -164,7 +197,19 @@ class _Env:
                 module_name="demo", version="1.0.0", logo_img_url=""
             )
         )
-        self._models = models
+        self._models = dict(models)
+        if "model_groups_rule" not in self._models:
+            user = getattr(session, "user", None) or {}
+            groups = user.get("groups") if isinstance(user, dict) else []
+            rows = [
+                _model_group_row(
+                    model_name, group,
+                    read=True, create=True, update=True, delete=True,
+                )
+                for model_name in self._models
+                for group in (groups or [])
+            ]
+            self._models["model_groups_rule"] = _ModelGroupsRuleModel(rows)
         self.db = SimpleNamespace(engine=None)
 
     def get(self, model_name):
@@ -178,99 +223,6 @@ def _session(groups=None, is_admin=False, uid="u1"):
         is_admin=is_admin,
         user={"uid": uid, "groups": groups or []},
     )
-
-
-def test_synth_policies_from_models_groups_deny_non_admin_wildcard():
-    components = [
-        {
-            "rec_name": "customer",
-            "properties": {"models_groups": ["hr", "dpo"]},
-        }
-    ]
-    policies = synth_policies_from_component_properties(components)
-
-    assert len(policies) == 3  # read/insert/update, whole-model field_path "*"
-    for policy in policies:
-        assert policy["model_key"] == "customer"
-        assert policy["field_path"] == "*"
-        assert policy["effect"] == "deny"
-        assert policy["actor_selector"]["exclude_groups"] == ["dpo", "hr"]
-        assert policy["actor_selector"]["is_admin"] is False
-
-
-def test_synth_policies_from_models_restricted_fields_per_field():
-    components = [
-        {
-            "rec_name": "customer",
-            "properties": {
-                "models_restricted_fields": {"salary": ["hr", "manager"]}
-            },
-        }
-    ]
-    policies = synth_policies_from_component_properties(components)
-
-    assert len(policies) == 3
-    for policy in policies:
-        assert policy["field_path"] == "salary"
-        assert policy["actor_selector"]["exclude_groups"] == [
-            "hr",
-            "manager",
-        ]
-
-
-def test_synth_policies_ignores_new_models_groups_rules_shape():
-    """models_groups in formato {"rules": [...]} e' un dict, non list/CSV:
-    _as_set lo stringificherebbe in un gruppo-fantasma e negherebbe tutto a
-    tutti i non-admin. Va ignorato qui — il consumo di questo formato per
-    models_groups passa da model_groups_rule (model_rules_sync), non da
-    synth_policies_from_component_properties. models_restricted_fields nel
-    formato nuovo con fields_rule/record_rulse vuoti non produce invece
-    policy (nessun gruppo/campo da restringere)."""
-    components = [
-        {
-            "rec_name": "customer",
-            "properties": {
-                "models_groups": {
-                    "rules": [{"groups": ["admin"], "actions": {"read": True}}]
-                },
-                "models_restricted_fields": {
-                    "fields_rule": {"resticted_fields": [], "allowed_groups": []},
-                    "record_rulse": [],
-                },
-            },
-        }
-    ]
-
-    policies = synth_policies_from_component_properties(components)
-
-    assert policies == []
-
-
-def test_synth_policies_from_component_properties_ignores_fields_rule():
-    """component.properties.models_restricted_fields.fields_rule NON e'
-    piu' la fonte per l'enforcement (l'utente ha confermato che la config
-    puo' non persistere li' anche a regola attiva): synth_policies_from_
-    component_properties resta un no-op per il formato nuovo, l'unica
-    fonte e' la collection model_fields_rule (vedi
-    Service._load_model_fields_rule_policies, testato sotto)."""
-    components = [
-        {
-            "rec_name": "user",
-            "properties": {
-                "models_restricted_fields": {
-                    "fields_rule": {
-                        "resticted_fields": ["codicefiscale"],
-                        "allowed_groups": [
-                            {"groups": ["gdpr"], "actions": {"read": True}},
-                        ],
-                    },
-                    "record_rulse": [],
-                },
-            },
-        }
-    ]
-
-    assert synth_policies_from_component_properties(components) == []
 
 
 def test_load_model_fields_rule_policies_emits_obfuscate_not_deny():
@@ -338,43 +290,39 @@ def test_load_model_fields_rule_policies_emits_obfuscate_not_deny():
 
 
 def test_models_groups_denies_whole_model_for_non_member_group():
+    """model_groups_rule e' l'unica fonte di verita' per il gate CRUD a
+    livello di MODEL (retirato synth_policies_from_component_properties,
+    che leggeva component.properties direttamente): nessuna riga per il
+    gruppo dell'attore -> fail-closed, 404 (non piu' record svuotato a
+    livello di campo)."""
     customer = _RecordModel("customer", rows=[{"rec_name": "c1", "name": "Ada"}])
-    component = _ComponentModel(
-        [
-            {
-                "rec_name": "customer",
-                "active": True,
-                "deleted": 0,
-                "properties": {"models_groups": ["hr"]},
-            }
-        ]
-    )
     env = _Env(
-        {"customer": customer, "component": component},
+        {
+            "customer": customer,
+            "model_groups_rule": _ModelGroupsRuleModel(
+                [_model_group_row("customer", "hr", read=True)]
+            ),
+        },
         session=_session(groups=["sales"]),
     )
     service = Service(env)
 
-    response = asyncio.run(service.load_record("customer", "c1"))
-
-    assert response.content.data == {}
-    assert response.content.obfucated_fields == []
+    try:
+        asyncio.run(service.load_record("customer", "c1"))
+        assert False, "expected HTTPException 404"
+    except HTTPException as exc:
+        assert exc.status_code == 404
 
 
 def test_models_groups_allows_member_group():
     customer = _RecordModel("customer", rows=[{"rec_name": "c1", "name": "Ada"}])
-    component = _ComponentModel(
-        [
-            {
-                "rec_name": "customer",
-                "active": True,
-                "deleted": 0,
-                "properties": {"models_groups": ["hr"]},
-            }
-        ]
-    )
     env = _Env(
-        {"customer": customer, "component": component},
+        {
+            "customer": customer,
+            "model_groups_rule": _ModelGroupsRuleModel(
+                [_model_group_row("customer", "hr", read=True)]
+            ),
+        },
         session=_session(groups=["hr"]),
     )
     service = Service(env)
@@ -386,18 +334,11 @@ def test_models_groups_allows_member_group():
 
 def test_models_groups_bypassed_for_admin():
     customer = _RecordModel("customer", rows=[{"rec_name": "c1", "name": "Ada"}])
-    component = _ComponentModel(
-        [
-            {
-                "rec_name": "customer",
-                "active": True,
-                "deleted": 0,
-                "properties": {"models_groups": ["hr"]},
-            }
-        ]
-    )
     env = _Env(
-        {"customer": customer, "component": component},
+        {
+            "customer": customer,
+            "model_groups_rule": _ModelGroupsRuleModel([]),
+        },
         session=_session(groups=[], is_admin=True),
     )
     service = Service(env)
@@ -408,23 +349,34 @@ def test_models_groups_bypassed_for_admin():
 
 
 def test_models_restricted_fields_hides_field_for_non_allowed_group():
+    """Restrizione a livello di CAMPO: model_fields_rule (rule_type=
+    "fields"), non piu' component.properties.models_restricted_fields
+    letta live (synth_policies_from_component_properties, retirato)."""
     customer = _RecordModel(
         "customer", rows=[{"rec_name": "c1", "name": "Ada", "salary": 42}]
     )
-    component = _ComponentModel(
-        [
-            {
-                "rec_name": "customer",
-                "active": True,
-                "deleted": 0,
-                "properties": {
-                    "models_restricted_fields": {"salary": ["hr"]}
-                },
-            }
-        ]
-    )
     env = _Env(
-        {"customer": customer, "component": component},
+        {
+            "customer": customer,
+            "model_groups_rule": _ModelGroupsRuleModel(
+                [_model_group_row("customer", "sales", read=True)]
+            ),
+            "model_fields_rule": _ModelFieldsRuleModel(
+                [
+                    {
+                        "app_code": "demo",
+                        "model": "customer",
+                        "rule_type": "fields",
+                        "group": "hr",
+                        "restricted_fields": ["salary"],
+                        "filters": {},
+                        "read": True,
+                        "active": True,
+                        "deleted": 0,
+                    }
+                ]
+            ),
+        },
         session=_session(groups=["sales"]),
     )
     service = Service(env)
@@ -432,7 +384,8 @@ def test_models_restricted_fields_hides_field_for_non_allowed_group():
     response = asyncio.run(service.load_record("customer", "c1"))
 
     assert response.content.data["name"] == "Ada"
-    assert "salary" not in response.content.data
+    assert response.content.data["salary"] is None
+    assert response.content.obfucated_fields == ["salary"]
 
 
 def _gdpr_rule_rows(app_code="demo", record_filters=None, model="user"):
@@ -945,7 +898,7 @@ def test_load_record_non_sys_owner_full_access():
                 {"modulo_dati_persona": False}
             ),
         },
-        session=_session(uid="u1"),
+        session=_session(uid="u1", groups=["user"]),
     )
     service = Service(env)
 
@@ -975,7 +928,7 @@ def test_load_record_non_sys_matched_rule_readonly_when_update_false():
                 {"modulo_dati_persona": False}
             ),
         },
-        session=_session(uid="u1"),
+        session=_session(uid="u1", groups=["user"]),
     )
     service = Service(env)
 
@@ -985,13 +938,41 @@ def test_load_record_non_sys_matched_rule_readonly_when_update_false():
     assert response.content.editable is False
 
 
-def test_load_record_non_sys_admin_bypasses_ownership():
-    """Admin bypassa l'enforcement record-level, coerente col bypass legacy
-    di models_groups/models_restricted_fields (diverso dal fields_rule GDPR-
-    style, che non lo concede)."""
+def test_load_record_non_sys_admin_does_not_bypass_ownership():
+    """Admin NON bypassa piu' l'enforcement record-level su model non-sys
+    (coerente col fields_rule GDPR-style, che non concede bypass admin):
+    nessuna regola matcha per l'admin -> fail-closed, record nascosto."""
     docs = _RecordModel(
         "modulo_dati_persona",
         rows=[{"rec_name": "d1", "owner_uid": "u2", "name": "Other"}],
+    )
+    env = _Env(
+        {
+            "modulo_dati_persona": docs,
+            "model_fields_rule": _ModelFieldsRuleModel(
+                [_owner_only_record_rule()]
+            ),
+            "component": _SysFlagComponentModel(
+                {"modulo_dati_persona": False}
+            ),
+        },
+        session=_session(uid="admin1", is_admin=True),
+    )
+    service = Service(env)
+
+    try:
+        asyncio.run(service.load_record("modulo_dati_persona", "d1"))
+        assert False, "expected HTTPException 404"
+    except HTTPException as exc:
+        assert exc.status_code == 404
+
+
+def test_load_record_non_sys_admin_access_when_rule_matches():
+    """Admin, come chiunque altro, ottiene accesso record-level se una
+    regola matcha davvero (qui: admin1 e' owner del record)."""
+    docs = _RecordModel(
+        "modulo_dati_persona",
+        rows=[{"rec_name": "d1", "owner_uid": "admin1", "name": "Mine"}],
     )
     env = _Env(
         {
@@ -1029,7 +1010,7 @@ def test_load_record_sys_model_bypasses_record_rulse():
             ),
             "component": _SysFlagComponentModel({"settings": True}),
         },
-        session=_session(uid="u1"),
+        session=_session(uid="u1", groups=["user"]),
     )
     service = Service(env)
 
@@ -1056,7 +1037,7 @@ def test_load_record_unknown_sys_flag_fails_open_bypasses_enforcement():
             ),
             # "component" non registrato: env.get("component") solleva KeyError.
         },
-        session=_session(uid="u1"),
+        session=_session(uid="u1", groups=["user"]),
     )
     service = Service(env)
 
@@ -1087,7 +1068,7 @@ def test_list_records_non_sys_hides_non_owned_rows():
                 {"modulo_dati_persona": False}
             ),
         },
-        session=_session(uid="u1"),
+        session=_session(uid="u1", groups=["user"]),
     )
     service = Service(env)
 
@@ -1125,7 +1106,7 @@ def test_list_records_non_sys_no_rule_at_all_unrestricted():
                 {"modulo_dati_persona": False}
             ),
         },
-        session=_session(uid="u1"),
+        session=_session(uid="u1", groups=["user"]),
     )
     service = Service(env)
 
