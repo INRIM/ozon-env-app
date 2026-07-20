@@ -60,7 +60,8 @@ def test_ws_action_completed():
     runner = FakeRunner()
     client = _client(runner)
     try:
-        with client.websocket_connect("/ws/actions?token=ok&app_code=app1") as ws:
+        with client.websocket_connect("/ws/actions?app_code=app1") as ws:
+            ws.send_json({"type": "auth", "token": "ok"})
             ws.send_json(
                 {
                     "request_id": "req1",
@@ -90,7 +91,8 @@ def test_ws_action_error_payload():
     runner = FakeRunner()
     client = _client(runner)
     try:
-        with client.websocket_connect("/ws/actions?token=ok") as ws:
+        with client.websocket_connect("/ws/actions") as ws:
+            ws.send_json({"type": "auth", "token": "ok"})
             ws.send_json(
                 {"request_id": "r2", "action_name": "fail_action", "data": {}}
             )
@@ -106,7 +108,8 @@ def test_ws_action_runtime_exception():
     runner = FakeRunner()
     client = _client(runner)
     try:
-        with client.websocket_connect("/ws/actions?token=ok") as ws:
+        with client.websocket_connect("/ws/actions") as ws:
+            ws.send_json({"type": "auth", "token": "ok"})
             ws.send_json({"request_id": "r3", "action_name": "boom", "data": {}})
             assert ws.receive_json()["status"] == "running"
             final = ws.receive_json()
@@ -120,7 +123,8 @@ def test_ws_missing_action_name():
     runner = FakeRunner()
     client = _client(runner)
     try:
-        with client.websocket_connect("/ws/actions?token=ok") as ws:
+        with client.websocket_connect("/ws/actions") as ws:
+            ws.send_json({"type": "auth", "token": "ok"})
             ws.send_json({"request_id": "r4", "data": {}})
             resp = ws.receive_json()
             assert resp["status"] == "error"
@@ -134,7 +138,38 @@ def test_ws_auth_failure_closes():
     runner = FakeRunner()
     client = _client(runner)
     try:
-        with client.websocket_connect("/ws/actions?token=bad") as ws:
+        with client.websocket_connect("/ws/actions") as ws:
+            ws.send_json({"type": "auth", "token": "bad"})
+            with pytest.raises(WebSocketDisconnect):
+                ws.receive_json()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_ws_auth_missing_message_closes():
+    """Nessun cookie e primo messaggio non e' un auth valido -> chiusa."""
+    runner = FakeRunner()
+    client = _client(runner)
+    try:
+        with client.websocket_connect("/ws/actions") as ws:
+            ws.send_json({"type": "not_auth"})
+            with pytest.raises(WebSocketDisconnect):
+                ws.receive_json()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_ws_token_in_query_string_is_ignored(monkeypatch):
+    """Il fallback in query string e' stato rimosso: un token li' non
+    autentica piu' — deve arrivare come primo messaggio WS. Timeout
+    accorciato per non far durare il test 10s reali."""
+    import app.api.websocket_router as wsr
+
+    monkeypatch.setattr(wsr, "WS_AUTH_TIMEOUT_SECONDS", 0.05)
+    runner = FakeRunner()
+    client = _client(runner)
+    try:
+        with client.websocket_connect("/ws/actions?token=ok") as ws:
             with pytest.raises(WebSocketDisconnect):
                 ws.receive_json()
     finally:
@@ -149,7 +184,7 @@ def test_ws_origin_rejected(monkeypatch):
     client = _client(runner)
     try:
         with client.websocket_connect(
-            "/ws/actions?token=ok", headers={"origin": "https://evil.app"}
+            "/ws/actions", headers={"origin": "https://evil.app"}
         ) as ws:
             with pytest.raises(WebSocketDisconnect):
                 ws.receive_json()
@@ -165,8 +200,9 @@ def test_ws_origin_allowed(monkeypatch):
     client = _client(runner)
     try:
         with client.websocket_connect(
-            "/ws/actions?token=ok", headers={"origin": "https://ok.app"}
+            "/ws/actions", headers={"origin": "https://ok.app"}
         ) as ws:
+            ws.send_json({"type": "auth", "token": "ok"})
             ws.send_json({"request_id": "ro", "action_name": "x", "data": {}})
             assert ws.receive_json()["status"] == "running"
             assert ws.receive_json()["status"] == "completed"

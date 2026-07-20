@@ -23,6 +23,10 @@ settings = get_env_settings()
 
 # Close code WS per policy violation (auth/origin).
 WS_POLICY_VIOLATION = 1008
+# Tempo massimo di attesa del messaggio di auth dopo l'handshake, per i
+# client senza cookie (vedi _authenticate_handshake). Evita che una
+# connessione accettata ma mai autenticata resti aperta indefinitamente.
+WS_AUTH_TIMEOUT_SECONDS = 10.0
 
 
 @dataclass
@@ -103,17 +107,41 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
-def _extract_token(websocket: WebSocket) -> Any:
-    """Token dalla query `token` (bearer) o dal cookie di sessione (BFF)."""
+def _parse_bearer(raw: Any) -> str:
+    value = str(raw or "").strip()
+    if value.lower().startswith("bearer "):
+        value = value.split(" ", 1)[1].strip()
+    return value
+
+
+async def _authenticate_handshake(websocket: WebSocket) -> Any:
+    """Token dal cookie di sessione (BFF) se presente, altrimenti dal
+    PRIMO messaggio WS (client bearer-only) — mai dalla query string.
+
+    Un token in `?token=...` finisce in log di proxy/load balancer,
+    access log applicativi, cronologia browser (vedi
+    docs/SECURITY_KEYCLOAK_TOKEN_ANALYSIS.it.md, finding #8): la query
+    string non e' un canale sicuro per una credenziale. Il client
+    bearer-only si connette senza token nell'URL e manda come primo
+    messaggio `{"type": "auth", "token": "<bearer>"}` prima di qualunque
+    action_name; un timeout chiude la connessione se non arriva.
+    """
     cookie_val = websocket.cookies.get(settings.auth_cookie_name, "")
     if cookie_val:
         return verify_token(
             cookie_val, settings.session_secret, settings.auth_cookie_max_age
         )
-    raw = str(websocket.query_params.get("token", "") or "").strip()
-    if raw.lower().startswith("bearer "):
-        raw = raw.split(" ", 1)[1].strip()
-    return raw
+    try:
+        message = await asyncio.wait_for(
+            websocket.receive_json(), timeout=WS_AUTH_TIMEOUT_SECONDS
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        return None
+    if not isinstance(message, dict) or message.get("type") != "auth":
+        return None
+    return _parse_bearer(message.get("token"))
 
 
 def _allowed_origins() -> set[str]:
@@ -171,8 +199,14 @@ async def ws_actions(
         logger.warning("ws origin rejected: %s", origin)
         await websocket.close(code=WS_POLICY_VIOLATION, reason="Origin not allowed")
         return
-    token = _extract_token(websocket)
     app_code = _resolve_app_code(websocket)
+    token = await _authenticate_handshake(websocket)
+    if not token:
+        logger.warning("ws auth handshake failed: no/invalid token")
+        await websocket.close(
+            code=WS_POLICY_VIOLATION, reason="Missing or invalid auth"
+        )
+        return
 
     try:
         uid = await runner.authenticate(token, app_code)
