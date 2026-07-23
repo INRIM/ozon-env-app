@@ -118,6 +118,47 @@ def test_sync_model_rules_writes_flat_rows_using_orm_db_engine():
     assert {row["rule_type"] for row in fields.inserted} == {"fields", "record"}
 
 
+def test_record_rulse_with_groups_writes_one_row_per_group():
+    groups = _Collection()
+    fields = _Collection()
+    env = _Env(_Engine({"model_groups_rule": groups, "model_fields_rule": fields}))
+    schema = {
+        "rec_name": "document",
+        "properties": {
+            "models_restricted_fields": {
+                "record_rulse": [
+                    {
+                        "groups": ["gdpr"],
+                        "filters": {"owner_uid": {"$eq": {"var": "user.uid"}}},
+                        "actions": {"read": True, "create": True, "update": True},
+                    },
+                    {
+                        "groups": ["dpo"],
+                        "filters": {},
+                        "actions": {"read": True},
+                    },
+                    {
+                        "filters": {"owner_uid": {"$eq": {"var": "user.uid"}}},
+                        "actions": {"read": True},
+                    },
+                ],
+            },
+        },
+    }
+
+    asyncio.run(sync_model_rules(env, schema))
+
+    record_rows = [row for row in fields.inserted if row["rule_type"] == "record"]
+    by_group = {row["group"]: row for row in record_rows}
+
+    assert set(by_group) == {"gdpr", "dpo", ""}
+    assert by_group["gdpr"]["read"] is True
+    assert by_group["gdpr"]["create"] is True
+    assert by_group["dpo"]["read"] is True
+    assert by_group["dpo"]["create"] is False
+    assert by_group[""]["read"] is True
+
+
 def test_sync_all_model_rules_normalizes_components_and_rewrites_tables():
     component = _Collection(
         rows=[

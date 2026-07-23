@@ -104,9 +104,13 @@ class ModelFieldsRule(BasicModel):
     """Riga flat di component.properties.models_restricted_fields (vedi
     app.ozon_env_acl.model_rules_sync):
     - rule_type="fields": campi ristretti per gruppo (da fields_rule.allowed_groups)
-    - rule_type="record": filtro riga-per-riga (da record_rulse), group vuoto,
-      filters e' una query mongo verbatim (puo' contenere nodi {"var": ...}
-      non ancora risolti — vedi app.ozon_env_acl.render_query_vars)
+    - rule_type="record": filtro riga-per-riga (da record_rulse), group vuoto
+      se l'entry sorgente non ha "groups" (regola universale, storico) o
+      valorizzato se l'entry e' scoped a gruppi specifici (una riga per
+      gruppo, stesso filters/actions — vedi Service._get_record_rulse per
+      il match contro session.groups). filters e' una query mongo verbatim
+      (puo' contenere nodi {"var": ...} non ancora risolti — vedi
+      Service._resolve_query_json_logic_vars)
 
     NON registrato in `_STATIC_MODELS` (stesso motivo di ModelGroupsRule):
     esiste un component/form reale per "model_fields_rule". Il campo

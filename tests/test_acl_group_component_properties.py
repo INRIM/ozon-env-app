@@ -812,6 +812,96 @@ def test_record_rulse_varies_per_row_in_streamed_list():
     assert by_rec_name["u2"]["codicefiscale"] is None
 
 
+def test_record_rulse_group_scoped_empty_filter_unrestricts_list_records():
+    """record_rule_read_domain (usato da list_records/stream_record per
+    narroware la query, DIVERSO da evaluate_record_rule_access usato da
+    load_record) deve trattare allo stesso modo il filtro vuoto su riga
+    group-scoped: nessuna restrizione affatto, non "nessuna clausola quindi
+    nega tutto" (comportamento di default per un $or vuoto). Senza questo,
+    dpo avrebbe load_record funzionante ma list_records vuota o owner-only
+    — la stessa rottura ("non va") per cui e' partita la conversazione."""
+    docs = _RecordModel(
+        "modulo_dati_persona",
+        rows=[
+            {"rec_name": "d1", "owner_uid": "owner1", "name": "A"},
+            {"rec_name": "d2", "owner_uid": "owner2", "name": "B"},
+        ],
+    )
+    rules = [
+        {
+            "app_code": "demo",
+            "model": "modulo_dati_persona",
+            "rule_type": "record",
+            "group": "gdpr",
+            "restricted_fields": [],
+            "filters": {"owner_uid": {"$eq": {"var": "user.uid"}}},
+            "read": True,
+            "create": True,
+            "update": True,
+            "delete": False,
+            "active": True,
+            "deleted": 0,
+        },
+        {
+            "app_code": "demo",
+            "model": "modulo_dati_persona",
+            "rule_type": "record",
+            "group": "dpo",
+            "restricted_fields": [],
+            "filters": {},
+            "read": True,
+            "create": False,
+            "update": False,
+            "delete": False,
+            "active": True,
+            "deleted": 0,
+        },
+    ]
+    env = _Env(
+        {
+            "modulo_dati_persona": docs,
+            "model_fields_rule": _ModelFieldsRuleModel(rules),
+            "component": _SysFlagComponentModel({"modulo_dati_persona": False}),
+        },
+        session=_session(uid="u9", groups=["dpo"]),
+    )
+    service = Service(env)
+
+    response = asyncio.run(
+        service.list_records(
+            model_name="modulo_dati_persona",
+            query={},
+            order="",
+            skip=0,
+            limit=10,
+        )
+    )
+
+    rec_names = {row["rec_name"] for row in response.content.data}
+    assert rec_names == {"d1", "d2"}
+
+    # stream_record riusa envelope.content.query (il domain gia' narrowed
+    # sopra), non ricalcola un proprio domain — stessa garanzia deve valere
+    # sul path NDJSON (POST /list/{model} di default).
+    envelope = asyncio.run(
+        service.list_records(
+            model_name="modulo_dati_persona",
+            query={},
+            order="",
+            skip=0,
+            limit=10,
+            resp_stream=True,
+        )
+    )
+
+    async def _collect():
+        cursor = await service.stream_record(envelope, order="", skip=0, limit=10)
+        return [row async for row in cursor]
+
+    streamed = asyncio.run(_collect())
+    assert {row["rec_name"] for row in streamed} == {"d1", "d2"}
+
+
 class _SysFlagComponentModel:
     """Fake per la collection `component` — usata SOLO da
     Service._is_sys_model per decidere se il model e' config condivisa
@@ -906,6 +996,158 @@ def test_load_record_non_sys_owner_full_access():
 
     assert response.content.readable is True
     assert response.content.editable is True
+
+
+def test_record_rulse_group_scoped_restricts_only_that_group():
+    """record_rulse con `group` valorizzato (righe generate da un'entry
+    con "groups": [...] in model_rules_sync, non piu' sempre group="")
+    si applica SOLO alle sessioni membre di quel gruppo — vedi
+    Service._get_record_rulse. Schema approvato dall'utente: gdpr limitato
+    ai propri record (owner_uid check), dpo read-all incondizionato
+    (filters={} su riga group-scoped -> match incondizionato, vedi
+    evaluate_record_rule_access — diverso da una riga universale group="",
+    dove filtro vuoto resta fail-closed com'era prima)."""
+    gdpr_scoped_rule = {
+        "app_code": "demo",
+        "model": "modulo_dati_persona",
+        "rule_type": "record",
+        "group": "gdpr",
+        "restricted_fields": [],
+        "filters": {"owner_uid": {"$eq": {"var": "user.uid"}}},
+        "read": True,
+        "create": True,
+        "update": True,
+        "delete": False,
+        "active": True,
+        "deleted": 0,
+    }
+    dpo_scoped_rule = {
+        "app_code": "demo",
+        "model": "modulo_dati_persona",
+        "rule_type": "record",
+        "group": "dpo",
+        "restricted_fields": [],
+        "filters": {},
+        "read": True,
+        "create": False,
+        "update": False,
+        "delete": False,
+        "active": True,
+        "deleted": 0,
+    }
+    rules = [gdpr_scoped_rule, dpo_scoped_rule]
+    docs = _RecordModel(
+        "modulo_dati_persona",
+        rows=[{"rec_name": "d1", "owner_uid": "owner1", "name": "Other"}],
+    )
+
+    def _env(uid, groups):
+        return _Env(
+            {
+                "modulo_dati_persona": docs,
+                "model_fields_rule": _ModelFieldsRuleModel(rules),
+                "component": _SysFlagComponentModel(
+                    {"modulo_dati_persona": False}
+                ),
+            },
+            session=_session(uid=uid, groups=groups),
+        )
+
+    # gdpr, non owner -> negato (l'unica riga per lui richiede ownership).
+    try:
+        asyncio.run(Service(_env("u1", ["gdpr"])).load_record(
+            "modulo_dati_persona", "d1"
+        ))
+        assert False, "expected HTTPException 404"
+    except HTTPException as exc:
+        assert exc.status_code == 404
+
+    # dpo, non owner -> letto comunque (filters={} scoped a dpo = read-all).
+    response = asyncio.run(Service(_env("u2", ["dpo"])).load_record(
+        "modulo_dati_persona", "d1"
+    ))
+    assert response.content.readable is True
+    assert response.content.editable is False
+
+    # gdpr, owner -> letto e editable (match sulla propria riga).
+    owned_docs = _RecordModel(
+        "modulo_dati_persona",
+        rows=[{"rec_name": "d2", "owner_uid": "u3", "name": "Mine"}],
+    )
+    env = _Env(
+        {
+            "modulo_dati_persona": owned_docs,
+            "model_fields_rule": _ModelFieldsRuleModel(rules),
+            "component": _SysFlagComponentModel({"modulo_dati_persona": False}),
+        },
+        session=_session(uid="u3", groups=["gdpr"]),
+    )
+    response = asyncio.run(Service(env).load_record("modulo_dati_persona", "d2"))
+    assert response.content.readable is True
+    assert response.content.editable is True
+
+
+def test_record_rulse_group_scoped_empty_filter_also_reveals_masked_fields():
+    """Confermato esplicitamente dall'utente: una riga record_rulse
+    group-scoped con filters={} e read=True e' un via libera pieno per
+    quel gruppo — non solo apertura del record (evaluate_record_rule_
+    access) ma anche reveal dei campi oscurati dalla baseline fields_rule
+    (evaluate_record_rule_override, stessa riga, restricted_fields=[] =
+    sblocca tutto). dpo vede `codicefiscale` anche su un record che non
+    possiede e anche se dpo non e' tra i gruppi esclusi dall'oscuramento
+    fields_rule — e' l'intento dichiarato ("dpo actions.read:true quindi
+    vede i campi anche non suoi"), non un effetto collaterale."""
+    docs = _RecordModel(
+        "modulo_dati_persona",
+        rows=[
+            {
+                "rec_name": "d1",
+                "owner_uid": "owner1",
+                "name": "Other",
+                "codicefiscale": "SECRET123",
+            }
+        ],
+    )
+    rules = [
+        {
+            "app_code": "demo",
+            "model": "modulo_dati_persona",
+            "rule_type": "fields",
+            "group": "gdpr",
+            "restricted_fields": ["codicefiscale"],
+            "filters": {},
+            "read": True,
+            "active": True,
+            "deleted": 0,
+        },
+        {
+            "app_code": "demo",
+            "model": "modulo_dati_persona",
+            "rule_type": "record",
+            "group": "dpo",
+            "restricted_fields": [],
+            "filters": {},
+            "read": True,
+            "create": False,
+            "update": False,
+            "delete": False,
+            "active": True,
+            "deleted": 0,
+        },
+    ]
+    env = _Env(
+        {
+            "modulo_dati_persona": docs,
+            "model_fields_rule": _ModelFieldsRuleModel(rules),
+            "component": _SysFlagComponentModel({"modulo_dati_persona": False}),
+        },
+        session=_session(uid="u2", groups=["dpo"]),
+    )
+
+    response = asyncio.run(Service(env).load_record("modulo_dati_persona", "d1"))
+
+    assert response.content.data["codicefiscale"] == "SECRET123"
+    assert response.content.obfucated_fields == []
 
 
 def test_load_record_non_sys_matched_rule_readonly_when_update_false():

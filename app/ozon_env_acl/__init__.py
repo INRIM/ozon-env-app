@@ -930,22 +930,35 @@ def evaluate_record_rule_override(
 
     Se NESSUNA regola matcha, ritorna None (il chiamante mantiene
     l'oscuramento di baseline da fields_rule per intero).
-    """
+
+    Stessa eccezione di `evaluate_record_rule_access` per filtro vuoto su
+    riga `group`-scoped: match incondizionato (vedi lì per il perche')."""
     if not record_rulse or not isinstance(record, dict):
         return None
     rec_name = record.get("rec_name")
     for index, rule in enumerate(record_rulse):
         raw_filters = rule.get("filters") or {}
-        resolved_filters = resolve_var(raw_filters) if raw_filters else {}
-        if not isinstance(resolved_filters, dict) or not resolved_filters:
-            logger.debug(
-                "acl.record_rule rec_name=%s rule=%s raw_filters=%s -> skip (filtro vuoto/non risolto)",
-                rec_name,
-                index,
-                raw_filters,
-            )
-            continue
-        matched = _record_matches_filters(record, resolved_filters)
+        if not raw_filters:
+            if not str(rule.get("group") or "").strip():
+                logger.debug(
+                    "acl.record_rule rec_name=%s rule=%s raw_filters=%s -> skip (filtro vuoto, regola universale)",
+                    rec_name,
+                    index,
+                    raw_filters,
+                )
+                continue
+            resolved_filters = {}
+        else:
+            resolved_filters = resolve_var(raw_filters)
+            if not isinstance(resolved_filters, dict) or not resolved_filters:
+                logger.debug(
+                    "acl.record_rule rec_name=%s rule=%s raw_filters=%s -> skip (filtro non risolto)",
+                    rec_name,
+                    index,
+                    raw_filters,
+                )
+                continue
+        matched = not resolved_filters or _record_matches_filters(record, resolved_filters)
         logger.debug(
             "acl.record_rule rec_name=%s rule=%s resolved_filters=%s matched=%s",
             rec_name,
@@ -1029,16 +1042,38 @@ def evaluate_record_rule_access(
     filters) di evaluate_record_rule_override, ma legge il campo azioni della
     riga invece di restricted_fields — vista diversa della stessa riga
     model_fields_rule. None (nessun match) e' fail-closed: il chiamante
-    (record_rule_access) nega tutto, non concede la baseline."""
+    (record_rule_access) nega tutto, non concede la baseline.
+
+    Filtro vuoto ({}) su una riga con `group` valorizzato (entry scoped a
+    gruppi specifici, vedi model_rules_sync.record_rulse groups per-entry)
+    = match incondizionato per chi e' gia' filtrato in quel gruppo da
+    Service._get_record_rulse (es. dpo: read-all senza owner-check). Su una
+    riga universale (group="", storico/default seed) resta fail-closed
+    com'era: un filtro vuoto li' non deve aprire il record a chiunque.
+
+    Order-dependent per un utente in PIU' gruppi scoped (es. gdpr+dpo):
+    vince la PRIMA riga che matcha nell'ordine di `record_rulse` (ordine di
+    sync/insert in model_fields_rule, non un merge/OR come fields_rule).
+    Se un catch-all a filtro vuoto (dpo) precede in config una entry piu'
+    permissiva sul proprio record (gdpr owner-match), un utente in
+    entrambi i gruppi puo' risultare "ombreggiato" a read-only sul proprio
+    record. Ordina le entry sorgente (component.properties.record_rulse)
+    mettendo prima quelle con filtro/grant piu' ampio per lo stesso utente,
+    i catch-all a filtro vuoto per ultimi."""
     if not record_rulse or not isinstance(record, dict):
         return None
     rec_name = record.get("rec_name")
     for index, rule in enumerate(record_rulse):
         raw_filters = rule.get("filters") or {}
-        resolved_filters = resolve_var(raw_filters) if raw_filters else {}
-        if not isinstance(resolved_filters, dict) or not resolved_filters:
-            continue
-        if _record_matches_filters(record, resolved_filters):
+        if not raw_filters:
+            if not str(rule.get("group") or "").strip():
+                continue
+            resolved_filters = {}
+        else:
+            resolved_filters = resolve_var(raw_filters)
+            if not isinstance(resolved_filters, dict) or not resolved_filters:
+                continue
+        if not resolved_filters or _record_matches_filters(record, resolved_filters):
             actions = {
                 key: bool(rule.get(key, False)) for key in _RECORD_ACTION_KEYS
             }
@@ -1098,13 +1133,24 @@ def record_rule_read_domain(
     scoped sull'utente corrente via resolve_var) di ogni regola con
     read=True. Se nessuna regola concede read, ritorna un domain che non
     matcha nulla (fail-closed: un OR vuoto in mongo matcherebbe tutto, qui
-    deve invece nascondere tutto)."""
+    deve invece nascondere tutto).
+
+    Stessa eccezione di evaluate_record_rule_access/_override per filtro
+    vuoto su riga `group`-scoped con read=True: e' un via libera incondizionato
+    per chi e' gia' filtrato in quel gruppo da Service._get_record_rulse
+    (dpo: read-all) — nessun'altra clausola serve, l'intero domain resta
+    senza restrizioni (list/stream vedono tutte le righe, non solo quelle
+    coperte dalle altre regole)."""
     clauses: list[dict[str, Any]] = []
     for rule in record_rulse:
         if not rule.get("read", False):
             continue
         raw_filters = rule.get("filters") or {}
-        resolved = resolve_var(raw_filters) if raw_filters else {}
+        if not raw_filters:
+            if str(rule.get("group") or "").strip():
+                return {}
+            continue
+        resolved = resolve_var(raw_filters)
         if isinstance(resolved, dict) and resolved:
             clauses.append(resolved)
     if not clauses:

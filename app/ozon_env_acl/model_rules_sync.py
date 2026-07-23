@@ -173,14 +173,14 @@ async def model_fields_rows(
             if not isinstance(entry, dict):
                 continue
             actions = entry.get("actions") or {}
-            row = {
-                "rec_name": f"mfr.{app_code}.{model_name}.record.{index}",
+            filters_json = json.dumps(entry.get("filters") or {}, ensure_ascii=False)
+            restricted_fields = list(entry.get("resticted_fields") or [])
+            common = {
                 "app_code": app_code,
                 "model": model_name,
                 "rule_type": "record",
-                "group": "",
-                "restricted_fields": list(entry.get("resticted_fields") or []),
-                "filters": json.dumps(entry.get("filters") or {}, ensure_ascii=False),
+                "restricted_fields": restricted_fields,
+                "filters": filters_json,
                 "active": True,
                 "deleted": 0,
                 "sys": True,
@@ -189,7 +189,32 @@ async def model_fields_rows(
                 "update": bool(actions.get("update")),
                 "delete": bool(actions.get("delete")),
             }
-            rows.append(await _validated_row(env, _FIELDS_RULE_COLLECTION, row))
+            groups = entry.get("groups") or []
+            if not isinstance(groups, (list, tuple, set)):
+                groups = [groups]
+            group_names = sorted({_normalize_group(g) for g in groups if _normalize_group(g)})
+            if not group_names:
+                # nessun "groups" in entry -> regola universale (group="",
+                # comportamento storico: si applica a chiunque passi il
+                # gate model-level, indipendentemente dal gruppo sessione).
+                row = {
+                    "rec_name": f"mfr.{app_code}.{model_name}.record.{index}",
+                    "group": "",
+                    **common,
+                }
+                rows.append(await _validated_row(env, _FIELDS_RULE_COLLECTION, row))
+            else:
+                # entry scoped a gruppi specifici -> una riga per gruppo,
+                # stesso filters/actions/restricted_fields; valutata solo
+                # per sessioni il cui user.groups intersect questo group
+                # (vedi Service._get_record_rulse).
+                for group_name in group_names:
+                    row = {
+                        "rec_name": f"mfr.{app_code}.{model_name}.record.{index}.{group_name}",
+                        "group": group_name,
+                        **common,
+                    }
+                    rows.append(await _validated_row(env, _FIELDS_RULE_COLLECTION, row))
 
     return rows
 

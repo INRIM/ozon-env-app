@@ -2078,10 +2078,25 @@ class Service:
                     ]
                 }
                 rows = await rule_model.find(domain=domain, limit=0)
+                session_user = getattr(self.session, "user", None)
+                actor_groups = (
+                    session_user.get("groups") if isinstance(session_user, dict) else []
+                )
+                session_groups = {
+                    str(g or "").strip().lower() for g in (actor_groups or [])
+                }
                 for row in rows or []:
                     data = _record_to_dict(row)
+                    row_group = str(data.get("group") or "").strip().lower()
+                    # group="" = regola universale (storica); group valorizzato
+                    # = entry scoped, applicabile solo se la sessione e'
+                    # membro di quel gruppo (vedi model_rules_sync.record_rulse
+                    # groups per-entry).
+                    if row_group and row_group not in session_groups:
+                        continue
                     record_rulse.append(
                         {
+                            "group": row_group,
                             "filters": _safe_json_dict(data.get("filters")),
                             "restricted_fields": data.get("restricted_fields")
                             or [],
