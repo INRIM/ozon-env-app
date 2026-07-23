@@ -31,5 +31,5 @@ fi
 
 echo ""
 echo "Config pronta ($SVC_ENV). Avvio compose..."
-docker compose up -d --build
+docker compose --env-file "$SVC_ENV" up -d --build
 echo "mcp_search avviato. Log: docker logs -f ozon-env-mcp-search"

@@ -200,6 +200,8 @@ def make_response_object(
     process_status: str = "",
     fail: bool = False,
     message: str = "",
+    operation_fail: bool | None = None,
+    operation_message: str | None = None,
 ) -> ResponseObject:
     """Costruisce una risposta API uniforme per form/list/stream/redirect/status.
 
@@ -207,6 +209,13 @@ def make_response_object(
     (vedi ResponseObjectData). `fail`/`message` permettono di forzare uno stato
     d'errore anche quando non deriva dallo `status` del model (es. errore del
     task esterno Camunda)."""
+
+    model_fail = bool(model.status.fail) if model else False
+    model_message = str(model.status.msg or "") if model else ""
+    if operation_fail is not None:
+        model_fail = operation_fail
+    if operation_message is not None:
+        model_message = operation_message
 
     content = ResponseObjectData(
         mode=mode,
@@ -216,7 +225,7 @@ def make_response_object(
         process_id=process_id,
         process_status=process_status,
     )
-    if model and not model.status.fail:
+    if model and not model_fail:
         component = model.model.schema() if model else {}
         schema = component.get("components", [])
         properties = component.get("properties", {})
@@ -268,8 +277,8 @@ def make_response_object(
             content.filter_kyes = model.model.filter_keys()
 
     return ResponseObject(
-        fail=fail or (model.status.fail if model else False),
-        message=message or (model.status.msg if model else ""),
+        fail=fail or model_fail,
+        message=message or model_message,
         content=content,
     )
 

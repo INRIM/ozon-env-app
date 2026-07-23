@@ -20,7 +20,7 @@ services:
       - ozonenv_app_db
     networks:
       - default
-      - ${CAMUNDA_NETWORK}
+      - camunda
     logging:
       options:
         max-size: 10m
@@ -55,4 +55,6 @@ services:
 networks:
   default:
     name: ${NETWORK}
-  ${CAMUNDA_NETWORK}:
+  camunda:
+    external: true
+    name: ${CAMUNDA_NETWORK}

@@ -65,5 +65,5 @@ fi
 # --- 4. up ------------------------------------------------------------------
 echo ""
 echo "Config pronta ($SVC_ENV). Avvio compose..."
-docker compose up -d --build
+docker compose --env-file "$BASE_ENV" up -d --build
 echo "calendar_scheduler avviato. Log: docker logs -f ozon-env-calendar-scheduler"

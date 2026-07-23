@@ -57,6 +57,19 @@ def _safe_encode_payload(payload: Any) -> Any:
             return json.loads(json.dumps(payload, default=str))
 
 
+def _session_response_data(session: Any) -> dict[str, Any]:
+    session_data = session.get_dict()
+    user = session_data.get("user")
+    user_data = session_data.get("user_data", {})
+    session_data["user"] = {
+        **(user if isinstance(user, dict) else {}),
+        "user_data": user_data if isinstance(user_data, dict) else {},
+    }
+    for sensitive_key in ("token", "sso_token", "sso_refresh", "claims"):
+        session_data.pop(sensitive_key, None)
+    return session_data
+
+
 def _coerce_body_model(model_cls: type[BaseModel], payload: Any) -> BaseModel:
     normalized_payload = payload
     if isinstance(normalized_payload, (bytes, bytearray)):
@@ -153,9 +166,7 @@ async def get_session(
         requested_app_code,
         getattr(ozon_env.user_session, "app_code", ""),
     )
-    session_data = ozon_env.user_session.get_dict()
-    for sensitive_key in ("token", "sso_token", "sso_refresh", "claims"):
-        session_data.pop(sensitive_key, None)
+    session_data = _session_response_data(ozon_env.user_session)
     logger.info("get session response ready")
     return session_data
 

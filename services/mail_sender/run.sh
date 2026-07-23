@@ -32,5 +32,5 @@ if [ ${#missing[@]} -gt 0 ]; then
 fi
 
 echo "Avvio mail_sender..."
-docker compose up -d --build
+docker compose --env-file "$BASE_ENV" up -d --build
 echo "mail_sender avviato. Log: docker logs -f ozon-env-mail-sender"

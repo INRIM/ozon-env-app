@@ -1537,6 +1537,8 @@ class Service:
         )
         record_model = self._get_model(model)
         raw_record = await record_model.by_name(rec_name)
+        operation_fail = bool(record_model.status.fail)
+        operation_message = str(record_model.status.msg or "")
         original_dict = _record_to_dict(raw_record)
         model_access = await self._get_model_group_access(model)
         record_rulse = await self._get_record_rulse(model)
@@ -1609,6 +1611,8 @@ class Service:
             data=record,
             readable=final_read,
             editable=final_update,
+            operation_fail=operation_fail,
+            operation_message=operation_message,
         )
         response.content.obfucated_fields = obfuscate_fields
         return response

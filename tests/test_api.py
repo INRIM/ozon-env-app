@@ -171,6 +171,8 @@ class FakeUserSession:
         self.token = f"ok-token-{instance_id}"
         self.user_uid = f"U-{instance_id}"
         self.app_code = "test-app"
+        self.user_data = {"language": "it"}
+        self.user = {"uid": self.user_uid}
 
     def get_dict(self) -> dict:
         return dict(self.__dict__)
@@ -289,6 +291,8 @@ def test_get_session():
     assert "claims" not in body
     assert body["user_uid"] == "U-1"
     assert body["app_code"] == "test-app"
+    assert body["user"]["uid"] == "U-1"
+    assert body["user"]["user_data"] == {"language": "it"}
 
 
 def test_get_session_with_fallback_serializer():

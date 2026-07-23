@@ -105,6 +105,18 @@ class _UpsertModel(_ListModel):
         return record
 
 
+class _StatusTrackingComponentModel(_ListModel):
+    async def by_name(self, name):
+        record = await super().by_name(name)
+        if record:
+            self.status.fail = False
+            self.status.msg = ""
+            return record
+        self.status.fail = True
+        self.status.msg = "Not found"
+        return None
+
+
 class _RuleCollection:
     def __init__(self):
         self.deleted = []
@@ -271,6 +283,51 @@ def test_load_record_missing_model_raises_http_404():
 
     assert exc.value.status_code == 404
     assert exc.value.detail == "Model 'missing' not found"
+
+
+def test_load_component_keeps_primary_operation_status_for_response():
+    component_model = _StatusTrackingComponentModel(
+        "component",
+        rows=[{"rec_name": "action", "type": "form"}],
+    )
+    env = _ComponentHookEnv()
+    env._models["component"] = component_model
+    service = Service(env)
+
+    async def allow_model(_model_key):
+        return {
+            "read": True,
+            "create": True,
+            "update": True,
+            "delete": True,
+            "export": True,
+        }
+
+    async def no_record_rules(_model_key):
+        return []
+
+    async def no_field_acl():
+        return SimpleNamespace(
+            apply_read=lambda **kwargs: (kwargs["data"], []),
+        )
+
+    async def passthrough_webhook(_event, *, context, payload):
+        return SimpleNamespace(payload=payload)
+
+    service._get_model_group_access = allow_model
+    service._get_record_rulse = no_record_rules
+    service._get_compiled_field_acl = no_field_acl
+    service.webhooks = SimpleNamespace(emit=passthrough_webhook)
+
+    response = asyncio.run(service.load_record("component", "action"))
+
+    # _is_sys_model("component") performs a second lookup on the same mutable
+    # model and leaves its status at "Not found". The response must retain the
+    # status of the primary component/action lookup.
+    assert component_model.status.fail is True
+    assert response.fail is False
+    assert response.content.data["rec_name"] == "action"
+    assert response.content.rec_name == "action"
 
 
 def test_list_records_resolves_title_case_model_name():

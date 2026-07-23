@@ -69,5 +69,5 @@ fi
 # --- 3. up ------------------------------------------------------------------
 echo ""
 echo "Config pronta ($SVC_ENV). Avvio compose..."
-docker compose up -d --build
+docker compose --env-file "$BASE_ENV" up -d --build
 echo "identity_manager avviato. Log: docker logs -f ozon-env-identity-manager"

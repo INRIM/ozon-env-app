@@ -14,14 +14,27 @@ ozon-env lib is a api system to interact with Service App project
 For information about the Service App project,
 see https://github.com/INRIM/service-app
 
-## Deploy (Ansible) — spostato
+## Deploy locale
 
-Il deploy via Ansible (`build.sh`/`deploy.sh`/`update.sh`, `ansible/`,
-`ansible.cfg`) e' stato provato in questo repo ma non e' il progetto giusto
-dove deve stare: e' stato raccolto in `ansible-deploy/` (locale, gitignored,
-non tracciato — in attesa di essere spostato nel progetto corretto). Per lo
-stop dello stack locale resta `./stop.sh` (`docker compose stop`, nessuna
-dipendenza da Ansible).
+Il deploy locale non richiede Ansible:
+
+```bash
+./deploy.sh
+```
+
+Lo script preserva il `.env` esistente (se manca lo crea da `.env.example`),
+costruisce le immagini con `build_imges.sh`, crea la rete esterna
+`ozn-network` se necessaria e avvia `docker compose up -d`. Opzioni:
+
+```bash
+./deploy.sh --skip-build       # riusa le immagini presenti
+./deploy.sh --bootstrap        # esegue bootstrap.sh dopo l'avvio
+./deploy.sh --no-bootstrap     # non propone il bootstrap interattivo
+```
+
+Per fermare lo stack resta `./stop.sh` (`docker compose stop`). Il prototipo
+Ansible e' conservato solo localmente in `ansible-deploy/`, che e' ignorata da
+Git e non e' la sorgente del deploy locale.
 
 ## CI (GitLab + GitHub)
 
@@ -128,10 +141,6 @@ profilo di test.
 Il match degli `events` è esatto (o `*` per tutti): per ricevere la famiglia
 calendar elencare entrambi gli eventi, es. `"events":
 ["calendar.task.completed","calendar.task.failed"]`.
-
-> Target env, opzioni ansible-playbook e gestione `.env` per il deploy:
-> documentati in `ansible-deploy/ansible/README.md` (locale, non tracciato
-> qui — vedi sezione sopra).
 
 ## Installation
 
