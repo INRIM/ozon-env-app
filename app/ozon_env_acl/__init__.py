@@ -1201,13 +1201,23 @@ async def enforce_write_acl(
     model_key: str,
     operation: str,
     payload: dict[str, Any],
+    owner_override_fields: frozenset[str] = frozenset(),
 ) -> None:
+    """`owner_override_fields`: campi il cui `f_rule.write` include il
+    sentinel `$owner` (vedi Service._get_field_owner_writable_fields) — il
+    chiamante (Service.upsert) li valorizza SOLO se l'attore e' davvero
+    l'owner dello STORED record (mai del payload in arrivo), quindi qui
+    basta sottrarli dai denied_fields senza rivalutare nulla."""
     denied_fields = acl.denied_fields(
         operation=operation,
         model_key=model_key,
         field_paths=iter_payload_paths(payload),
         app_key=str(_field(session, "app_code", "")),
     )
+    if owner_override_fields:
+        denied_fields = [
+            field for field in denied_fields if field not in owner_override_fields
+        ]
     if not denied_fields:
         return
     await audit_denied_fields(

@@ -94,6 +94,25 @@ class _RecordModel:
                 return row.copy()
         return {}
 
+    async def upsert(
+        self,
+        data=None,
+        rec_name="",
+        data_value=None,
+        trnf_config=None,
+        fields_parser=None,
+    ):
+        data = dict(data or {})
+        target = rec_name or data.get("rec_name")
+        for row in self.rows:
+            if row.get("rec_name") == target:
+                row.update(data)
+                return row.copy()
+        record = dict(data)
+        record.setdefault("rec_name", target)
+        self.rows.append(record)
+        return record.copy()
+
     async def stream_find(
         self,
         domain,
@@ -256,10 +275,13 @@ def _session(groups=None, is_admin=False, uid="u1"):
 def test_load_field_rule_policies_emits_read_obfuscate_and_write_deny():
     """Service._load_field_rule_policies (Layer 3) legge Model.
     get_field_rules() da env.models (zero I/O, niente DB) — f_rule.read
-    produce una policy READ/OBFUSCATE (exclude_groups = i gruppi listati),
-    f_rule.write produce DUE policy DENY (INSERT+UPDATE) sugli stessi
-    gruppi: comportamento NUOVO, prima dead code in fields_rule.
-    allowed_groups.actions.{create,update} (mai consumato).
+    produce una policy READ/OBFUSCATE (exclude_groups = i gruppi listati);
+    f_rule.write produce UNA sola policy DENY, solo su UPDATE (mai su
+    INSERT — a creation-time non esiste ancora un valore da proteggere da
+    un blind-overwrite, e il creatore ne diventa owner nello stesso
+    istante: bloccare l'INSERT romperebbe qualsiasi self-service form).
+    Comportamento NUOVO, prima dead code in fields_rule.allowed_groups.
+    actions.{create,update} (mai consumato).
 
     Isolamento multi-app: niente piu' test dedicato a "policy di un altro
     app_code non deve contaminare" — non serve piu', e' strutturale.
@@ -276,9 +298,9 @@ def test_load_field_rule_policies_emits_read_obfuscate_and_write_deny():
 
     policies = service._load_field_rule_policies()
 
-    by_operation = {p["operation"]: p for p in policies if p["operation"] != "update"}
-    updates = [p for p in policies if p["operation"] == "update"]
-    assert len(policies) == 3
+    by_operation = {p["operation"]: p for p in policies}
+    assert len(policies) == 2
+    assert set(by_operation) == {"read", "update"}
     read_policy = by_operation["read"]
     assert read_policy["model_key"] == "user"
     assert read_policy["field_path"] == "codicefiscale"
@@ -288,12 +310,9 @@ def test_load_field_rule_policies_emits_read_obfuscate_and_write_deny():
     # (GDPR: essere admin non significa essere autorizzati al dato).
     assert "is_admin" not in read_policy["actor_selector"]
 
-    insert_policy = by_operation["create"]
-    assert insert_policy["effect"] == "deny"
-    assert insert_policy["actor_selector"]["exclude_groups"] == ["gdpr"]
-    assert len(updates) == 1
-    assert updates[0]["effect"] == "deny"
-    assert updates[0]["actor_selector"]["exclude_groups"] == ["gdpr"]
+    update_policy = by_operation["update"]
+    assert update_policy["effect"] == "deny"
+    assert update_policy["actor_selector"]["exclude_groups"] == ["gdpr"]
 
 
 def test_load_field_rule_policies_ignores_models_without_layer3():
@@ -375,6 +394,124 @@ def test_field_rule_write_denied_even_when_read_revealed_by_condition():
         assert False, "expected HTTPException 403"
     except HTTPException as exc:
         assert exc.status_code == 403
+
+
+def test_field_rule_write_insert_ungated_update_gated():
+    """f_rule.write nega SOLO su UPDATE, mai su INSERT: a creation-time
+    non esiste un valore esistente da proteggere, e chi crea il record ne
+    diventa owner nello stesso istante — negare l'INSERT romperebbe il
+    self-service (es. l'operatore che valorizza "Data di Nascita" alla
+    creazione del form). Un attore non nei gruppi write puo' quindi
+    settare liberamente il campo in INSERT, ma non modificarlo in UPDATE
+    dopo che il record esiste."""
+    users = _RecordModel(
+        "user",
+        rows=[],
+        field_rules={"codicefiscale": {"read": ["gdpr"], "write": ["gdpr"]}},
+    )
+    env = _Env({"user": users}, session=_session(groups=["sales"], uid="operator1"))
+    service = Service(env)
+
+    async def _run():
+        acl = await service._get_compiled_field_acl()
+        # INSERT: nessun gruppo write richiesto, non deve sollevare.
+        await enforce_write_acl(
+            acl,
+            env,
+            session=env.user_session,
+            model_key="user",
+            operation="create",
+            payload={"codicefiscale": "RSSMRA80A01H501U"},
+        )
+        # UPDATE: stesso attore, stesso campo -> negato.
+        try:
+            await enforce_write_acl(
+                acl,
+                env,
+                session=env.user_session,
+                model_key="user",
+                operation="update",
+                payload={"codicefiscale": "RSSMRA80A01H501U"},
+            )
+            assert False, "expected HTTPException 403"
+        except HTTPException as exc:
+            assert exc.status_code == 403
+
+    asyncio.run(_run())
+
+
+def test_field_rule_write_owner_sentinel_allows_owner_after_creation():
+    """Sentinel `$owner` in f_rule.write (vedi Service._OWNER_WRITE_
+    SENTINEL/_get_field_owner_writable_fields): un campo group-write-gated
+    resta scrivibile dall'OWNER del record anche DOPO la creazione, senza
+    dover essere nei gruppi write espliciti — risolve il limite "l'owner
+    non puo' correggere un proprio errore di battitura dopo l'INSERT".
+    Verifica end-to-end tramite Service.upsert (il varco reale)."""
+    users = _RecordModel(
+        "user",
+        rows=[
+            {
+                "rec_name": "owner1",
+                "owner_uid": "owner1",
+                "codicefiscale": "OLD123",
+            }
+        ],
+        field_rules={
+            "codicefiscale": {"read": ["gdpr"], "write": ["gdpr", "$owner"]}
+        },
+    )
+    env = _Env({"user": users}, session=_session(groups=["sales"], uid="owner1"))
+    service = Service(env)
+
+    response = asyncio.run(
+        service.upsert(
+            model_name="user",
+            data={"codicefiscale": "NEW456"},
+            rec_name="owner1",
+        )
+    )
+
+    assert response.fail is False
+    assert users.rows[0]["codicefiscale"] == "NEW456"
+
+
+def test_field_rule_write_owner_sentinel_checks_stored_record_not_payload():
+    """Il match per `$owner` usa l'owner_uid dello STORED record, MAI
+    quello dichiarato nel payload in arrivo: un attaccante che scrive
+    owner_uid=se-stesso nell'update non deve auto-concedersi lo sblocco
+    $owner su un record che non possiede davvero. Il punto esatto dove
+    uno slip diventerebbe una vulnerabilita' — Service.upsert deve leggere
+    l'owner dallo STORED record (via _resolve_write_operation), mai dal
+    payload."""
+    users = _RecordModel(
+        "user",
+        rows=[
+            {
+                "rec_name": "victim_record",
+                "owner_uid": "victim1",
+                "codicefiscale": "OLD123",
+            }
+        ],
+        field_rules={
+            "codicefiscale": {"read": ["gdpr"], "write": ["gdpr", "$owner"]}
+        },
+    )
+    env = _Env({"user": users}, session=_session(groups=["sales"], uid="attacker1"))
+    service = Service(env)
+
+    try:
+        asyncio.run(
+            service.upsert(
+                model_name="user",
+                data={"codicefiscale": "HACKED", "owner_uid": "attacker1"},
+                rec_name="victim_record",
+            )
+        )
+        assert False, "expected HTTPException 403"
+    except HTTPException as exc:
+        assert exc.status_code == 403
+        assert "codicefiscale" in exc.detail["fields"]
+    assert users.rows[0]["codicefiscale"] == "OLD123"
 
 
 def test_models_groups_denies_whole_model_for_non_member_group():

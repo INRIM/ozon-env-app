@@ -230,6 +230,23 @@ def _payload_requests_menu_dashboard(data: dict[str, Any] | None) -> bool:
     return _is_enabled_flag(data.get("create_menu_dashboard", False))
 
 
+_OWNER_WRITE_SENTINEL = "$owner"
+"""Token riservato in `f_rule.write` (es. `"write": ["manager", "$owner"]`):
+NON e' un gruppo di sessione, e' rimosso da `_load_field_rule_policies`
+prima di costruire `exclude_groups` (non deve mai comparire come falso
+gruppo nella policy compilata/actor-only). Marca il campo come scrivibile
+anche dall'OWNER del record (owner_uid == session.uid sullo STORED
+record, mai dal payload in arrivo — vedi Service.upsert), oltre ai gruppi
+elencati. Deliberatamente distinto da `f_rule_cond` (condizione arbitraria,
+sblocca SOLO il read, mai il write, per evitare bypass silenzioso):
+l'ownership e' un concetto specifico e gia' fidato altrove (Layer 2/
+record_rulse usa lo stesso owner_uid per il gate a livello di record),
+non una condizione generica — vedi `$`-prefix per non collidere mai con
+un nome di gruppo reale. `$`-prefixed cosi' non richiede modifiche a
+ozon-env (resta un semplice `list[str]`, bakato verbatim a codegen-time):
+l'interpretazione del sentinel e' tutta qui in ozon-env-app."""
+
+
 class Service:
     def __init__(self, env: OzonEnv):
         self.env = env
@@ -1317,7 +1334,7 @@ class Service:
         if model_name == "component":
             data = _normalize_payload_values(data, record_model)
             normalize_component_properties(data)
-        operation = await self._resolve_write_operation(
+        operation, existing_record = await self._resolve_write_operation(
             record_model, rec_name, data
         )
         model_access = await self._get_model_group_access(model_name)
@@ -1351,6 +1368,14 @@ class Service:
         if isinstance(write_hook.payload, dict):
             data = write_hook.payload
         acl = await self._get_compiled_field_acl()
+        owner_override_fields: frozenset[str] = frozenset()
+        if operation == FieldAclOperation.UPDATE.value and existing_record:
+            owner_uid = str(existing_record.get("owner_uid") or "")
+            session_uid = str(getattr(self.session, "uid", "") or "")
+            if owner_uid and owner_uid == session_uid:
+                owner_override_fields = self._get_field_owner_writable_fields(
+                    model_name
+                )
         await enforce_write_acl(
             acl,
             self.env,
@@ -1358,6 +1383,7 @@ class Service:
             model_key=model_name,
             operation=operation,
             payload=data if isinstance(data, dict) else {},
+            owner_override_fields=owner_override_fields,
         )
         create_menu_dashboard = (
             model_name == "component"
@@ -2032,19 +2058,25 @@ class Service:
         record_model: OzonModelBase,
         rec_name: str,
         data: dict[str, Any] | None,
-    ) -> str:
+    ) -> tuple[str, dict[str, Any] | None]:
+        """Ritorna (operation, existing_record) — `existing_record` e' il
+        record GIA' PERSISTITO (None su INSERT), letto qui una volta sola
+        cosi' il chiamante (upsert) puo' derivare l'owner reale (owner_uid
+        dello STORED record, mai dal payload in arrivo: un payload puo'
+        dichiarare owner_uid=self per auto-concedersi lo sblocco `$owner`
+        di f_rule.write — vedi upsert) senza un secondo round-trip DB."""
         target_rec_name = rec_name or (
             data.get("rec_name", "") if isinstance(data, dict) else ""
         )
         if not target_rec_name:
-            return FieldAclOperation.INSERT.value
+            return FieldAclOperation.INSERT.value, None
         try:
             existing = await record_model.by_name(target_rec_name)
         except Exception:
             existing = None
         if existing:
-            return FieldAclOperation.UPDATE.value
-        return FieldAclOperation.INSERT.value
+            return FieldAclOperation.UPDATE.value, _record_to_dict(existing)
+        return FieldAclOperation.INSERT.value, None
 
     async def _get_record_rulse(
         self, model_key: str
@@ -2155,6 +2187,38 @@ class Service:
                 "get_field_rules_conditions failed model=%s", model_key
             )
             return {}
+
+    def _get_field_owner_writable_fields(self, model_key: str) -> frozenset[str]:
+        """Layer 3: campi il cui `f_rule.write` include il sentinel
+        `$owner` (vedi `_OWNER_WRITE_SENTINEL`) — scrivibili dall'OWNER del
+        record anche se non nei gruppi write espliciti. Letto qui (non in
+        `_load_field_rule_policies`, che compila policy actor-only senza
+        contesto riga) perche' l'override richiede il record GIA'
+        PERSISTITO per verificare owner_uid — solo `Service.upsert` ce
+        l'ha (via `_resolve_write_operation`), e solo per UPDATE."""
+        try:
+            model_obj = self.env.get(model_key)
+        except Exception:
+            return frozenset()
+        model_cls = getattr(model_obj, "model", None)
+        get_field_rules = getattr(model_cls, "get_field_rules", None)
+        if not callable(get_field_rules):
+            return frozenset()
+        try:
+            field_rules = get_field_rules() or {}
+        except Exception:
+            logger.warning("get_field_rules failed model=%s", model_key)
+            return frozenset()
+        owner_writable: set[str] = set()
+        for field_path, rule in field_rules.items():
+            if not isinstance(rule, dict):
+                continue
+            write = rule.get("write") or []
+            if any(
+                str(g).strip().lower() == _OWNER_WRITE_SENTINEL for g in write
+            ):
+                owner_writable.add(field_path)
+        return frozenset(owner_writable)
 
     async def _get_model_groups_rule(
         self, model_key: str
@@ -2345,9 +2409,31 @@ class Service:
 
         `f_rule.write`: NUOVO — prima dead code in `fields_rule.allowed_
         groups.actions.{create,update}` (mai consumato). Qui produce
-        policy DENY su INSERT e UPDATE per chi non e' nei gruppi write —
-        riusa `enforce_write_acl`/`CompiledFieldAcl.denied_fields` gia'
-        esistenti, nessuna modifica li'.
+        policy DENY SOLO su UPDATE per chi non e' nei gruppi write — riusa
+        `enforce_write_acl`/`CompiledFieldAcl.denied_fields` gia' esistenti,
+        nessuna modifica li'.
+
+        INSERT resta sempre non gated da `f_rule.write` (per design, non
+        omissione): a creation-time non esiste ancora un valore da
+        proteggere da un blind-overwrite (il problema che f_rule.write
+        risolve), e chi crea il record ne diventa owner nello stesso
+        istante — bloccare l'INSERT servirebbe solo a impedire al
+        creatore/owner di valorizzare i propri campi al volo, rompendo
+        qualunque form di self-service (es. l'operatore che compila
+        "Data di Nascita" alla creazione). Se in futuro serve bloccare
+        anche l'INSERT per un campo specifico (es. un valore che deve
+        arrivare solo da un processo controllato), va introdotta una
+        chiave distinta — non riusare `write` per quel caso, altrimenti si
+        rompe questa garanzia per tutti i field gia' configurati.
+
+        LIMITE NOTO (verificato con l'utente): l'owner del record NON puo'
+        correggere un proprio errore di battitura dopo la creazione se non
+        e' anche nei gruppi write — solo i gruppi write possono aggiornare
+        il campo dopo l'INSERT. `f_rule_cond` sblocca la lettura per
+        l'owner ma MAI la scrittura (invariante deciso in sessione
+        precedente, per evitare bypass silenzioso): estendere l'update
+        all'owner richiederebbe una valutazione record-aware di
+        `f_rule_cond` anche in scrittura, non ancora implementata.
 
         Niente bypass admin (stesso comportamento di prima, confermato
         dall'utente): solo gruppo o `f_rule_cond` (read-only, vedi
@@ -2389,24 +2475,20 @@ class Service:
                     {
                         str(g).strip().lower()
                         for g in (rule.get("write") or [])
-                        if str(g).strip()
+                        if str(g).strip() and str(g).strip().lower() != _OWNER_WRITE_SENTINEL
                     }
                 )
                 if write_groups:
-                    for operation in (
-                        FieldAclOperation.INSERT.value,
-                        FieldAclOperation.UPDATE.value,
-                    ):
-                        policies.append(
-                            {
-                                "model_key": model_key,
-                                "field_path": field_path,
-                                "operation": operation,
-                                "effect": FieldAclEffect.DENY.value,
-                                "actor_selector": {"exclude_groups": write_groups},
-                                "priority": 10,
-                            }
-                        )
+                    policies.append(
+                        {
+                            "model_key": model_key,
+                            "field_path": field_path,
+                            "operation": FieldAclOperation.UPDATE.value,
+                            "effect": FieldAclEffect.DENY.value,
+                            "actor_selector": {"exclude_groups": write_groups},
+                            "priority": 10,
+                        }
+                    )
         logger.info("acl.field_rule_policies policies=%s", len(policies))
         return policies
 
