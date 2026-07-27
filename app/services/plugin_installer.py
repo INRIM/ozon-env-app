@@ -82,22 +82,32 @@ class PluginInstaller:
                     len(newly_inserted),
                 )
                 if auto_create_actions:
-                    # Solo i component APPENA inseriti (mai visti prima in
-                    # questa collection) -> stesso gate di Service.upsert
-                    # (generate_defaults solo su operation==INSERT): un
-                    # riavvio che re-upserta uno schema gia' installato non
-                    # deve rigenerare action gia' editate a mano (l'action
-                    # e' un upsert col template, non create-if-absent come
-                    # menu_group — rigenerarla ad ogni boot cancellerebbe
-                    # le modifiche manuali).
-                    new_components = [
+                    # Gate su "questo model ha gia' almeno un'action?", non
+                    # su "upserted_id era settato ADESSO" (newly_inserted):
+                    # quel segnale e' vero SOLO nell'istante esatto in cui il
+                    # component viene inserito per la prima volta — se il
+                    # boot che lo inserisce fallisce PRIMA di arrivare alla
+                    # generazione menu/action (crash, errore a monte), il
+                    # component non e' piu' "new" ai boot successivi e la
+                    # generazione non riprovava piu' mai (serviva il
+                    # workaround manuale "Design form -> genera menu").
+                    # Il check sull'esistenza dell'action e' un segnale
+                    # PERSISTENTE: riprova sempre finche' non c'e' almeno
+                    # un'action, ma non tocca MAI un model gia' provisionato
+                    # con successo — l'action e' un upsert col template, non
+                    # create-if-absent come menu_group, rigenerarla ad ogni
+                    # boot cancellerebbe le modifiche manuali.
+                    needs_dashboard = await self._components_needing_menu_dashboard(
+                        components, db
+                    )
+                    target_components = [
                         component
                         for component in components
                         if isinstance(component, dict)
-                        and component.get("rec_name") in newly_inserted
+                        and component.get("rec_name") in needs_dashboard
                     ]
                     await self._create_menu_dashboard_for_components(
-                        module_name, new_components, service
+                        module_name, target_components, service
                     )
                 else:
                     logger.info(
@@ -143,6 +153,34 @@ class PluginInstaller:
                     module_name,
                     rec_name,
                 )
+
+    async def _components_needing_menu_dashboard(
+        self, components: list[dict], db: Any
+    ) -> set[str]:
+        """rec_name di ogni component SENZA nemmeno un'action esistente —
+        segnale persistente di "mai completato con successo", a differenza
+        di `newly_inserted` in `_upsert_all` (vero solo nell'istante esatto
+        del primo insert, quindi cieco a un boot che inserisce il component
+        ma fallisce PRIMA di generare menu/action). L'action e' l'artefatto
+        giusto da controllare (non menu_group): menu_group non si crea
+        affatto per i component `type: "resource"`, mentre l'action si
+        crea sempre, per qualunque tipo di component — controllare
+        menu_group farebbe ritentare all'infinito ogni "resource",
+        sovrascrivendo ad ogni boot le sue action anche se gia' presenti."""
+        action_coll = db.engine.get_collection("action")
+        needing: set[str] = set()
+        for component in components:
+            if not isinstance(component, dict):
+                continue
+            rec_name = str(component.get("rec_name", "") or "").strip()
+            if not rec_name:
+                continue
+            exists = await action_coll.count_documents(
+                {"model": rec_name, "deleted": 0}
+            )
+            if not exists:
+                needing.add(rec_name)
+        return needing
 
     async def _is_installed(self, module_name: str, db: Any) -> bool:
         coll = db.engine.get_collection(_REGISTRY_COLLECTION)

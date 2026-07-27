@@ -9,6 +9,7 @@ class FakeCollection:
     def __init__(self):
         self.calls = []
         self._seen_filters: set[str] = set()
+        self.docs: list[dict] = []
 
     async def update_one(self, filter_doc, update_doc, upsert=False):
         # Replica il vincolo Mongo: $set su _id immutabile -> errore.
@@ -22,17 +23,31 @@ class FakeCollection:
         )
         # Replica upserted_id di pymongo/motor: None se il filtro matchava
         # gia' un documento esistente, un id se e' stato appena inserito —
-        # PluginInstaller._upsert_all lo usa per capire quali record sono
-        # NUOVI (menu/action si generano solo su INSERT, non ad ogni boot).
+        # usato solo per il log "(%d new)", non piu' per decidere se
+        # generare menu/action (vedi _components_needing_menu_dashboard).
         key = json.dumps(filter_doc, sort_keys=True)
         is_new = key not in self._seen_filters
         self._seen_filters.add(key)
+        if is_new:
+            self.docs.append(dict(update_doc.get("$set", {})))
         return types.SimpleNamespace(upserted_id=("new-id" if is_new else None))
+
+    async def count_documents(self, filter_doc):
+        def matches(doc):
+            return all(doc.get(k) == v for k, v in filter_doc.items())
+
+        return len([doc for doc in self.docs if matches(doc)])
+
+    async def insert_one(self, doc):
+        self.docs.append(dict(doc))
 
 
 class FakeDb:
-    def __init__(self, coll):
-        self.engine = types.SimpleNamespace(get_collection=lambda name: coll)
+    def __init__(self, coll, action_coll=None):
+        collections = {"action": action_coll} if action_coll is not None else {}
+        self.engine = types.SimpleNamespace(
+            get_collection=lambda name: collections.get(name, coll)
+        )
 
 
 def test_upsert_all_strips_id_from_set():
@@ -83,17 +98,26 @@ def test_upsert_all_record_with_id_does_not_raise():
 
 
 class _SpyService:
-    """Fake Service: registra solo quali component hanno ricevuto la call
-    a _create_menu_dashboard_for_component — la logica di skip (no_model,
+    """Fake Service: registra quali component hanno ricevuto la call a
+    _create_menu_dashboard_for_component — la logica di skip (no_model,
     rec_name non valido) vive gia' dentro quel metodo (testata altrove),
-    qui si verifica solo che PluginInstaller lo invochi per ogni component
-    dello schema del plugin."""
+    qui si verifica solo che PluginInstaller lo invochi per i component
+    giusti. Se `action_coll` e' passato, simula il side-effect reale
+    (un'action creata per il model) cosi' i test su piu' boot successivi
+    possono verificare che _components_needing_menu_dashboard smetta di
+    richiamare l'hook una volta che l'action esiste davvero."""
 
-    def __init__(self):
+    def __init__(self, action_coll=None):
         self.calls = []
+        self._action_coll = action_coll
 
     async def _create_menu_dashboard_for_component(self, schema):
-        self.calls.append(schema.get("rec_name"))
+        rec_name = schema.get("rec_name")
+        self.calls.append(rec_name)
+        if self._action_coll is not None:
+            await self._action_coll.insert_one(
+                {"model": rec_name, "rec_name": f"action_{rec_name}", "deleted": 0}
+            )
 
 
 def test_create_menu_dashboard_for_components_invokes_hook_per_component():
@@ -135,13 +159,19 @@ def _write_plugin(tmp_path, config_extra=None):
 def _fake_db():
     coll = FakeCollection()
     registry_coll = FakeCollection()
+    action_coll = FakeCollection()
 
     def get_collection(name):
-        return registry_coll if name == "plugin_registry" else coll
+        if name == "plugin_registry":
+            return registry_coll
+        if name == "action":
+            return action_coll
+        return coll
 
-    return types.SimpleNamespace(
+    db = types.SimpleNamespace(
         engine=types.SimpleNamespace(get_collection=get_collection)
     )
+    return db, action_coll
 
 
 def test_install_plugin_creates_menu_dashboard_by_default(tmp_path):
@@ -149,9 +179,9 @@ def test_install_plugin_creates_menu_dashboard_by_default(tmp_path):
     action" — auto_create_actions assente/true (default) -> la hook menu/
     action gira per ogni component dello schema del plugin."""
     plugin_dir = _write_plugin(tmp_path)
-    db = _fake_db()
+    db, action_coll = _fake_db()
     installer = PluginInstaller(cfg={})
-    service = _SpyService()
+    service = _SpyService(action_coll)
 
     asyncio.run(installer._install_plugin(plugin_dir, db, service))
 
@@ -165,9 +195,9 @@ def test_install_plugin_skips_menu_dashboard_when_auto_create_actions_false(
     mano (auto_create_actions=false in config.json) — l'auto-generazione
     duplicherebbe/confliggerebbe, deve restare disattivabile."""
     plugin_dir = _write_plugin(tmp_path, {"auto_create_actions": False})
-    db = _fake_db()
+    db, action_coll = _fake_db()
     installer = PluginInstaller(cfg={})
-    service = _SpyService()
+    service = _SpyService(action_coll)
 
     asyncio.run(installer._install_plugin(plugin_dir, db, service))
 
@@ -178,19 +208,51 @@ def test_install_plugin_second_boot_does_not_regenerate_existing_actions(
     tmp_path,
 ):
     """Regressione: un plugin non-no_update re-upserta lo schema ad OGNI
-    boot (idempotente per definizione). Senza il gate su INSERT, la hook
-    menu/action girerebbe di nuovo per un component gia' installato,
-    sovrascrivendo con l'upsert-da-template un'action eventualmente editata
-    a mano dopo il primo boot — stesso motivo per cui l'equivalente lato API
-    (Service.upsert) genera i default solo su operation==INSERT."""
+    boot (idempotente per definizione). Un model gia' PROVISIONATO CON
+    SUCCESSO (ha gia' almeno un'action) non deve essere ritoccato: l'action
+    e' un upsert-da-template, non create-if-absent — rigenerarla ad ogni
+    boot cancellerebbe una modifica manuale fatta dopo il primo boot."""
     plugin_dir = _write_plugin(tmp_path)
-    db = _fake_db()
+    db, action_coll = _fake_db()
     installer = PluginInstaller(cfg={})
 
-    first_service = _SpyService()
+    first_service = _SpyService(action_coll)
     asyncio.run(installer._install_plugin(plugin_dir, db, first_service))
     assert first_service.calls == ["demo_model"]
 
-    second_service = _SpyService()
+    second_service = _SpyService(action_coll)
     asyncio.run(installer._install_plugin(plugin_dir, db, second_service))
     assert second_service.calls == []
+
+
+def test_install_plugin_retries_menu_dashboard_after_failed_first_boot(
+    tmp_path,
+):
+    """Regressione per il bug reale: se il PRIMO boot inserisce il
+    component ma fallisce PRIMA di generare menu/action (crash, errore a
+    monte — es. il codegen di un field type non supportato), il vecchio
+    gate su "upserted_id era settato ADESSO" non riprovava mai piu': il
+    component non e' piu' "new" al boot successivo, quindi l'hook menu/
+    action non veniva piu' invocata finche' qualcuno non lo generava a
+    mano da "Design form". Qui: component gia' presente in DB (simulando
+    un boot precedente riuscito solo a meta'), ZERO action esistenti -> il
+    boot successivo deve ritentare e riuscire, senza intervento manuale."""
+    plugin_dir = _write_plugin(tmp_path)
+    db, action_coll = _fake_db()
+    # Simula il component gia' upsertato da un boot precedente (fallito
+    # prima di arrivare a menu/action) — nessuna action esiste ancora.
+    installer = PluginInstaller(cfg={})
+    asyncio.run(
+        installer._upsert_all(
+            "component",
+            [{"rec_name": "demo_model", "type": "resource", "sys": False}],
+            db,
+        )
+    )
+    assert action_coll.docs == []
+
+    service = _SpyService(action_coll)
+    asyncio.run(installer._install_plugin(plugin_dir, db, service))
+
+    assert service.calls == ["demo_model"]
+    assert action_coll.docs != []
