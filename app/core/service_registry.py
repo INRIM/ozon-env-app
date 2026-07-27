@@ -304,7 +304,16 @@ class ServiceRegistryCore:
             base = Path(manifest_path).parent
         else:
             base = Path(".")
-        if not base.is_absolute() and project_root is not None:
+        # Path assoluto o risalita `..`: rifiutati. `cwd` finisce dritto in
+        # `docker compose -f <file>` (vedi DockerComposeRunner), quindi un
+        # record che punta fuori dall'albero dei servizi permetterebbe di
+        # far eseguire un compose file arbitrario del filesystem. Il gate
+        # primario e' l'admin-only sul router, questo e' il secondo strato.
+        if base.is_absolute() or ".." in base.parts:
+            raise ValueError(
+                f"source_path must be a relative path without '..': {base}"
+            )
+        if project_root is not None:
             base = project_root / base
         return base.resolve()
 

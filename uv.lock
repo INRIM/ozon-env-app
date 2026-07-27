@@ -692,6 +692,7 @@ source = { editable = "." }
 dependencies = [
     { name = "aioclamd" },
     { name = "camunda-orchestration-sdk" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "grpcio" },
     { name = "httpx" },
@@ -714,6 +715,7 @@ dev = [
 requires-dist = [
     { name = "aioclamd", git = "https://github.com/INRIM/aioclamd.git" },
     { name = "camunda-orchestration-sdk", specifier = ">=9.0.0" },
+    { name = "cryptography", specifier = ">=45" },
     { name = "fastapi", specifier = ">=0.116.0" },
     { name = "grpcio", specifier = ">=1.66,<2.0" },
     { name = "httpx", specifier = ">=0.28" },

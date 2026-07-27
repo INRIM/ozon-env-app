@@ -1,6 +1,7 @@
 import json
 import types
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
@@ -58,6 +59,14 @@ class FakeService:
 
     async def get_models(self, query: dict = None):
         return ["customer", "order"]
+
+    async def get_select_options(self, key: str, curr_model: str):
+        if self.factory is not None:
+            self.factory.last_select_options_call = {
+                "key": key,
+                "curr_model": curr_model,
+            }
+        return [{"label": "One", "value": "1"}]
 
     async def run_calendar_task(self, rec_name: str, payload: dict = None):
         if self.factory is not None:
@@ -213,6 +222,7 @@ class Factory:
         self._ozon_factory = OzonEnvFactory()
         self.last_upsert_call = None
         self.last_calendar_run_call = None
+        self.last_select_options_call = None
 
     async def dep(self):
         self.calls += 1
@@ -920,6 +930,88 @@ def test_client_record_attachment_download(monkeypatch, tmp_path):
     assert response.headers["content-type"] == "application/pdf"
 
 
+def test_client_record_attachment_denied_when_record_not_readable(
+    monkeypatch, tmp_path
+):
+    """IDOR: l'allegato eredita l'ACL del record che lo possiede.
+
+    Il file esiste su disco e il path e' valido; l'unico motivo per cui
+    la richiesta non deve passare e' che `load_record` (model_groups_rule
+    + record_rulse + field ACL) non restituisce il record. Prima questa
+    rotta non interrogava affatto l'ACL: bastava indovinare
+    model/rec_name, che sono identificativi leggibili, non capability.
+    """
+    factory = Factory()
+    monkeypatch.setattr(
+        api_routes,
+        "get_env_settings",
+        lambda: EnvSettings(
+            app_code="test-app",
+            upload_root=tmp_path,
+            clamav_enabled=False,
+        ),
+    )
+    filename = "segreto.pdf"
+    folder = tmp_path / "test_request" / "not-found"
+    folder.mkdir(parents=True)
+    (folder / filename).write_bytes(b"%PDF-1.4 riservato")
+    client = make_client(factory)
+
+    response = client.get(
+        f"/client/attachment/test_request/not-found/{filename}",
+        headers={"Authorization": "Bearer ok-token"},
+    )
+
+    assert response.status_code == 404
+    assert b"riservato" not in response.content
+
+
+def test_client_record_attachment_denied_when_acl_refuses_read(
+    monkeypatch, tmp_path
+):
+    """Semantica reale del diniego ACL: `load_record` NON ritorna falsy,
+    solleva HTTPException(404) (`service.py`, ramo `if not final_read`).
+
+    Questo test fissa quel comportamento: se un domani `load_record`
+    passasse a restituire il record con `readable=False` invece di
+    sollevare, il gate `if not record` non basterebbe piu' e questo test
+    diventerebbe rosso.
+    """
+    factory = Factory()
+    monkeypatch.setattr(
+        api_routes,
+        "get_env_settings",
+        lambda: EnvSettings(
+            app_code="test-app",
+            upload_root=tmp_path,
+            clamav_enabled=False,
+        ),
+    )
+
+    async def acl_denied_load_record(self, model: str, rec_name: str):
+        raise HTTPException(
+            status_code=404, detail=f"Record '{rec_name}' not found"
+        )
+
+    monkeypatch.setattr(
+        FakeService, "load_record", acl_denied_load_record, raising=True
+    )
+
+    filename = "segreto.pdf"
+    folder = tmp_path / "test_request" / "REQ-001"
+    folder.mkdir(parents=True)
+    (folder / filename).write_bytes(b"%PDF-1.4 riservato")
+    client = make_client(factory)
+
+    response = client.get(
+        f"/client/attachment/test_request/REQ-001/{filename}",
+        headers={"Authorization": "Bearer ok-token"},
+    )
+
+    assert response.status_code == 404
+    assert b"riservato" not in response.content
+
+
 def test_single_backend_instance_per_request(monkeypatch):
     factory = Factory()
     monkeypatch.setattr(
@@ -942,34 +1034,62 @@ def test_single_backend_instance_per_request(monkeypatch):
     app.dependency_overrides.clear()
 
 
-def test_get_remote_data_select(monkeypatch):
+def test_get_remote_select_refuses_client_supplied_url(monkeypatch):
+    """SSRF: l'URL non puo' piu' arrivare dal body.
+
+    Il ramo `data.url` fetchava un URL arbitrario lato server e ne
+    restituiva il corpo al chiamante; peggio, `data.headerValueKey`
+    finiva in `get_global_param()` (che non applica ACL), permettendo di
+    far spedire il valore di qualunque record `global_params` come header
+    verso un host scelto dal client. La config remota si risolve solo
+    server-side dal component, via `key` + `curr_model`.
+    """
     factory = Factory()
     monkeypatch.setattr(
         api_routes, "make_response_object", fake_make_response_object
     )
     client = make_client(factory)
 
-    async def fake_remote_data_select_response(
-        service, url, path_value, header_key, header_value_key
-    ):
-        return [{"label": "One", "value": "1"}]
-
-    monkeypatch.setattr(
-        api_routes,
-        "remote_data_select_response",
-        fake_remote_data_select_response,
+    response = client.post(
+        "/get_remote_select",
+        headers={"Authorization": "Bearer ok-token"},
+        json={
+            "data": {
+                "url": "http://169.254.169.254/latest/meta-data/",
+                "headerKey": "X-Api-Key",
+                "headerValueKey": "some_service_credentials",
+            },
+            "properties": {},
+        },
     )
+
+    assert response.status_code == 400
+    assert "data.url" in response.json()["detail"]
+    app.dependency_overrides.clear()
+
+
+def test_get_remote_select_resolves_server_side_from_component(monkeypatch):
+    """Il percorso legittimo (key + curr_model) continua a funzionare."""
+    factory = Factory()
+    monkeypatch.setattr(
+        api_routes, "make_response_object", fake_make_response_object
+    )
+    client = make_client(factory)
 
     response = client.post(
         "/get_remote_select",
         headers={"Authorization": "Bearer ok-token"},
-        json={"data": {"url": "https://example.org"}, "properties": {}},
+        json={"key": "supplier", "curr_model": "order", "properties": {}},
     )
 
     assert response.status_code == 200
     body = response.json()
     assert body["content"]["mode"] == "list"
     assert body["content"]["data"] == [{"label": "One", "value": "1"}]
+    assert factory.last_select_options_call == {
+        "key": "supplier",
+        "curr_model": "order",
+    }
     app.dependency_overrides.clear()
 
 

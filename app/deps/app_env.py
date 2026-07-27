@@ -44,10 +44,13 @@ _STATIC_MODELS = [
 # app/core/models.py (usate solo per validare le righe di sync, non per
 # la registrazione ORM).
 
+# POST usate come "read" (la GET non basta: il filtro sta nel body).
+# `/get_remote_data_select` e `/get_remote_select` NON sono piu' qui: da
+# quando risolvono la config solo server-side restano letture, ma fanno
+# comunque partire traffico HTTP in uscita dal server, quindi non hanno
+# titolo per l'esenzione.
 _READ_ONLY_POST_CSRF_EXEMPT_PATHS = {
     "/models/distinct",
-    "/get_remote_data_select",
-    "/get_remote_select",
 }
 
 
@@ -79,6 +82,15 @@ def _build_ozon_cfg(source_settings: Any = None) -> dict:
         "oauth_url": effective_settings.keycloak_token_endpoint,
         "client_id": effective_settings.keycloak_client_id,
         "client_secret": effective_settings.keycloak_client_secret,
+        # Senza questo, KeycloakAuthSettings.from_config ripiegava sul
+        # solo os.getenv("OZON_TOKEN_AUDIENCE") — mai valorizzato — e
+        # `verify_aud` restava False: qualunque token del realm, anche
+        # emesso per un altro client, veniva accettato. Vuoto = check
+        # disattivo (comportamento invariato); valorizzare
+        # OZON_TOKEN_AUDIENCE per attivarlo.
+        "token_audience": getattr(
+            effective_settings, "token_audience", ""
+        ) or "",
     })
     return cfg
 
@@ -581,6 +593,30 @@ async def get_authed_env(
         current_app_code,
         ozon_env.user_session.uid,
     )
+    return ozon_env
+
+
+async def require_admin_env(
+    ozon_env: Annotated[AppOzonEnv, Depends(get_authed_env)],
+) -> AppOzonEnv:
+    """Come `get_authed_env`, ma richiede anche `is_admin`.
+
+    Serve per i router che scrivono configurazione di piattaforma senza
+    passare da `Service.upsert` (quindi senza il gate `model_groups_rule`):
+    li' `get_authed_env` da solo significa "qualunque utente autenticato",
+    che non e' un'autorizzazione. `is_admin` e' gia' stato ricalcolato da
+    `group_users` dentro `get_authed_env` — qui si legge soltanto.
+    """
+    session = getattr(ozon_env, "user_session", None)
+    if not bool(getattr(session, "is_admin", False)):
+        logger.warning(
+            "admin-only endpoint denied uid=%s",
+            getattr(session, "uid", ""),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required",
+        )
     return ozon_env
 
 

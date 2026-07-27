@@ -353,8 +353,6 @@ def test_get_authed_env_uses_runtime_app_code_for_session_and_cookie(monkeypatch
     [
         "/list/customer",
         "/models/distinct",
-        "/get_remote_data_select",
-        "/get_remote_select",
     ],
 )
 def test_get_authed_env_skips_csrf_for_read_only_post_routes(
@@ -376,6 +374,44 @@ def test_get_authed_env_skips_csrf_for_read_only_post_routes(
     assert result is ozon_env
     assert ozon_env.params["current_token"] == "ok-token"
     assert ozon_env.session_app_calls == 1
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/get_remote_data_select",
+        "/get_remote_select",
+    ],
+)
+def test_get_authed_env_requires_csrf_for_remote_select_routes(
+    monkeypatch, path
+):
+    """Le select remote non sono piu' esenti da CSRF.
+
+    Restano letture, ma fanno partire una richiesta HTTP in uscita dal
+    server verso un endpoint esterno: non hanno titolo per l'esenzione
+    pensata per le POST-usate-come-GET.
+    """
+    monkeypatch.setattr(app_env, "settings", _FAKE_SETTINGS)
+
+    signed_session = app_env.sign_token(
+        "ok-token", _FAKE_SETTINGS.session_secret
+    )
+    request = _build_request(
+        path,
+        method="POST",
+        headers=[(b"cookie", f"session={signed_session}".encode("utf-8"))],
+    )
+    response = Response()
+    ozon_env = _FakeOzonEnv(user_app_code="mci")
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            app_env.get_authed_env(None, ozon_env, request, response)
+        )
+
+    assert exc.value.status_code == 403
+    assert "CSRF" in str(exc.value.detail)
 
 
 def test_get_authed_env_requires_csrf_for_cookie_write_routes(monkeypatch):

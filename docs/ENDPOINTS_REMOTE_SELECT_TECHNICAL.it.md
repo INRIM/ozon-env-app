@@ -119,9 +119,21 @@
 - Request body: `RemoteSelectRequest`.
 - Logica:
   - se presenti `key` e `curr_model`: usa configurazione FormIO (`service.get_select_options`).
-  - altrimenti, se presente `data.url`: usa fetch HTTP remoto (`remote_data_select_response`).
+    L'eventuale endpoint remoto viene risolto **server-side** dal component
+    (`app/services/formio.py` → `_load_remote_url_source`).
+  - se presente `data.url` senza `key`/`curr_model`: **400**.
   - altrimenti: ritorna lista vuota.
 - Response: `ResponseObject` con `mode = "list"`.
+
+> **Breaking change (audit sicurezza 2026-07).** Il ramo che accettava
+> `data.url` dal body e' stato rimosso: era una SSRF (URL arbitrario
+> fetchato dal server con la risposta restituita al chiamante) e
+> `data.headerValueKey` finiva in `get_global_param()` — che non applica
+> ACL — permettendo di far spedire il valore di **qualunque** record
+> `global_params` come header HTTP verso un host scelto dal client.
+> I client devono passare `key` + `curr_model`: url, header e token
+> vivono sulla definizione del component, non nel payload.
+> Questi due path non sono piu' esenti da CSRF.
 
 ---
 

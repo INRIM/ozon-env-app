@@ -145,18 +145,48 @@ async def _authenticate_handshake(websocket: WebSocket) -> Any:
 
 
 def _allowed_origins() -> set[str]:
+    """Allowlist Origin per l'handshake WS.
+
+    Se `WS_ALLOWED_ORIGINS` non e' configurata si ripiega su
+    `EXTERNAL_BASE_URL`, cioe' l'origin da cui l'app e' servita: e' il
+    solo Origin legittimo per un client che si autentica col cookie di
+    sessione. Prima il fallback era "nessun controllo".
+    """
     raw = str(getattr(settings, "ws_allowed_origins", "") or "")
-    return {o.strip() for o in raw.split(",") if o.strip()}
+    configured = {o.strip().rstrip("/") for o in raw.split(",") if o.strip()}
+    if configured:
+        return configured
+    external = str(getattr(settings, "external_base_url", "") or "").strip()
+    return {external.rstrip("/")} if external else set()
 
 
-def _origin_allowed(websocket: WebSocket) -> bool:
-    """Difesa CSWSH: se è configurata una allowlist, l'Origin dell'handshake
-    deve combaciare. Se vuota, nessun controllo (vedi nota nel setting)."""
+def _origin_allowed(websocket: WebSocket, *, cookie_auth: bool) -> bool:
+    """Difesa CSWSH.
+
+    Il controllo si applica solo alle connessioni autenticate col cookie:
+    sono le uniche che il browser puo' aprire per conto dell'utente da una
+    pagina di terze parti. I client bearer-only (worker, CLI, mobile) non
+    hanno un Origin e non sono soggetti al problema, quindi passano.
+    """
+    if not cookie_auth:
+        return True
     allowlist = _allowed_origins()
     if not allowlist:
+        logger.error(
+            "ws origin allowlist vuota e EXTERNAL_BASE_URL non impostata: "
+            "handshake con cookie rifiutato. Configurare WS_ALLOWED_ORIGINS."
+        )
+        return False
+    origin = str(websocket.headers.get("origin", "") or "").strip().rstrip("/")
+    if origin in allowlist:
         return True
-    origin = str(websocket.headers.get("origin", "") or "").strip()
-    return origin in allowlist
+    logger.warning(
+        "ws origin '%s' non in allowlist %s (EXTERNAL_BASE_URL/"
+        "WS_ALLOWED_ORIGINS)",
+        origin,
+        sorted(allowlist),
+    )
+    return False
 
 
 def _resolve_app_code(websocket: WebSocket) -> str:
@@ -194,7 +224,10 @@ async def ws_actions(
     runner: Annotated[WsActionRunner, Depends(get_ws_action_runner)],
 ) -> None:
     await websocket.accept()
-    if not _origin_allowed(websocket):
+    # Il cookie di sessione e' cio' che un sito ostile puo' far allegare
+    # dal browser: solo quelle connessioni vanno filtrate per Origin.
+    cookie_auth = bool(websocket.cookies.get(settings.auth_cookie_name, ""))
+    if not _origin_allowed(websocket, cookie_auth=cookie_auth):
         origin = websocket.headers.get("origin", "")
         logger.warning("ws origin rejected: %s", origin)
         await websocket.close(code=WS_POLICY_VIOLATION, reason="Origin not allowed")

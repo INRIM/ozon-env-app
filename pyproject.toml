@@ -106,6 +106,10 @@ requires-python = ">=3.14,<4.0"
 dependencies = [
     "aioclamd",
     "camunda-orchestration-sdk>=9.0.0",
+    # Cifratura del cookie di sessione (app/services/cookie_auth.py):
+    # gia' presente come transitiva di pyjwt, resa esplicita perche' ora
+    # il codice applicativo la importa direttamente.
+    "cryptography>=45",
     "fastapi>=0.116.0",
     "grpcio>=1.66,<2.0",
     "httpx>=0.28",

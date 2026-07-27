@@ -14,9 +14,6 @@ from ozonenv.OzonEnv import OzonEnv
 
 from app.app_settings import get_env_settings
 from app.deps.app_env import get_authed_env, get_ozon_env, get_service
-from app.services.components.selectComponentService import (
-    build_remote_select_header,
-)
 from app.services.common import (
     ListRequest,
     RemoteSelectRequest,
@@ -27,18 +24,11 @@ from app.services.attachments import delete_attachment
 from app.services.attachments import load_attachment_metadata
 from app.services.attachments import load_record_attachment_file
 from app.services.attachments import save_formio_attachment
-from app.services.remote_service import remote_data_select_response
 from app.services.service import Service
 from app.services.utils import _stream_ndjson_with_start_packet, check_parse_json
 
 router = APIRouter(dependencies=[Depends(get_authed_env)])
 logger = logging.getLogger("uvicorn.error")
-
-
-def _dump_model(instance: Any) -> dict[str, Any]:
-    if hasattr(instance, "model_dump"):
-        return instance.model_dump(by_alias=True)
-    return instance.dict(by_alias=True)
 
 
 def _safe_encode_payload(payload: Any) -> Any:
@@ -234,8 +224,31 @@ async def get_client_record_attachment(
     model: str,
     rec_name: str,
     filename: str,
+    service: Annotated[Service, Depends(get_service)],
 ) -> FileResponse:
     settings = get_env_settings()
+    # L'allegato eredita l'ACL del record che lo possiede: senza questo
+    # gate bastava indovinare model/rec_name (che sono identificativi
+    # leggibili, non capability) per scaricare allegati di record non
+    # leggibili via /record/{model}/{rec_name}.
+    #
+    # `load_record` applica model_groups_rule + record_rulse: quando il
+    # read finale e' negato solleva direttamente HTTPException(404)
+    # (service.py, ramo `if not final_read`), quindi il diniego ACL esce
+    # di qui senza toccare il filesystem. Il `if not record` sotto copre
+    # il caso record inesistente.
+    record = await service.load_record(model, rec_name)
+    if not record:
+        logger.warning(
+            "record attachment denied model=%s rec_name=%s uid=%s",
+            model,
+            rec_name,
+            getattr(getattr(service, "session", None), "uid", ""),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Attachment not found",
+        )
     file_path, metadata = load_record_attachment_file(
         settings=settings,
         model=model,
@@ -431,29 +444,43 @@ async def post_remote_data_select(
 ) -> ResponseObject:
     payloadr = _coerce_body_model(RemoteSelectRequest, payload_raw)
     logger.info(
-        "remote select payload key=%s curr_model=%s url=%s",
+        "remote select payload key=%s curr_model=%s",
         payloadr.key,
         payloadr.curr_model,
-        payloadr.data.url,
     )
     data: list[Any] = []
 
+    # SOLO risoluzione server-side. `key`+`curr_model` identificano il
+    # component, da cui `app.services.formio` legge url/headers della
+    # select remota (_load_select_field_config -> _load_remote_url_source).
+    #
+    # Il ramo che prendeva `data.url` dal body e' stato rimosso: era una
+    # SSRF (URL arbitrario fetchato dal server, risposta restituita al
+    # chiamante) e, peggio, `data.headerValueKey` finiva in
+    # `get_global_param()` — che non applica ACL — permettendo di far
+    # spedire il valore di QUALUNQUE record `global_params` come header
+    # HTTP verso un host scelto dal client. I client devono usare
+    # `key`+`curr_model`; la config remota vive sul component, non nel
+    # payload.
     if payloadr.key and payloadr.curr_model:
         data = await service.get_select_options(
             payloadr.key,
             payloadr.curr_model,
         )
     elif payloadr.data.url:
-        header_data = build_remote_select_header(_dump_model(payloadr.data))
-        data = await remote_data_select_response(
-            service=service,
-            url=header_data.url,
-            path_value=header_data.path_value,
-            header_key=header_data.header_key,
-            header_value_key=header_data.header_value_key,
+        logger.warning(
+            "remote select refused client-supplied url (use key+curr_model)"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Client-supplied 'data.url' is not accepted. Use "
+                "'key' + 'curr_model': the remote endpoint is resolved "
+                "server-side from the component definition."
+            ),
         )
     else:
-        logger.warning("remote select payload missing key/curr_model and url")
+        logger.warning("remote select payload missing key/curr_model")
 
     logger.info("remote select response count=%s", len(data))
     return make_response_object(data=data, mode="list")

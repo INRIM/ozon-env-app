@@ -41,8 +41,12 @@ services:
     restart: unless-stopped
     networks:
       - default
+    # Bind sul solo loopback: l'app raggiunge il db sulla rete Docker
+    # interna, questa pubblicazione serve solo per gli strumenti locali
+    # (mongosh, Compass). Con "22222:27017" il db, che ha le credenziali
+    # root, era esposto su tutte le interfacce dell'host.
     ports:
-      - "22222:27017"
+      - "127.0.0.1:22222:27017"
     ulimits:
       nofile:
         soft: 64000

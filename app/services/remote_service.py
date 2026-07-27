@@ -19,6 +19,14 @@ def _append_path(base_url: str, path_value: Any) -> str:
     return f"{base_url.rstrip('/')}/{path_value.lstrip('/')}"
 
 
+# La select remota parla con API esterne dichiarate sul component: un
+# timeout esplicito evita che un host che non risponde tenga occupato un
+# worker per sempre (`timeout=None` era illimitato), e i redirect
+# disattivati impediscono che un 302 sposti la richiesta — insieme al
+# token nell'header custom — verso un host non previsto.
+_REMOTE_FETCH_TIMEOUT_SECONDS = 15.0
+
+
 async def _fetch_remote_data(
         headers: dict[str, str] | None = None,
         header_key: str = "",
@@ -32,7 +40,10 @@ async def _fetch_remote_data(
         req_headers[header_key] = header_value
 
     try:
-        async with httpx.AsyncClient(timeout=None) as client:
+        async with httpx.AsyncClient(
+            timeout=_REMOTE_FETCH_TIMEOUT_SECONDS,
+            follow_redirects=False,
+        ) as client:
             res = await client.get(url=url, headers=req_headers)
     except Exception as exc:
         logger.exception("get_remote_data error: %s", exc)
