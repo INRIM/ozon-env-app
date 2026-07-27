@@ -78,12 +78,13 @@ class DummyEnv:
         uid="admin.user",
         admins=None,
         models=None,
+        groups=None,
     ):
         self.user_session = types.SimpleNamespace(
             app_code=app_code,
             is_admin=is_admin,
             uid=uid,
-            user={"uid": uid},
+            user={"uid": uid, "groups": list(groups or [])},
         )
         self.orm = types.SimpleNamespace(
             app_settings=types.SimpleNamespace(
@@ -253,6 +254,65 @@ def test_service_get_menu_uses_session_is_admin():
             ]
         }
     ]
+
+
+def test_service_get_dashboard_excludes_action_restricted_to_other_group():
+    """Regressione: `_is_action_allowed` (async) veniva chiamata SENZA
+    await dentro le list comprehension di filtro in `service_get_dashboard`
+    (e in `service_get_menu`) — una coroutine mai awaitata e' sempre
+    truthy, quindi il filtro per-gruppo su un'action era di fatto un
+    no-op: TUTTE le action passavano, a chiunque, gruppo o no. Qui un
+    attore non-admin, non membro del gruppo richiesto dall'action
+    "menu" (groups=["hr"]), deve vederla ESCLUSA dalla card — con l'await
+    mancante sarebbe finita comunque tra i bottoni. L'action "window"
+    (nessun gruppo richiesto) deve invece restare visibile."""
+    action_model = DummyModel("action")
+    orders_model = DummyModel("orders", count_value=7)
+    env = DummyEnv(
+        is_admin=False,
+        uid="plain.user",
+        groups=["sales"],
+        models={
+            "action": action_model,
+            "menu_group": DummyModel("menu_group"),
+            "orders": orders_model,
+        },
+    )
+    service = DashboardService(
+        env,
+        menu_list=[{"model": "orders", "menu_group": "grp1", "label": "Group 1"}],
+        menu_rows=[
+            {
+                "model": "orders",
+                "button_icon": "it-folder",
+                "action_type": "menu",
+                "action_root_path": "/action",
+                "rec_name": "hr_only_action",
+                "title": "HR Only",
+                "mode": "",
+                "sys": False,
+                "groups": ["hr"],
+            }
+        ],
+        window_rows=[
+            {
+                "model": "orders",
+                "button_icon": "it-list",
+                "action_type": "window",
+                "action_root_path": "/action",
+                "rec_name": "orders_list",
+                "title": "Orders List",
+                "mode": "list",
+                "list_query": "{}",
+            }
+        ],
+    )
+
+    res = asyncio.run(service.service_get_dashboard(parent="root"))
+
+    assert len(res.data) == 1
+    card = res.data[0]
+    assert {b["label"] for b in card["buttons"]} == {"Orders List"}
 
 
 def test_service_load_uses_explicit_model_name():

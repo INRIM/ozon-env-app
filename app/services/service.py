@@ -3009,7 +3009,10 @@ class Service:
             menu_actions = await self._find_base(
                 action_model, query=menu_query
             )
-            menu_actions = [a for a in menu_actions if self.action_runtime._is_action_allowed(a)]
+            menu_actions = [
+                a for a in menu_actions
+                if await self.action_runtime._is_action_allowed(a)
+            ]
             logger.info(
                 "service_get_menu: group=%s actions_found=%d",
                 group_name,
@@ -3073,11 +3076,17 @@ class Service:
                 menu_actions = await self._find_base(
                     action_model, query=q_menu
                 )
-                menu_actions = [a for a in menu_actions if self.action_runtime._is_action_allowed(a)]
+                menu_actions = [
+                    a for a in menu_actions
+                    if await self.action_runtime._is_action_allowed(a)
+                ]
                 if menu_actions and not _has_non_system_records(menu_actions):
                     continue
                 act_list = await self._find_base(action_model, query=q)
-                act_list = [a for a in act_list if self.action_runtime._is_action_allowed(a)]
+                act_list = [
+                    a for a in act_list
+                    if await self.action_runtime._is_action_allowed(a)
+                ]
                 card_buttons: list[dict[str, Any]] = []
 
                 for rec_b in menu_actions:
