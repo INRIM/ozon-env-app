@@ -404,12 +404,62 @@ def test_field_acl_denies_update_and_audits_attempt():
     )
     service = Service(env)
 
-    with pytest.raises(HTTPException) as exc:
-        asyncio.run(service.upsert("customer", {"salary": 120}, rec_name="c1"))
+    # Un campo negato in scrittura non blocca l'intero salvataggio (stessa
+    # filosofia del read: oscura/ripristina, non 403 tutto il record) —
+    # l'update procede, ma "salary" resta al valore STORED (100), mai
+    # quello tentato (120).
+    response = asyncio.run(service.upsert("customer", {"salary": 120}, rec_name="c1"))
 
-    assert exc.value.status_code == 403
-    assert customer.upsert_calls == []
+    assert response.fail is False
+    assert len(customer.upsert_calls) == 1
+    assert customer.upsert_calls[0]["data"]["salary"] == 100
     assert audit.docs[0]["denied_fields"] == ["salary"]
+    assert audit.docs[0]["operation"] == "update"
+
+
+def test_field_acl_denies_update_on_nested_field_path():
+    """`field_acl_policy` (a differenza di f_rule, mai limitato ai campi
+    top-level) supporta `field_path` annidati (es. "address.zip"): il
+    ripristino post-deny deve usare un traversal dotted-path-aware, non
+    un `dict.pop`/assegnamento flat — un `data.pop("address.zip")` su un
+    payload che ha `data["address"]["zip"]` e' un no-op silenzioso, il
+    valore annidato dell'attaccante passerebbe intatto (bug reale
+    individuato in review: il primo giro di `restore_or_drop_denied_
+    write_fields` usava dict flat)."""
+    audit = _AuditCollection()
+    customer = _RecordModel(
+        "customer",
+        rows=[{"rec_name": "c1", "address": {"zip": "00100", "city": "Roma"}}],
+    )
+    policies = _PolicyModel(
+        [
+            {
+                "model_key": "customer",
+                "field_path": "address.zip",
+                "operation": "update",
+                "effect": "deny",
+                "actor_selector": {"uid": "u1"},
+                "active": True,
+                "deleted": 0,
+            }
+        ]
+    )
+    env = _Env(
+        {"customer": customer, "field_acl_policy": policies}, audit=audit
+    )
+    service = Service(env)
+
+    response = asyncio.run(
+        service.upsert(
+            "customer",
+            {"address": {"zip": "99999"}},
+            rec_name="c1",
+        )
+    )
+
+    assert response.fail is False
+    assert customer.upsert_calls[0]["data"]["address"]["zip"] == "00100"
+    assert audit.docs[0]["denied_fields"] == ["address.zip"]
     assert audit.docs[0]["operation"] == "update"
 
 

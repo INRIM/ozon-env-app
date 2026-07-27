@@ -39,6 +39,7 @@ from app.ozon_env_acl import model_group_access
 from app.ozon_env_acl import obfuscate_fields_in_place
 from app.ozon_env_acl import record_rule_access
 from app.ozon_env_acl import record_rule_read_domain
+from app.ozon_env_acl import restore_or_drop_denied_write_fields
 
 logger = logging.getLogger("uvicorn.error")
 _COMPONENT_RUNTIME_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
@@ -1376,7 +1377,7 @@ class Service:
                 owner_override_fields = self._get_field_owner_writable_fields(
                     model_name
                 )
-        await enforce_write_acl(
+        denied_write_fields = await enforce_write_acl(
             acl,
             self.env,
             session=self.session,
@@ -1385,6 +1386,20 @@ class Service:
             payload=data if isinstance(data, dict) else {},
             owner_override_fields=owner_override_fields,
         )
+        if denied_write_fields and isinstance(data, dict):
+            # Un campo negato in scrittura oscura/ripristina SOLO quel
+            # campo, non blocca l'intero salvataggio (stessa filosofia del
+            # READ: f_rule oscura, non 404 tutto il record).
+            restore_or_drop_denied_write_fields(
+                data, denied_write_fields, existing_record
+            )
+            logger.info(
+                "acl.upsert model=%s operation=%s denied_write_fields=%s "
+                "(scartati/ripristinati, resto del payload procede)",
+                model_name,
+                operation,
+                denied_write_fields,
+            )
         create_menu_dashboard = (
             model_name == "component"
             and _payload_requests_menu_dashboard(data)

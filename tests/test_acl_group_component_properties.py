@@ -334,11 +334,14 @@ def test_field_rule_write_denied_even_when_read_revealed_by_condition():
     altrimenti rischio bypass le logiche del service e caos"). Qui il
     campo e' oscurato per chiunque non sia in "gdpr" (f_rule.read/write =
     [gdpr]) MA f_rule_cond rivela il campo in lettura per il proprietario
-    del record. Verifica end-to-end sullo STESSO attore (owner1) che
-    vede davvero il campo in lettura (load_record) e che ciononostante
-    resta bloccato in scrittura (enforce_write_acl, il varco reale usato
-    da Service.upsert) — e' il bypass che l'utente temeva, deve restare
-    impossibile."""
+    del record. Verifica end-to-end sullo STESSO attore (owner1) che vede
+    davvero il campo in lettura (load_record) e che ciononostante NON
+    riesce a modificarlo scrivendo (Service.upsert, il varco reale) — il
+    read-reveal non deve mai propagarsi al write.
+
+    Un campo negato in scrittura NON blocca l'intero salvataggio (stessa
+    filosofia del read: oscura, non 404 tutto): il resto del payload
+    (un campo che l'attore PUO' scrivere) deve comunque passare."""
     users = _RecordModel(
         "user",
         rows=[
@@ -355,17 +358,13 @@ def test_field_rule_write_denied_even_when_read_revealed_by_condition():
         },
     )
 
-    async def _try_write(session):
+    async def _try_write(session, name_value):
         env = _Env({"user": users}, session=session)
         service = Service(env)
-        acl = await service._get_compiled_field_acl()
-        await enforce_write_acl(
-            acl,
-            env,
-            session=session,
-            model_key="user",
-            operation="update",
-            payload={"codicefiscale": "RSSMRA80A01H501U"},
+        return await service.upsert(
+            model_name="user",
+            data={"codicefiscale": "HACKED", "name": name_value},
+            rec_name="owner1",
         )
 
     # owner ma non-gdpr: f_rule_cond gli rivela DAVVERO il campo in
@@ -376,24 +375,26 @@ def test_field_rule_write_denied_even_when_read_revealed_by_condition():
     read_response = asyncio.run(owner_service.load_record("user", "owner1"))
     assert read_response.content.data["codicefiscale"] == "OWN123"
 
-    # ...ma la scrittura dello STESSO campo, dallo STESSO attore, resta
-    # negata (403): il read-reveal non deve mai propagarsi al write.
-    try:
-        asyncio.run(_try_write(owner_session))
-        assert False, "expected HTTPException 403"
-    except HTTPException as exc:
-        assert exc.status_code == 403
-        assert "codicefiscale" in exc.detail["fields"]
+    # ...ma scrivere lo STESSO campo, dallo STESSO attore, non lo cambia:
+    # il campo resta com'era, MA il resto del payload (name) passa.
+    response = asyncio.run(_try_write(owner_session, "Owner Updated"))
+    assert response.fail is False
+    assert users.rows[0]["codicefiscale"] == "OWN123"
+    assert users.rows[0]["name"] == "Owner Updated"
 
     # gdpr: scrittura consentita (f_rule.write li elenca esplicitamente).
-    asyncio.run(_try_write(_session(groups=["gdpr"], uid="u2")))
+    response = asyncio.run(_try_write(_session(groups=["gdpr"], uid="u2"), "GDPR Updated"))
+    assert response.fail is False
+    assert users.rows[0]["codicefiscale"] == "HACKED"
+    assert users.rows[0]["name"] == "GDPR Updated"
 
-    # ne' owner ne' gdpr: negato comunque.
-    try:
-        asyncio.run(_try_write(_session(groups=["marketing"], uid="u3")))
-        assert False, "expected HTTPException 403"
-    except HTTPException as exc:
-        assert exc.status_code == 403
+    # ne' owner ne' gdpr: campo bloccato (ripristinato al valore corrente,
+    # cioe' "HACKED" scritto sopra da gdpr — non c'e' nulla di magico nel
+    # nome, e' solo l'ultimo valore legittimo), ma name passa comunque.
+    response = asyncio.run(_try_write(_session(groups=["marketing"], uid="u3"), "Marketing Updated"))
+    assert response.fail is False
+    assert users.rows[0]["codicefiscale"] == "HACKED"
+    assert users.rows[0]["name"] == "Marketing Updated"
 
 
 def test_field_rule_write_insert_ungated_update_gated():
@@ -403,7 +404,8 @@ def test_field_rule_write_insert_ungated_update_gated():
     self-service (es. l'operatore che valorizza "Data di Nascita" alla
     creazione del form). Un attore non nei gruppi write puo' quindi
     settare liberamente il campo in INSERT, ma non modificarlo in UPDATE
-    dopo che il record esiste."""
+    dopo che il record esiste (il campo resta al valore impostato in
+    creazione, il resto del payload passa comunque)."""
     users = _RecordModel(
         "user",
         rows=[],
@@ -412,32 +414,29 @@ def test_field_rule_write_insert_ungated_update_gated():
     env = _Env({"user": users}, session=_session(groups=["sales"], uid="operator1"))
     service = Service(env)
 
-    async def _run():
-        acl = await service._get_compiled_field_acl()
-        # INSERT: nessun gruppo write richiesto, non deve sollevare.
-        await enforce_write_acl(
-            acl,
-            env,
-            session=env.user_session,
-            model_key="user",
-            operation="create",
-            payload={"codicefiscale": "RSSMRA80A01H501U"},
+    # INSERT: nessun gruppo write richiesto, il campo si crea liberamente.
+    insert_response = asyncio.run(
+        service.upsert(
+            model_name="user",
+            data={"rec_name": "rec1", "codicefiscale": "FIRST123", "name": "A"},
+            rec_name="rec1",
         )
-        # UPDATE: stesso attore, stesso campo -> negato.
-        try:
-            await enforce_write_acl(
-                acl,
-                env,
-                session=env.user_session,
-                model_key="user",
-                operation="update",
-                payload={"codicefiscale": "RSSMRA80A01H501U"},
-            )
-            assert False, "expected HTTPException 403"
-        except HTTPException as exc:
-            assert exc.status_code == 403
+    )
+    assert insert_response.fail is False
+    assert users.rows[0]["codicefiscale"] == "FIRST123"
 
-    asyncio.run(_run())
+    # UPDATE: stesso attore, stesso campo -> negato (resta FIRST123), ma
+    # "name" (non gated) passa.
+    update_response = asyncio.run(
+        service.upsert(
+            model_name="user",
+            data={"codicefiscale": "SECOND456", "name": "B"},
+            rec_name="rec1",
+        )
+    )
+    assert update_response.fail is False
+    assert users.rows[0]["codicefiscale"] == "FIRST123"
+    assert users.rows[0]["name"] == "B"
 
 
 def test_field_rule_write_owner_sentinel_allows_owner_after_creation():
@@ -482,7 +481,11 @@ def test_field_rule_write_owner_sentinel_checks_stored_record_not_payload():
     $owner su un record che non possiede davvero. Il punto esatto dove
     uno slip diventerebbe una vulnerabilita' — Service.upsert deve leggere
     l'owner dallo STORED record (via _resolve_write_operation), mai dal
-    payload."""
+    payload. Un campo negato in scrittura non blocca l'intero salvataggio:
+    il campo protetto resta invariato, ma un campo co-inviato che
+    l'attaccante PUO' scrivere (name, non gated) passa comunque — la
+    proprieta' verificata e' "l'attaccante non altera il campo protetto",
+    non "l'intera richiesta fallisce"."""
     users = _RecordModel(
         "user",
         rows=[
@@ -490,6 +493,7 @@ def test_field_rule_write_owner_sentinel_checks_stored_record_not_payload():
                 "rec_name": "victim_record",
                 "owner_uid": "victim1",
                 "codicefiscale": "OLD123",
+                "name": "Victim",
             }
         ],
         field_rules={
@@ -499,19 +503,21 @@ def test_field_rule_write_owner_sentinel_checks_stored_record_not_payload():
     env = _Env({"user": users}, session=_session(groups=["sales"], uid="attacker1"))
     service = Service(env)
 
-    try:
-        asyncio.run(
-            service.upsert(
-                model_name="user",
-                data={"codicefiscale": "HACKED", "owner_uid": "attacker1"},
-                rec_name="victim_record",
-            )
+    response = asyncio.run(
+        service.upsert(
+            model_name="user",
+            data={
+                "codicefiscale": "HACKED",
+                "owner_uid": "attacker1",
+                "name": "Attacker Renamed It",
+            },
+            rec_name="victim_record",
         )
-        assert False, "expected HTTPException 403"
-    except HTTPException as exc:
-        assert exc.status_code == 403
-        assert "codicefiscale" in exc.detail["fields"]
+    )
+
+    assert response.fail is False
     assert users.rows[0]["codicefiscale"] == "OLD123"
+    assert users.rows[0]["name"] == "Attacker Renamed It"
 
 
 def test_models_groups_denies_whole_model_for_non_member_group():

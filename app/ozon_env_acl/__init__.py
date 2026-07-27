@@ -7,9 +7,6 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from fastapi import HTTPException
-from fastapi import status
-
 from app.core.models import FieldAclEffect
 from app.core.models import FieldAclOperation
 
@@ -1193,6 +1190,33 @@ async def audit_denied_fields(
         return
 
 
+def restore_or_drop_denied_write_fields(
+    payload: dict[str, Any],
+    denied_fields: list[str],
+    original_record: dict[str, Any] | None,
+) -> None:
+    """Applica l'esito di `enforce_write_acl` al payload: per ogni campo
+    negato, RIPRISTINA il valore vero dallo STORED record (UPDATE — non
+    basta togliere la chiave, `record_model.upsert` fa un replace pieno
+    del record, una chiave mancante cancellerebbe il campo invece di
+    lasciarlo intatto) oppure lo rimuove dal payload (INSERT, non esiste
+    ancora un valore da proteggere).
+
+    Riusa `_read_path`/`restore_path`/`_delete_path` (dotted-path aware,
+    stesso meccanismo del reveal in lettura) invece di operazioni dict
+    flat: un `field_acl_policy` generico (a differenza di `f_rule`, non
+    limitato ai campi top-level) puo' avere un `field_path` annidato (es.
+    "address.zip") — un `dict.pop("address.zip")` sarebbe un no-op
+    silenzioso, il valore annidato dell'attaccante passerebbe intatto."""
+    for field_path in denied_fields:
+        if original_record is not None:
+            restore_path(
+                payload, field_path, _read_path(original_record, field_path)
+            )
+        else:
+            _delete_path(payload, field_path)
+
+
 async def enforce_write_acl(
     acl: CompiledFieldAcl,
     env: Any,
@@ -1202,12 +1226,23 @@ async def enforce_write_acl(
     operation: str,
     payload: dict[str, Any],
     owner_override_fields: frozenset[str] = frozenset(),
-) -> None:
-    """`owner_override_fields`: campi il cui `f_rule.write` include il
+) -> list[str]:
+    """Un campo negato in scrittura NON deve bloccare l'intero record —
+    stessa filosofia del READ (`f_rule` oscura il campo, mai 404 l'intero
+    record): qui la funzione ritorna i field_path negati (dopo l'override
+    owner) invece di sollevare, cosi' il chiamante (Service.upsert) puo'
+    scartare/ripristinare SOLO quei campi e lasciar passare il resto del
+    payload. Non solleva mai piu' HTTPException: l'enforcement e' un dato
+    (denied_fields), non un'eccezione — la decisione su come applicarlo al
+    payload (drop per INSERT, restore-dal-record-stored per UPDATE, MAI
+    solo "togli la chiave" su un upsert che fa full-replace — vedi
+    Service.upsert) resta del chiamante.
+
+    `owner_override_fields`: campi il cui `f_rule.write` include il
     sentinel `$owner` (vedi Service._get_field_owner_writable_fields) — il
-    chiamante (Service.upsert) li valorizza SOLO se l'attore e' davvero
-    l'owner dello STORED record (mai del payload in arrivo), quindi qui
-    basta sottrarli dai denied_fields senza rivalutare nulla."""
+    chiamante li valorizza SOLO se l'attore e' davvero l'owner dello
+    STORED record (mai del payload in arrivo), quindi qui basta sottrarli
+    dai denied_fields senza rivalutare nulla."""
     denied_fields = acl.denied_fields(
         operation=operation,
         model_key=model_key,
@@ -1219,7 +1254,7 @@ async def enforce_write_acl(
             field for field in denied_fields if field not in owner_override_fields
         ]
     if not denied_fields:
-        return
+        return []
     await audit_denied_fields(
         env,
         session=session,
@@ -1228,12 +1263,4 @@ async def enforce_write_acl(
         denied_fields=denied_fields,
         payload=payload,
     )
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail={
-            "message": "Field ACL denied",
-            "model": model_key,
-            "operation": operation,
-            "fields": denied_fields,
-        },
-    )
+    return denied_fields
