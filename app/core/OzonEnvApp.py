@@ -29,29 +29,11 @@ IDENTITY_MODEL_NAMES = frozenset(
 )
 
 _DEFAULT_MODELS_RESTRICTED_FIELDS: dict[str, Any] = {
-    "fields_rule": {
-        "resticted_fields": [],
-        "allowed_groups": [
-            {
-                "groups": ["gdpr"],
-                "actions": {
-                    "read": True,
-                    "create": True,
-                    "update": True,
-                    "delete": False,
-                },
-            },
-            {
-                "groups": ["dpo"],
-                "actions": {
-                    "read": True,
-                    "create": False,
-                    "update": False,
-                    "delete": False,
-                },
-            },
-        ],
-    },
+    # "fields_rule" (rule_type="fields", per-gruppo, field-masking) e'
+    # ritirato: sostituito da Layer 3 in ozon-env, ACL a livello di CAMPO
+    # dichiarata su properties.f_rule/f_rule_cond dello schema field stesso
+    # (baked a codegen-time — vedi Model.get_field_rules()/
+    # get_field_rules_conditions()), non piu' sincronizzata qui.
     "record_rulse": [
         {
             "filters": {"owner_uid": {"$eq": {"var": "user.uid"}}},
@@ -61,7 +43,6 @@ _DEFAULT_MODELS_RESTRICTED_FIELDS: dict[str, Any] = {
                 "update": True,
                 "delete": True,
             },
-            "resticted_fields": [],
         }
     ],
 }

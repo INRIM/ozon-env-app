@@ -158,33 +158,6 @@
         ]
       },
       "models_restricted_fields": {
-        "fields_rule": {
-          "resticted_fields": [],
-          "allowed_groups": [
-            {
-              "groups": [
-                "gdpr"
-              ],
-              "actions": {
-                "read": true,
-                "create": true,
-                "update": true,
-                "delete": false
-              }
-            },
-            {
-              "groups": [
-                "dpo"
-              ],
-              "actions": {
-                "read": true,
-                "create": false,
-                "update": false,
-                "delete": false
-              }
-            }
-          ]
-        },
         "record_rulse": [
           {
             "filters": {
@@ -199,8 +172,7 @@
               "create": true,
               "update": true,
               "delete": true
-            },
-            "resticted_fields": []
+            }
           }
         ]
       }
@@ -485,33 +457,6 @@
         ]
       },
       "models_restricted_fields": {
-        "fields_rule": {
-          "resticted_fields": [],
-          "allowed_groups": [
-            {
-              "groups": [
-                "gdpr"
-              ],
-              "actions": {
-                "read": true,
-                "create": true,
-                "update": true,
-                "delete": false
-              }
-            },
-            {
-              "groups": [
-                "dpo"
-              ],
-              "actions": {
-                "read": true,
-                "create": false,
-                "update": false,
-                "delete": false
-              }
-            }
-          ]
-        },
         "record_rulse": [
           {
             "filters": {
@@ -526,8 +471,7 @@
               "create": true,
               "update": true,
               "delete": true
-            },
-            "resticted_fields": []
+            }
           }
         ]
       }
@@ -752,33 +696,6 @@
         ]
       },
       "models_restricted_fields": {
-        "fields_rule": {
-          "resticted_fields": [],
-          "allowed_groups": [
-            {
-              "groups": [
-                "gdpr"
-              ],
-              "actions": {
-                "read": true,
-                "create": true,
-                "update": true,
-                "delete": false
-              }
-            },
-            {
-              "groups": [
-                "dpo"
-              ],
-              "actions": {
-                "read": true,
-                "create": false,
-                "update": false,
-                "delete": false
-              }
-            }
-          ]
-        },
         "record_rulse": [
           {
             "filters": {
@@ -793,8 +710,7 @@
               "create": true,
               "update": true,
               "delete": true
-            },
-            "resticted_fields": []
+            }
           }
         ]
       }
@@ -1370,33 +1286,6 @@
         ]
       },
       "models_restricted_fields": {
-        "fields_rule": {
-          "resticted_fields": [],
-          "allowed_groups": [
-            {
-              "groups": [
-                "gdpr"
-              ],
-              "actions": {
-                "read": true,
-                "create": true,
-                "update": true,
-                "delete": false
-              }
-            },
-            {
-              "groups": [
-                "dpo"
-              ],
-              "actions": {
-                "read": true,
-                "create": false,
-                "update": false,
-                "delete": false
-              }
-            }
-          ]
-        },
         "record_rulse": [
           {
             "filters": {
@@ -1411,8 +1300,7 @@
               "create": true,
               "update": true,
               "delete": true
-            },
-            "resticted_fields": []
+            }
           }
         ]
       }
@@ -2653,33 +2541,6 @@
         ]
       },
       "models_restricted_fields": {
-        "fields_rule": {
-          "resticted_fields": [],
-          "allowed_groups": [
-            {
-              "groups": [
-                "gdpr"
-              ],
-              "actions": {
-                "read": true,
-                "create": true,
-                "update": true,
-                "delete": false
-              }
-            },
-            {
-              "groups": [
-                "dpo"
-              ],
-              "actions": {
-                "read": true,
-                "create": false,
-                "update": false,
-                "delete": false
-              }
-            }
-          ]
-        },
         "record_rulse": [
           {
             "filters": {
@@ -2694,8 +2555,7 @@
               "create": true,
               "update": true,
               "delete": true
-            },
-            "resticted_fields": []
+            }
           }
         ]
       }
@@ -3173,33 +3033,6 @@
         ]
       },
       "models_restricted_fields": {
-        "fields_rule": {
-          "resticted_fields": [],
-          "allowed_groups": [
-            {
-              "groups": [
-                "gdpr"
-              ],
-              "actions": {
-                "read": true,
-                "create": true,
-                "update": true,
-                "delete": false
-              }
-            },
-            {
-              "groups": [
-                "dpo"
-              ],
-              "actions": {
-                "read": true,
-                "create": false,
-                "update": false,
-                "delete": false
-              }
-            }
-          ]
-        },
         "record_rulse": [
           {
             "filters": {
@@ -3214,8 +3047,7 @@
               "create": true,
               "update": true,
               "delete": true
-            },
-            "resticted_fields": []
+            }
           }
         ]
       }
@@ -3449,33 +3281,6 @@
         ]
       },
       "models_restricted_fields": {
-        "fields_rule": {
-          "resticted_fields": [],
-          "allowed_groups": [
-            {
-              "groups": [
-                "gdpr"
-              ],
-              "actions": {
-                "read": true,
-                "create": true,
-                "update": true,
-                "delete": false
-              }
-            },
-            {
-              "groups": [
-                "dpo"
-              ],
-              "actions": {
-                "read": true,
-                "create": false,
-                "update": false,
-                "delete": false
-              }
-            }
-          ]
-        },
         "record_rulse": [
           {
             "filters": {
@@ -3490,8 +3295,7 @@
               "create": true,
               "update": true,
               "delete": true
-            },
-            "resticted_fields": []
+            }
           }
         ]
       }
@@ -4740,33 +4544,6 @@
         ]
       },
       "models_restricted_fields": {
-        "fields_rule": {
-          "resticted_fields": [],
-          "allowed_groups": [
-            {
-              "groups": [
-                "gdpr"
-              ],
-              "actions": {
-                "read": true,
-                "create": true,
-                "update": true,
-                "delete": false
-              }
-            },
-            {
-              "groups": [
-                "dpo"
-              ],
-              "actions": {
-                "read": true,
-                "create": false,
-                "update": false,
-                "delete": false
-              }
-            }
-          ]
-        },
         "record_rulse": [
           {
             "filters": {
@@ -4781,8 +4558,7 @@
               "create": true,
               "update": true,
               "delete": true
-            },
-            "resticted_fields": []
+            }
           }
         ]
       }
@@ -4979,33 +4755,6 @@
         ]
       },
       "models_restricted_fields": {
-        "fields_rule": {
-          "resticted_fields": [],
-          "allowed_groups": [
-            {
-              "groups": [
-                "gdpr"
-              ],
-              "actions": {
-                "read": true,
-                "create": true,
-                "update": true,
-                "delete": false
-              }
-            },
-            {
-              "groups": [
-                "dpo"
-              ],
-              "actions": {
-                "read": true,
-                "create": false,
-                "update": false,
-                "delete": false
-              }
-            }
-          ]
-        },
         "record_rulse": [
           {
             "filters": {
@@ -5020,8 +4769,7 @@
               "create": true,
               "update": true,
               "delete": true
-            },
-            "resticted_fields": []
+            }
           }
         ]
       }
@@ -5336,33 +5084,6 @@
         ]
       },
       "models_restricted_fields": {
-        "fields_rule": {
-          "resticted_fields": [],
-          "allowed_groups": [
-            {
-              "groups": [
-                "gdpr"
-              ],
-              "actions": {
-                "read": true,
-                "create": true,
-                "update": true,
-                "delete": false
-              }
-            },
-            {
-              "groups": [
-                "dpo"
-              ],
-              "actions": {
-                "read": true,
-                "create": false,
-                "update": false,
-                "delete": false
-              }
-            }
-          ]
-        },
         "record_rulse": [
           {
             "filters": {
@@ -5377,8 +5098,7 @@
               "create": true,
               "update": true,
               "delete": true
-            },
-            "resticted_fields": []
+            }
           }
         ]
       }
@@ -6588,33 +6308,6 @@
         ]
       },
       "models_restricted_fields": {
-        "fields_rule": {
-          "resticted_fields": [],
-          "allowed_groups": [
-            {
-              "groups": [
-                "gdpr"
-              ],
-              "actions": {
-                "read": true,
-                "create": true,
-                "update": true,
-                "delete": false
-              }
-            },
-            {
-              "groups": [
-                "dpo"
-              ],
-              "actions": {
-                "read": true,
-                "create": false,
-                "update": false,
-                "delete": false
-              }
-            }
-          ]
-        },
         "record_rulse": [
           {
             "filters": {
@@ -6629,8 +6322,7 @@
               "create": true,
               "update": true,
               "delete": true
-            },
-            "resticted_fields": []
+            }
           }
         ]
       }
@@ -6992,33 +6684,6 @@
         ]
       },
       "models_restricted_fields": {
-        "fields_rule": {
-          "resticted_fields": [],
-          "allowed_groups": [
-            {
-              "groups": [
-                "gdpr"
-              ],
-              "actions": {
-                "read": true,
-                "create": true,
-                "update": true,
-                "delete": false
-              }
-            },
-            {
-              "groups": [
-                "dpo"
-              ],
-              "actions": {
-                "read": true,
-                "create": false,
-                "update": false,
-                "delete": false
-              }
-            }
-          ]
-        },
         "record_rulse": [
           {
             "filters": {
@@ -7033,8 +6698,7 @@
               "create": true,
               "update": true,
               "delete": true
-            },
-            "resticted_fields": []
+            }
           }
         ]
       }
@@ -7849,33 +7513,6 @@
         ]
       },
       "models_restricted_fields": {
-        "fields_rule": {
-          "resticted_fields": [],
-          "allowed_groups": [
-            {
-              "groups": [
-                "gdpr"
-              ],
-              "actions": {
-                "read": true,
-                "create": true,
-                "update": true,
-                "delete": false
-              }
-            },
-            {
-              "groups": [
-                "dpo"
-              ],
-              "actions": {
-                "read": true,
-                "create": false,
-                "update": false,
-                "delete": false
-              }
-            }
-          ]
-        },
         "record_rulse": [
           {
             "filters": {
@@ -7890,8 +7527,7 @@
               "create": true,
               "update": true,
               "delete": true
-            },
-            "resticted_fields": []
+            }
           }
         ]
       }
@@ -7987,33 +7623,6 @@
         ]
       },
       "models_restricted_fields": {
-        "fields_rule": {
-          "resticted_fields": [],
-          "allowed_groups": [
-            {
-              "groups": [
-                "gdpr"
-              ],
-              "actions": {
-                "read": true,
-                "create": true,
-                "update": true,
-                "delete": false
-              }
-            },
-            {
-              "groups": [
-                "dpo"
-              ],
-              "actions": {
-                "read": true,
-                "create": false,
-                "update": false,
-                "delete": false
-              }
-            }
-          ]
-        },
         "record_rulse": [
           {
             "filters": {
@@ -8028,8 +7637,7 @@
               "create": true,
               "update": true,
               "delete": true
-            },
-            "resticted_fields": []
+            }
           }
         ]
       }
@@ -8726,33 +8334,6 @@
         ]
       },
       "models_restricted_fields": {
-        "fields_rule": {
-          "resticted_fields": [],
-          "allowed_groups": [
-            {
-              "groups": [
-                "gdpr"
-              ],
-              "actions": {
-                "read": true,
-                "create": true,
-                "update": true,
-                "delete": false
-              }
-            },
-            {
-              "groups": [
-                "dpo"
-              ],
-              "actions": {
-                "read": true,
-                "create": false,
-                "update": false,
-                "delete": false
-              }
-            }
-          ]
-        },
         "record_rulse": [
           {
             "filters": {
@@ -8767,8 +8348,7 @@
               "create": true,
               "update": true,
               "delete": true
-            },
-            "resticted_fields": []
+            }
           }
         ]
       }
@@ -9095,33 +8675,6 @@
         ]
       },
       "models_restricted_fields": {
-        "fields_rule": {
-          "resticted_fields": [],
-          "allowed_groups": [
-            {
-              "groups": [
-                "gdpr"
-              ],
-              "actions": {
-                "read": true,
-                "create": true,
-                "update": true,
-                "delete": false
-              }
-            },
-            {
-              "groups": [
-                "dpo"
-              ],
-              "actions": {
-                "read": true,
-                "create": false,
-                "update": false,
-                "delete": false
-              }
-            }
-          ]
-        },
         "record_rulse": [
           {
             "filters": {
@@ -9136,8 +8689,7 @@
               "create": true,
               "update": true,
               "delete": true
-            },
-            "resticted_fields": []
+            }
           }
         ]
       }
@@ -9486,33 +9038,6 @@
         ]
       },
       "models_restricted_fields": {
-        "fields_rule": {
-          "resticted_fields": [],
-          "allowed_groups": [
-            {
-              "groups": [
-                "gdpr"
-              ],
-              "actions": {
-                "read": true,
-                "create": true,
-                "update": true,
-                "delete": false
-              }
-            },
-            {
-              "groups": [
-                "dpo"
-              ],
-              "actions": {
-                "read": true,
-                "create": false,
-                "update": false,
-                "delete": false
-              }
-            }
-          ]
-        },
         "record_rulse": [
           {
             "filters": {
@@ -9527,8 +9052,7 @@
               "create": true,
               "update": true,
               "delete": true
-            },
-            "resticted_fields": []
+            }
           }
         ]
       }
@@ -9788,33 +9312,6 @@
         ]
       },
       "models_restricted_fields": {
-        "fields_rule": {
-          "resticted_fields": [],
-          "allowed_groups": [
-            {
-              "groups": [
-                "gdpr"
-              ],
-              "actions": {
-                "read": true,
-                "create": true,
-                "update": true,
-                "delete": false
-              }
-            },
-            {
-              "groups": [
-                "dpo"
-              ],
-              "actions": {
-                "read": true,
-                "create": false,
-                "update": false,
-                "delete": false
-              }
-            }
-          ]
-        },
         "record_rulse": [
           {
             "filters": {
@@ -9829,8 +9326,7 @@
               "create": true,
               "update": true,
               "delete": true
-            },
-            "resticted_fields": []
+            }
           }
         ]
       }
@@ -9952,33 +9448,6 @@
         ]
       },
       "models_restricted_fields": {
-        "fields_rule": {
-          "resticted_fields": [],
-          "allowed_groups": [
-            {
-              "groups": [
-                "gdpr"
-              ],
-              "actions": {
-                "read": true,
-                "create": true,
-                "update": true,
-                "delete": false
-              }
-            },
-            {
-              "groups": [
-                "dpo"
-              ],
-              "actions": {
-                "read": true,
-                "create": false,
-                "update": false,
-                "delete": false
-              }
-            }
-          ]
-        },
         "record_rulse": [
           {
             "filters": {
@@ -9993,8 +9462,7 @@
               "create": true,
               "update": true,
               "delete": true
-            },
-            "resticted_fields": []
+            }
           }
         ]
       }
@@ -11848,33 +11316,6 @@
         ]
       },
       "models_restricted_fields": {
-        "fields_rule": {
-          "resticted_fields": [],
-          "allowed_groups": [
-            {
-              "groups": [
-                "gdpr"
-              ],
-              "actions": {
-                "read": true,
-                "create": true,
-                "update": true,
-                "delete": false
-              }
-            },
-            {
-              "groups": [
-                "dpo"
-              ],
-              "actions": {
-                "read": true,
-                "create": false,
-                "update": false,
-                "delete": false
-              }
-            }
-          ]
-        },
         "record_rulse": [
           {
             "filters": {
@@ -11889,8 +11330,7 @@
               "create": true,
               "update": true,
               "delete": true
-            },
-            "resticted_fields": []
+            }
           }
         ]
       }
@@ -12069,33 +11509,6 @@
         ]
       },
       "models_restricted_fields": {
-        "fields_rule": {
-          "resticted_fields": [],
-          "allowed_groups": [
-            {
-              "groups": [
-                "gdpr"
-              ],
-              "actions": {
-                "read": true,
-                "create": true,
-                "update": true,
-                "delete": false
-              }
-            },
-            {
-              "groups": [
-                "dpo"
-              ],
-              "actions": {
-                "read": true,
-                "create": false,
-                "update": false,
-                "delete": false
-              }
-            }
-          ]
-        },
         "record_rulse": [
           {
             "filters": {
@@ -12110,8 +11523,7 @@
               "create": true,
               "update": true,
               "delete": true
-            },
-            "resticted_fields": []
+            }
           }
         ]
       }

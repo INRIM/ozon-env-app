@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from app.ozon_env_acl import _record_matches_filters
 from app.ozon_env_acl import apply_session_groups
+from app.ozon_env_acl import enforce_write_acl
 from app.services.service import Service
 
 
@@ -27,7 +28,18 @@ class _Status:
     msg = ""
 
 
-class _Schema:
+class _ModelStub:
+    """Fake della classe pydantic generata (record_model.model in
+    produzione) — espone SOLO le classmethod Layer 3 (`get_field_rules()`/
+    `get_field_rules_conditions()`, baked a codegen-time in ozon-env da
+    `properties.f_rule`/`f_rule_cond`) di cui Service._load_field_rule_
+    policies/_get_field_rule_conditions ha bisogno, configurabili per test.
+    Default vuoto = nessuna regola Layer 3 (comportamento baseline)."""
+
+    def __init__(self, field_rules=None, field_rule_conditions=None):
+        self._field_rules = field_rules or {}
+        self._field_rule_conditions = field_rule_conditions or {}
+
     @staticmethod
     def schema():
         return {"components": []}
@@ -36,12 +48,23 @@ class _Schema:
     def filter_keys():
         return {}
 
+    def get_field_rules(self):
+        return self._field_rules
+
+    def get_field_rules_conditions(self):
+        return self._field_rule_conditions
+
+    def get_restricted_fields(self):
+        return sorted(set(self._field_rules) | set(self._field_rule_conditions))
+
 
 class _RecordModel:
-    def __init__(self, name, rows=None):
+    def __init__(self, name, rows=None, field_rules=None, field_rule_conditions=None):
         self.data_model = name
         self.status = _Status()
-        self.model = _Schema()
+        self.model = _ModelStub(
+            field_rules=field_rules, field_rule_conditions=field_rule_conditions
+        )
         self.table_columns = {}
         self.rows = list(rows or [])
 
@@ -211,6 +234,11 @@ class _Env:
             ]
             self._models["model_groups_rule"] = _ModelGroupsRuleModel(rows)
         self.db = SimpleNamespace(engine=None)
+        # Service._load_field_rule_policies (Layer 3) itera env.models
+        # direttamente (zero I/O, no collection dedicata) — stesso dict di
+        # _models, coerente con la produzione dove env.get(name) e
+        # env.models[name] sono lo stesso oggetto.
+        self.models = self._models
 
     def get(self, model_name):
         return self._models[model_name]
@@ -225,68 +253,128 @@ def _session(groups=None, is_admin=False, uid="u1"):
     )
 
 
-def test_load_model_fields_rule_policies_emits_obfuscate_not_deny():
-    """Service._load_model_fields_rule_policies legge la collection
-    model_fields_rule (rule_type="fields"), scoped per app_code corrente,
-    e unisce i gruppi read=true di piu' righe (gdpr, dpo) in UNA policy per
-    campo — separarle in policy distinte negherebbe un attore in gdpr ma
-    non in dpo (read_masks oscura se ALMENO UNA policy matcha)."""
-    rows = [
-        {
-            "app_code": "demo",
-            "model": "user",
-            "rule_type": "fields",
-            "group": "gdpr",
-            "restricted_fields": ["codicefiscale"],
-            "filters": {},
-            "read": True,
-            "active": True,
-            "deleted": 0,
-        },
-        {
-            "app_code": "demo",
-            "model": "user",
-            "rule_type": "fields",
-            "group": "dpo",
-            "restricted_fields": ["codicefiscale"],
-            "filters": {},
-            "read": False,
-            "active": True,
-            "deleted": 0,
-        },
-        {
-            # app_code diverso: non deve inquinare la policy dell'app corrente.
-            "app_code": "other-app",
-            "model": "user",
-            "rule_type": "fields",
-            "group": "hr",
-            "restricted_fields": ["codicefiscale"],
-            "filters": {},
-            "read": True,
-            "active": True,
-            "deleted": 0,
-        },
-    ]
-    env = _Env(
-        {"model_fields_rule": _ModelFieldsRuleModel(rows)},
-        session=_session(groups=["sales"]),
+def test_load_field_rule_policies_emits_read_obfuscate_and_write_deny():
+    """Service._load_field_rule_policies (Layer 3) legge Model.
+    get_field_rules() da env.models (zero I/O, niente DB) — f_rule.read
+    produce una policy READ/OBFUSCATE (exclude_groups = i gruppi listati),
+    f_rule.write produce DUE policy DENY (INSERT+UPDATE) sugli stessi
+    gruppi: comportamento NUOVO, prima dead code in fields_rule.
+    allowed_groups.actions.{create,update} (mai consumato).
+
+    Isolamento multi-app: niente piu' test dedicato a "policy di un altro
+    app_code non deve contaminare" — non serve piu', e' strutturale.
+    _load_field_rule_policies itera env.models, che e' gia' single-app
+    (un env = un app_code, vedi get_ozon_env), quindi non esistono righe
+    di un app_code diverso da unire/filtrare."""
+    users = _RecordModel(
+        "user",
+        rows=[],
+        field_rules={"codicefiscale": {"read": ["gdpr"], "write": ["gdpr"]}},
     )
+    env = _Env({"user": users}, session=_session(groups=["sales"]))
     service = Service(env)
 
-    policies = asyncio.run(service._load_model_fields_rule_policies())
+    policies = service._load_field_rule_policies()
 
-    assert len(policies) == 1
-    policy = policies[0]
-    assert policy["model_key"] == "user"
-    assert policy["field_path"] == "codicefiscale"
-    assert policy["operation"] == "read"
-    assert policy["effect"] == "obfuscate"
-    # dpo ha read=false -> non esclude dall'oscuramento, solo gdpr lo fa;
-    # la riga "other-app" e' di un altro app_code, ignorata.
-    assert policy["actor_selector"]["exclude_groups"] == ["gdpr"]
-    # niente is_admin nel selector: fields_rule NON deve bypassare l'admin
+    by_operation = {p["operation"]: p for p in policies if p["operation"] != "update"}
+    updates = [p for p in policies if p["operation"] == "update"]
+    assert len(policies) == 3
+    read_policy = by_operation["read"]
+    assert read_policy["model_key"] == "user"
+    assert read_policy["field_path"] == "codicefiscale"
+    assert read_policy["effect"] == "obfuscate"
+    assert read_policy["actor_selector"]["exclude_groups"] == ["gdpr"]
+    # niente is_admin nel selector: f_rule NON deve bypassare l'admin
     # (GDPR: essere admin non significa essere autorizzati al dato).
-    assert "is_admin" not in policy["actor_selector"]
+    assert "is_admin" not in read_policy["actor_selector"]
+
+    insert_policy = by_operation["create"]
+    assert insert_policy["effect"] == "deny"
+    assert insert_policy["actor_selector"]["exclude_groups"] == ["gdpr"]
+    assert len(updates) == 1
+    assert updates[0]["effect"] == "deny"
+    assert updates[0]["actor_selector"]["exclude_groups"] == ["gdpr"]
+
+
+def test_load_field_rule_policies_ignores_models_without_layer3():
+    """Model senza get_field_rules()/con dict vuoto (baseline, la
+    stragrande maggioranza) non produce nessuna policy — nessuna
+    regressione su model mai configurati con f_rule."""
+    plain = _RecordModel("plain_model", rows=[])
+    env = _Env({"plain_model": plain}, session=_session(groups=["sales"]))
+    service = Service(env)
+
+    policies = service._load_field_rule_policies()
+
+    assert policies == []
+
+
+def test_field_rule_write_denied_even_when_read_revealed_by_condition():
+    """f_rule_cond sblocca SOLO il read, mai il write (esplicito: "sblocca
+    solo il read poi saranno le altre rule a definire se puoi scrivere,
+    altrimenti rischio bypass le logiche del service e caos"). Qui il
+    campo e' oscurato per chiunque non sia in "gdpr" (f_rule.read/write =
+    [gdpr]) MA f_rule_cond rivela il campo in lettura per il proprietario
+    del record. Verifica end-to-end sullo STESSO attore (owner1) che
+    vede davvero il campo in lettura (load_record) e che ciononostante
+    resta bloccato in scrittura (enforce_write_acl, il varco reale usato
+    da Service.upsert) — e' il bypass che l'utente temeva, deve restare
+    impossibile."""
+    users = _RecordModel(
+        "user",
+        rows=[
+            {
+                "rec_name": "owner1",
+                "owner_uid": "owner1",
+                "name": "Owner Record",
+                "codicefiscale": "OWN123",
+            }
+        ],
+        field_rules={"codicefiscale": {"read": ["gdpr"], "write": ["gdpr"]}},
+        field_rule_conditions={
+            "codicefiscale": {"owner_uid": {"$eq": {"var": "user.uid"}}}
+        },
+    )
+
+    async def _try_write(session):
+        env = _Env({"user": users}, session=session)
+        service = Service(env)
+        acl = await service._get_compiled_field_acl()
+        await enforce_write_acl(
+            acl,
+            env,
+            session=session,
+            model_key="user",
+            operation="update",
+            payload={"codicefiscale": "RSSMRA80A01H501U"},
+        )
+
+    # owner ma non-gdpr: f_rule_cond gli rivela DAVVERO il campo in
+    # lettura (stesso attore, path reale load_record)...
+    owner_session = _session(groups=["sales"], uid="owner1")
+    owner_env = _Env({"user": users}, session=owner_session)
+    owner_service = Service(owner_env)
+    read_response = asyncio.run(owner_service.load_record("user", "owner1"))
+    assert read_response.content.data["codicefiscale"] == "OWN123"
+
+    # ...ma la scrittura dello STESSO campo, dallo STESSO attore, resta
+    # negata (403): il read-reveal non deve mai propagarsi al write.
+    try:
+        asyncio.run(_try_write(owner_session))
+        assert False, "expected HTTPException 403"
+    except HTTPException as exc:
+        assert exc.status_code == 403
+        assert "codicefiscale" in exc.detail["fields"]
+
+    # gdpr: scrittura consentita (f_rule.write li elenca esplicitamente).
+    asyncio.run(_try_write(_session(groups=["gdpr"], uid="u2")))
+
+    # ne' owner ne' gdpr: negato comunque.
+    try:
+        asyncio.run(_try_write(_session(groups=["marketing"], uid="u3")))
+        assert False, "expected HTTPException 403"
+    except HTTPException as exc:
+        assert exc.status_code == 403
 
 
 def test_models_groups_denies_whole_model_for_non_member_group():
@@ -349,32 +437,19 @@ def test_models_groups_bypassed_for_admin():
 
 
 def test_models_restricted_fields_hides_field_for_non_allowed_group():
-    """Restrizione a livello di CAMPO: model_fields_rule (rule_type=
-    "fields"), non piu' component.properties.models_restricted_fields
-    letta live (synth_policies_from_component_properties, retirato)."""
+    """Restrizione a livello di CAMPO: Layer 3 (Model.get_field_rules(),
+    baked a codegen-time in ozon-env da properties.f_rule), non piu'
+    model_fields_rule rule_type="fields" (ritirato)."""
     customer = _RecordModel(
-        "customer", rows=[{"rec_name": "c1", "name": "Ada", "salary": 42}]
+        "customer",
+        rows=[{"rec_name": "c1", "name": "Ada", "salary": 42}],
+        field_rules={"salary": {"read": ["hr"], "write": []}},
     )
     env = _Env(
         {
             "customer": customer,
             "model_groups_rule": _ModelGroupsRuleModel(
                 [_model_group_row("customer", "sales", read=True)]
-            ),
-            "model_fields_rule": _ModelFieldsRuleModel(
-                [
-                    {
-                        "app_code": "demo",
-                        "model": "customer",
-                        "rule_type": "fields",
-                        "group": "hr",
-                        "restricted_fields": ["salary"],
-                        "filters": {},
-                        "read": True,
-                        "active": True,
-                        "deleted": 0,
-                    }
-                ]
             ),
         },
         session=_session(groups=["sales"]),
@@ -388,40 +463,21 @@ def test_models_restricted_fields_hides_field_for_non_allowed_group():
     assert response.content.obfucated_fields == ["salary"]
 
 
-def _gdpr_rule_rows(app_code="demo", record_filters=None, model="user"):
-    """Righe `model_fields_rule` — fonte di verita' per l'enforcement (NON
-    component.properties, che l'utente ha confermato puo' restare vuota
-    anche a regola configurata: il sync scrive qui al salva del component
-    e questa collection e' cio' che Service legge davvero)."""
+def _gdpr_field_rules(record_filters=None):
+    """Layer 3 (field_rules/field_rule_conditions) per il campo
+    codicefiscale: oscurato di base salvo gruppo gdpr (f_rule.read),
+    sbloccato in LETTURA se la condizione matcha il record (f_rule_cond,
+    default owner_uid == user.uid) — mai in scrittura, quella resta
+    governata da f_rule.write/Layer 2."""
     if record_filters is None:
         record_filters = {"owner_uid": {"$eq": {"var": "user.uid"}}}
-    return [
-        {
-            "app_code": app_code,
-            "model": model,
-            "rule_type": "fields",
-            "group": "gdpr",
-            "restricted_fields": ["codicefiscale"],
-            "filters": {},
-            "read": True,
-            "active": True,
-            "deleted": 0,
-        },
-        {
-            "app_code": app_code,
-            "model": model,
-            "rule_type": "record",
-            "group": "",
-            "restricted_fields": [],
-            "filters": record_filters,
-            "read": True,
-            "active": True,
-            "deleted": 0,
-        },
-    ]
+    field_rules = {"codicefiscale": {"read": ["gdpr"], "write": ["gdpr"]}}
+    field_rule_conditions = {"codicefiscale": record_filters}
+    return field_rules, field_rule_conditions
 
 
 def test_fields_rule_obfuscates_field_without_gdpr_group():
+    field_rules, field_rule_conditions = _gdpr_field_rules()
     users = _RecordModel(
         "user",
         rows=[
@@ -432,14 +488,10 @@ def test_fields_rule_obfuscates_field_without_gdpr_group():
                 "codicefiscale": "ABC123",
             }
         ],
+        field_rules=field_rules,
+        field_rule_conditions=field_rule_conditions,
     )
-    env = _Env(
-        {
-            "user": users,
-            "model_fields_rule": _ModelFieldsRuleModel(_gdpr_rule_rows()),
-        },
-        session=_session(groups=["sales"]),
-    )
+    env = _Env({"user": users}, session=_session(groups=["sales"]))
     service = Service(env)
 
     response = asyncio.run(service.load_record("user", "u2"))
@@ -450,10 +502,11 @@ def test_fields_rule_obfuscates_field_without_gdpr_group():
 
 
 def test_fields_rule_obfuscates_field_for_admin_without_gdpr_group_or_ownership():
-    """Regression: admin NON deve bypassare fields_rule/record_rulse — solo
+    """Regression: admin NON deve bypassare f_rule/f_rule_cond — solo
     il gruppo gdpr o essere proprietario del record sbloccano il campo,
     admin incluso (segnalato dall'utente: vedeva codicefiscale in chiaro
     su tutta la lista utenti pur essendo solo admin, senza gdpr)."""
+    field_rules, field_rule_conditions = _gdpr_field_rules()
     users = _RecordModel(
         "user",
         rows=[
@@ -464,12 +517,11 @@ def test_fields_rule_obfuscates_field_for_admin_without_gdpr_group_or_ownership(
                 "codicefiscale": "ABC123",
             }
         ],
+        field_rules=field_rules,
+        field_rule_conditions=field_rule_conditions,
     )
     env = _Env(
-        {
-            "user": users,
-            "model_fields_rule": _ModelFieldsRuleModel(_gdpr_rule_rows()),
-        },
+        {"user": users},
         session=_session(groups=[], is_admin=True, uid="admin1"),
     )
     service = Service(env)
@@ -481,6 +533,7 @@ def test_fields_rule_obfuscates_field_for_admin_without_gdpr_group_or_ownership(
 
 
 def test_fields_rule_visible_with_gdpr_group():
+    field_rules, field_rule_conditions = _gdpr_field_rules()
     users = _RecordModel(
         "user",
         rows=[
@@ -491,14 +544,10 @@ def test_fields_rule_visible_with_gdpr_group():
                 "codicefiscale": "ABC123",
             }
         ],
+        field_rules=field_rules,
+        field_rule_conditions=field_rule_conditions,
     )
-    env = _Env(
-        {
-            "user": users,
-            "model_fields_rule": _ModelFieldsRuleModel(_gdpr_rule_rows()),
-        },
-        session=_session(groups=["gdpr"]),
-    )
+    env = _Env({"user": users}, session=_session(groups=["gdpr"]))
     service = Service(env)
 
     response = asyncio.run(service.load_record("user", "u2"))
@@ -509,8 +558,11 @@ def test_fields_rule_visible_with_gdpr_group():
 
 def test_record_rulse_overrides_baseline_for_owned_record():
     """Utente senza gruppo gdpr ma proprietario del record (owner_uid ==
-    user.uid): la regola record matcha e sblocca il campo altrimenti
-    oscurato dalla baseline fields_rule."""
+    user.uid): f_rule_cond matcha e sblocca in lettura il campo altrimenti
+    oscurato dalla baseline f_rule. Nessun record_rulse configurato: Layer
+    2 resta senza restrizioni (record_rule_access: niente record_rulse =
+    accesso pieno), questo test isola Layer 3."""
+    field_rules, field_rule_conditions = _gdpr_field_rules()
     users = _RecordModel(
         "user",
         rows=[
@@ -521,14 +573,10 @@ def test_record_rulse_overrides_baseline_for_owned_record():
                 "codicefiscale": "OWN123",
             }
         ],
+        field_rules=field_rules,
+        field_rule_conditions=field_rule_conditions,
     )
-    env = _Env(
-        {
-            "user": users,
-            "model_fields_rule": _ModelFieldsRuleModel(_gdpr_rule_rows()),
-        },
-        session=_session(groups=["sales"]),
-    )
+    env = _Env({"user": users}, session=_session(groups=["sales"]))
     service = Service(env)
 
     response = asyncio.run(service.load_record("user", "u1"))
@@ -537,47 +585,13 @@ def test_record_rulse_overrides_baseline_for_owned_record():
     assert response.content.obfucated_fields == []
 
 
-def test_record_rulse_match_reveals_field_in_its_own_scope():
-    """Regressione: la riga record_rulse reale (sync da model_rules_sync,
-    vedi dati storici it-settings-*) ha `restricted_fields` = lo SCOPE di
-    campi che sblocca (qui coincide col solo campo baseline, quindi match
-    -> tutto visibile). Non e' "ignora restricted_fields, sblocca sempre
-    tutto" (fix intermedio sbagliato); e' "baseline - scope"."""
-    users = _RecordModel(
-        "user",
-        rows=[
-            {
-                "rec_name": "u1",
-                "owner_uid": "u1",
-                "name": "Own Record",
-                "codicefiscale": "OWN123",
-            }
-        ],
-    )
-    rows = _gdpr_rule_rows()
-    for row in rows:
-        if row["rule_type"] == "record":
-            row["restricted_fields"] = ["codicefiscale"]
-    env = _Env(
-        {"user": users, "model_fields_rule": _ModelFieldsRuleModel(rows)},
-        session=_session(groups=["sales"]),
-    )
-    service = Service(env)
-
-    response = asyncio.run(service.load_record("user", "u1"))
-
-    assert response.content.data["codicefiscale"] == "OWN123"
-    assert response.content.obfucated_fields == []
-
-
-def test_record_rulse_match_only_reveals_fields_in_its_scope():
-    """fields_rule oscura DUE campi (codicefiscale, token) per chi non e'
-    gdpr; il record_rulse dell'utente e' scoped a SOLO codicefiscale
-    (restricted_fields=["codicefiscale"]) — match deve sbloccare
-    codicefiscale ma lasciare token oscurato: nessuna regola copre token,
-    quindi resta sotto la baseline. Riproduce esattamente il caso
-    segnalato (fields_rule=[codicefiscale, token], record rule=
-    [codicefiscale] -> token deve restare sempre oscurato)."""
+def test_field_rule_conditions_reveal_matching_field_only():
+    """Due campi oscurati dalla baseline (codicefiscale, token): solo
+    codicefiscale ha una f_rule_cond configurata (owner match, vero per
+    questo record) -> si sblocca; token non ha NESSUNA condizione
+    configurata -> resta oscurato per sempre, indipendente dal match di
+    altri campi (apply_field_rule_conditions e' per-campo, non per-regola:
+    niente piu' concetto di "scope" condiviso tra campi diversi)."""
     users = _RecordModel(
         "user",
         rows=[
@@ -589,35 +603,15 @@ def test_record_rulse_match_only_reveals_fields_in_its_scope():
                 "token": "secret-token-value",
             }
         ],
-    )
-    rows = [
-        {
-            "app_code": "demo",
-            "model": "user",
-            "rule_type": "fields",
-            "group": "gdpr",
-            "restricted_fields": ["codicefiscale", "token"],
-            "filters": {},
-            "read": True,
-            "active": True,
-            "deleted": 0,
+        field_rules={
+            "codicefiscale": {"read": ["gdpr"], "write": ["gdpr"]},
+            "token": {"read": ["gdpr"], "write": ["gdpr"]},
         },
-        {
-            "app_code": "demo",
-            "model": "user",
-            "rule_type": "record",
-            "group": "",
-            "restricted_fields": ["codicefiscale"],
-            "filters": {"owner_uid": {"$eq": {"var": "user.uid"}}},
-            "read": True,
-            "active": True,
-            "deleted": 0,
+        field_rule_conditions={
+            "codicefiscale": {"owner_uid": {"$eq": {"var": "user.uid"}}},
         },
-    ]
-    env = _Env(
-        {"user": users, "model_fields_rule": _ModelFieldsRuleModel(rows)},
-        session=_session(groups=["sales"]),
     )
+    env = _Env({"user": users}, session=_session(groups=["sales"]))
     service = Service(env)
 
     response = asyncio.run(service.load_record("user", "u1"))
@@ -628,8 +622,9 @@ def test_record_rulse_match_only_reveals_fields_in_its_scope():
 
 
 def test_record_rulse_keeps_baseline_when_no_match():
-    """Utente senza gdpr e non proprietario: la regola record non matcha,
-    la baseline fields_rule resta in vigore (campo oscurato)."""
+    """Utente senza gdpr e non proprietario: f_rule_cond non matcha, la
+    baseline f_rule resta in vigore (campo oscurato)."""
+    field_rules, field_rule_conditions = _gdpr_field_rules()
     users = _RecordModel(
         "user",
         rows=[
@@ -640,14 +635,10 @@ def test_record_rulse_keeps_baseline_when_no_match():
                 "codicefiscale": "OTHER123",
             }
         ],
+        field_rules=field_rules,
+        field_rule_conditions=field_rule_conditions,
     )
-    env = _Env(
-        {
-            "user": users,
-            "model_fields_rule": _ModelFieldsRuleModel(_gdpr_rule_rows()),
-        },
-        session=_session(groups=["sales"]),
-    )
+    env = _Env({"user": users}, session=_session(groups=["sales"]))
     service = Service(env)
 
     response = asyncio.run(service.load_record("user", "u2"))
@@ -659,6 +650,9 @@ def test_record_rulse_keeps_baseline_when_no_match():
 def test_record_rulse_and_wrapped_filter_matches_owner():
     """filters avvolti in $and (forma Mongo comune, non la forma flat degli
     esempi base) devono comunque matchare correttamente per il proprietario."""
+    field_rules, field_rule_conditions = _gdpr_field_rules(
+        record_filters={"$and": [{"owner_uid": {"$eq": {"var": "user.uid"}}}]}
+    )
     users = _RecordModel(
         "user",
         rows=[
@@ -669,14 +663,10 @@ def test_record_rulse_and_wrapped_filter_matches_owner():
                 "codicefiscale": "OWN123",
             }
         ],
+        field_rules=field_rules,
+        field_rule_conditions=field_rule_conditions,
     )
-    rows = _gdpr_rule_rows(
-        record_filters={"$and": [{"owner_uid": {"$eq": {"var": "user.uid"}}}]}
-    )
-    env = _Env(
-        {"user": users, "model_fields_rule": _ModelFieldsRuleModel(rows)},
-        session=_session(groups=["sales"]),
-    )
+    env = _Env({"user": users}, session=_session(groups=["sales"]))
     service = Service(env)
 
     response = asyncio.run(service.load_record("user", "u1"))
@@ -689,6 +679,9 @@ def test_record_rulse_and_wrapped_filter_fails_closed_for_non_owner():
     CLOSED (campo resta oscurato), non aprirsi a chiunque per il solo fatto
     che $and non era gestito esplicitamente (regressione verificata: prima
     del fix $and/$or venivano ignorati e il match tornava sempre True)."""
+    field_rules, field_rule_conditions = _gdpr_field_rules(
+        record_filters={"$and": [{"owner_uid": {"$eq": {"var": "user.uid"}}}]}
+    )
     users = _RecordModel(
         "user",
         rows=[
@@ -699,14 +692,10 @@ def test_record_rulse_and_wrapped_filter_fails_closed_for_non_owner():
                 "codicefiscale": "OTHER123",
             }
         ],
+        field_rules=field_rules,
+        field_rule_conditions=field_rule_conditions,
     )
-    rows = _gdpr_rule_rows(
-        record_filters={"$and": [{"owner_uid": {"$eq": {"var": "user.uid"}}}]}
-    )
-    env = _Env(
-        {"user": users, "model_fields_rule": _ModelFieldsRuleModel(rows)},
-        session=_session(groups=["sales"], uid="u1"),
-    )
+    env = _Env({"user": users}, session=_session(groups=["sales"], uid="u1"))
     service = Service(env)
 
     response = asyncio.run(service.load_record("user", "u2"))
@@ -717,7 +706,9 @@ def test_record_rulse_and_wrapped_filter_fails_closed_for_non_owner():
 
 def test_record_rulse_varies_per_row_in_list_records():
     """list_records: stesso utente (sales, no gdpr) vede il proprio record
-    in chiaro e quello altrui oscurato, nella STESSA risposta."""
+    in chiaro e quello altrui oscurato, nella STESSA risposta (f_rule_cond
+    valutata riga per riga)."""
+    field_rules, field_rule_conditions = _gdpr_field_rules()
     users = _RecordModel(
         "user",
         rows=[
@@ -734,14 +725,10 @@ def test_record_rulse_varies_per_row_in_list_records():
                 "codicefiscale": "OTHER123",
             },
         ],
+        field_rules=field_rules,
+        field_rule_conditions=field_rule_conditions,
     )
-    env = _Env(
-        {
-            "user": users,
-            "model_fields_rule": _ModelFieldsRuleModel(_gdpr_rule_rows()),
-        },
-        session=_session(groups=["sales"], uid="u1"),
-    )
+    env = _Env({"user": users}, session=_session(groups=["sales"], uid="u1"))
     service = Service(env)
 
     response = asyncio.run(
@@ -761,9 +748,10 @@ def test_record_rulse_varies_per_row_in_list_records():
 
 def test_record_rulse_varies_per_row_in_streamed_list():
     """Il path streaming (resp_stream=True, usato di default da
-    POST /list/{model}) deve applicare record_rulse riga per riga tanto
+    POST /list/{model}) deve applicare f_rule_cond riga per riga tanto
     quanto il path non-stream — stesso scenario del test precedente ma
     passando per service.stream_record (NDJSON)."""
+    field_rules, field_rule_conditions = _gdpr_field_rules()
     users = _RecordModel(
         "user",
         rows=[
@@ -780,14 +768,10 @@ def test_record_rulse_varies_per_row_in_streamed_list():
                 "codicefiscale": "OTHER123",
             },
         ],
+        field_rules=field_rules,
+        field_rule_conditions=field_rule_conditions,
     )
-    env = _Env(
-        {
-            "user": users,
-            "model_fields_rule": _ModelFieldsRuleModel(_gdpr_rule_rows()),
-        },
-        session=_session(groups=["sales"], uid="u1"),
-    )
+    env = _Env({"user": users}, session=_session(groups=["sales"], uid="u1"))
     service = Service(env)
 
     envelope = asyncio.run(
@@ -812,58 +796,106 @@ def test_record_rulse_varies_per_row_in_streamed_list():
     assert by_rec_name["u2"]["codicefiscale"] is None
 
 
-def test_record_rulse_group_scoped_empty_filter_unrestricts_list_records():
-    """record_rule_read_domain (usato da list_records/stream_record per
-    narroware la query, DIVERSO da evaluate_record_rule_access usato da
-    load_record) deve trattare allo stesso modo il filtro vuoto su riga
-    group-scoped: nessuna restrizione affatto, non "nessuna clausola quindi
-    nega tutto" (comportamento di default per un $or vuoto). Senza questo,
-    dpo avrebbe load_record funzionante ma list_records vuota o owner-only
-    — la stessa rottura ("non va") per cui e' partita la conversazione."""
+def test_record_rulse_union_multi_group_load_record():
+    """Layer 2, union: utente in due gruppi (gdpr, manager), due entry
+    record_rulse DIVERSE matchano lo stesso record (owner-match per gdpr,
+    un altro campo per manager) — le azioni finali sono l'OR delle due,
+    non quelle della prima entry nell'ordine di config (comportamento
+    corretto dopo la rimozione del first-match-wins)."""
+    read_only_owner_rule = {
+        "app_code": "demo",
+        "model": "modulo_dati_persona",
+        "rule_type": "record",
+        "group": "gdpr",
+        "filters": {"owner_uid": {"$eq": {"var": "user.uid"}}},
+        "read": True,
+        "create": False,
+        "update": False,
+        "delete": False,
+        "active": True,
+        "deleted": 0,
+    }
+    update_grant_rule = {
+        "app_code": "demo",
+        "model": "modulo_dati_persona",
+        "rule_type": "record",
+        "group": "manager",
+        "filters": {"name": {"$eq": "Mine"}},
+        "read": False,
+        "create": False,
+        "update": True,
+        "delete": False,
+        "active": True,
+        "deleted": 0,
+    }
     docs = _RecordModel(
         "modulo_dati_persona",
-        rows=[
-            {"rec_name": "d1", "owner_uid": "owner1", "name": "A"},
-            {"rec_name": "d2", "owner_uid": "owner2", "name": "B"},
-        ],
+        rows=[{"rec_name": "d1", "owner_uid": "u1", "name": "Mine"}],
     )
-    rules = [
-        {
-            "app_code": "demo",
-            "model": "modulo_dati_persona",
-            "rule_type": "record",
-            "group": "gdpr",
-            "restricted_fields": [],
-            "filters": {"owner_uid": {"$eq": {"var": "user.uid"}}},
-            "read": True,
-            "create": True,
-            "update": True,
-            "delete": False,
-            "active": True,
-            "deleted": 0,
-        },
-        {
-            "app_code": "demo",
-            "model": "modulo_dati_persona",
-            "rule_type": "record",
-            "group": "dpo",
-            "restricted_fields": [],
-            "filters": {},
-            "read": True,
-            "create": False,
-            "update": False,
-            "delete": False,
-            "active": True,
-            "deleted": 0,
-        },
-    ]
     env = _Env(
         {
             "modulo_dati_persona": docs,
-            "model_fields_rule": _ModelFieldsRuleModel(rules),
+            "model_fields_rule": _ModelFieldsRuleModel(
+                [read_only_owner_rule, update_grant_rule]
+            ),
             "component": _SysFlagComponentModel({"modulo_dati_persona": False}),
         },
-        session=_session(uid="u9", groups=["dpo"]),
+        session=_session(uid="u1", groups=["gdpr", "manager"]),
+    )
+    service = Service(env)
+
+    response = asyncio.run(service.load_record("modulo_dati_persona", "d1"))
+
+    assert response.content.readable is True
+    assert response.content.editable is True
+
+
+def test_record_rulse_read_domain_unions_real_group_filters_for_list():
+    """record_rule_read_domain unisce (OR) i filtri REALI (non vuoti) di
+    tutte le entry con read=True che si applicano alla sessione — un
+    utente in due gruppi scoped con filtri diversi vede l'unione delle
+    righe coperte da ciascuno."""
+    gdpr_rule = {
+        "app_code": "demo",
+        "model": "modulo_dati_persona",
+        "rule_type": "record",
+        "group": "gdpr",
+        "filters": {"owner_uid": {"$eq": {"var": "user.uid"}}},
+        "read": True,
+        "create": False,
+        "update": False,
+        "delete": False,
+        "active": True,
+        "deleted": 0,
+    }
+    manager_rule = {
+        "app_code": "demo",
+        "model": "modulo_dati_persona",
+        "rule_type": "record",
+        "group": "manager",
+        "filters": {"name": {"$eq": "B"}},
+        "read": True,
+        "create": False,
+        "update": False,
+        "delete": False,
+        "active": True,
+        "deleted": 0,
+    }
+    docs = _RecordModel(
+        "modulo_dati_persona",
+        rows=[
+            {"rec_name": "d1", "owner_uid": "u1", "name": "A"},
+            {"rec_name": "d2", "owner_uid": "owner2", "name": "B"},
+            {"rec_name": "d3", "owner_uid": "owner3", "name": "C"},
+        ],
+    )
+    env = _Env(
+        {
+            "modulo_dati_persona": docs,
+            "model_fields_rule": _ModelFieldsRuleModel([gdpr_rule, manager_rule]),
+            "component": _SysFlagComponentModel({"modulo_dati_persona": False}),
+        },
+        session=_session(uid="u1", groups=["gdpr", "manager"]),
     )
     service = Service(env)
 
@@ -880,26 +912,45 @@ def test_record_rulse_group_scoped_empty_filter_unrestricts_list_records():
     rec_names = {row["rec_name"] for row in response.content.data}
     assert rec_names == {"d1", "d2"}
 
-    # stream_record riusa envelope.content.query (il domain gia' narrowed
-    # sopra), non ricalcola un proprio domain — stessa garanzia deve valere
-    # sul path NDJSON (POST /list/{model} di default).
-    envelope = asyncio.run(
-        service.list_records(
-            model_name="modulo_dati_persona",
-            query={},
-            order="",
-            skip=0,
-            limit=10,
-            resp_stream=True,
-        )
+
+def test_record_rulse_empty_filter_group_scoped_never_matches():
+    """Regressione: filtro vuoto su riga group-scoped NON deve piu' fare
+    match incondizionato (hack rimosso — i gruppi non sono un campo del
+    record, un grant incondizionato per gruppo e' Layer 1/model_groups_
+    rule o Layer 3/f_rule, mai Layer 2/record_rulse). dpo con filters={}
+    ottiene 404, non read-all."""
+    dpo_empty_rule = {
+        "app_code": "demo",
+        "model": "modulo_dati_persona",
+        "rule_type": "record",
+        "group": "dpo",
+        "filters": {},
+        "read": True,
+        "create": False,
+        "update": False,
+        "delete": False,
+        "active": True,
+        "deleted": 0,
+    }
+    docs = _RecordModel(
+        "modulo_dati_persona",
+        rows=[{"rec_name": "d1", "owner_uid": "owner1", "name": "Other"}],
     )
+    env = _Env(
+        {
+            "modulo_dati_persona": docs,
+            "model_fields_rule": _ModelFieldsRuleModel([dpo_empty_rule]),
+            "component": _SysFlagComponentModel({"modulo_dati_persona": False}),
+        },
+        session=_session(uid="u9", groups=["dpo"]),
+    )
+    service = Service(env)
 
-    async def _collect():
-        cursor = await service.stream_record(envelope, order="", skip=0, limit=10)
-        return [row async for row in cursor]
-
-    streamed = asyncio.run(_collect())
-    assert {row["rec_name"] for row in streamed} == {"d1", "d2"}
+    try:
+        asyncio.run(service.load_record("modulo_dati_persona", "d1"))
+        assert False, "expected HTTPException 404"
+    except HTTPException as exc:
+        assert exc.status_code == 404
 
 
 class _SysFlagComponentModel:
@@ -1002,17 +1053,15 @@ def test_record_rulse_group_scoped_restricts_only_that_group():
     """record_rulse con `group` valorizzato (righe generate da un'entry
     con "groups": [...] in model_rules_sync, non piu' sempre group="")
     si applica SOLO alle sessioni membre di quel gruppo — vedi
-    Service._get_record_rulse. Schema approvato dall'utente: gdpr limitato
-    ai propri record (owner_uid check), dpo read-all incondizionato
-    (filters={} su riga group-scoped -> match incondizionato, vedi
-    evaluate_record_rule_access — diverso da una riga universale group="",
-    dove filtro vuoto resta fail-closed com'era prima)."""
+    Service._get_record_rulse. gdpr limitato ai propri record (owner_uid
+    check), manager limitato a un altro criterio (rec_name) — le due entry
+    non si "vedono" a vicenda: un utente gdpr non owner resta negato anche
+    se esiste una entry manager che matcherebbe (non e' nel gruppo)."""
     gdpr_scoped_rule = {
         "app_code": "demo",
         "model": "modulo_dati_persona",
         "rule_type": "record",
         "group": "gdpr",
-        "restricted_fields": [],
         "filters": {"owner_uid": {"$eq": {"var": "user.uid"}}},
         "read": True,
         "create": True,
@@ -1021,13 +1070,12 @@ def test_record_rulse_group_scoped_restricts_only_that_group():
         "active": True,
         "deleted": 0,
     }
-    dpo_scoped_rule = {
+    manager_scoped_rule = {
         "app_code": "demo",
         "model": "modulo_dati_persona",
         "rule_type": "record",
-        "group": "dpo",
-        "restricted_fields": [],
-        "filters": {},
+        "group": "manager",
+        "filters": {"rec_name": {"$eq": "d1"}},
         "read": True,
         "create": False,
         "update": False,
@@ -1035,7 +1083,7 @@ def test_record_rulse_group_scoped_restricts_only_that_group():
         "active": True,
         "deleted": 0,
     }
-    rules = [gdpr_scoped_rule, dpo_scoped_rule]
+    rules = [gdpr_scoped_rule, manager_scoped_rule]
     docs = _RecordModel(
         "modulo_dati_persona",
         rows=[{"rec_name": "d1", "owner_uid": "owner1", "name": "Other"}],
@@ -1053,7 +1101,8 @@ def test_record_rulse_group_scoped_restricts_only_that_group():
             session=_session(uid=uid, groups=groups),
         )
 
-    # gdpr, non owner -> negato (l'unica riga per lui richiede ownership).
+    # gdpr, non owner -> negato (l'unica riga per il SUO gruppo richiede
+    # ownership; la entry manager esiste ma non lo riguarda).
     try:
         asyncio.run(Service(_env("u1", ["gdpr"])).load_record(
             "modulo_dati_persona", "d1"
@@ -1062,8 +1111,9 @@ def test_record_rulse_group_scoped_restricts_only_that_group():
     except HTTPException as exc:
         assert exc.status_code == 404
 
-    # dpo, non owner -> letto comunque (filters={} scoped a dpo = read-all).
-    response = asyncio.run(Service(_env("u2", ["dpo"])).load_record(
+    # manager -> letto (la sua entry matcha su rec_name, indipendente da
+    # ownership).
+    response = asyncio.run(Service(_env("u2", ["manager"])).load_record(
         "modulo_dati_persona", "d1"
     ))
     assert response.content.readable is True
@@ -1085,69 +1135,6 @@ def test_record_rulse_group_scoped_restricts_only_that_group():
     response = asyncio.run(Service(env).load_record("modulo_dati_persona", "d2"))
     assert response.content.readable is True
     assert response.content.editable is True
-
-
-def test_record_rulse_group_scoped_empty_filter_also_reveals_masked_fields():
-    """Confermato esplicitamente dall'utente: una riga record_rulse
-    group-scoped con filters={} e read=True e' un via libera pieno per
-    quel gruppo — non solo apertura del record (evaluate_record_rule_
-    access) ma anche reveal dei campi oscurati dalla baseline fields_rule
-    (evaluate_record_rule_override, stessa riga, restricted_fields=[] =
-    sblocca tutto). dpo vede `codicefiscale` anche su un record che non
-    possiede e anche se dpo non e' tra i gruppi esclusi dall'oscuramento
-    fields_rule — e' l'intento dichiarato ("dpo actions.read:true quindi
-    vede i campi anche non suoi"), non un effetto collaterale."""
-    docs = _RecordModel(
-        "modulo_dati_persona",
-        rows=[
-            {
-                "rec_name": "d1",
-                "owner_uid": "owner1",
-                "name": "Other",
-                "codicefiscale": "SECRET123",
-            }
-        ],
-    )
-    rules = [
-        {
-            "app_code": "demo",
-            "model": "modulo_dati_persona",
-            "rule_type": "fields",
-            "group": "gdpr",
-            "restricted_fields": ["codicefiscale"],
-            "filters": {},
-            "read": True,
-            "active": True,
-            "deleted": 0,
-        },
-        {
-            "app_code": "demo",
-            "model": "modulo_dati_persona",
-            "rule_type": "record",
-            "group": "dpo",
-            "restricted_fields": [],
-            "filters": {},
-            "read": True,
-            "create": False,
-            "update": False,
-            "delete": False,
-            "active": True,
-            "deleted": 0,
-        },
-    ]
-    env = _Env(
-        {
-            "modulo_dati_persona": docs,
-            "model_fields_rule": _ModelFieldsRuleModel(rules),
-            "component": _SysFlagComponentModel({"modulo_dati_persona": False}),
-        },
-        session=_session(uid="u2", groups=["dpo"]),
-    )
-
-    response = asyncio.run(Service(env).load_record("modulo_dati_persona", "d1"))
-
-    assert response.content.data["codicefiscale"] == "SECRET123"
-    assert response.content.obfucated_fields == []
 
 
 def test_load_record_non_sys_matched_rule_readonly_when_update_false():

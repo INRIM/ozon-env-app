@@ -101,16 +101,23 @@ class ModelGroupsRule(BasicModel):
 
 
 class ModelFieldsRule(BasicModel):
-    """Riga flat di component.properties.models_restricted_fields (vedi
-    app.ozon_env_acl.model_rules_sync):
-    - rule_type="fields": campi ristretti per gruppo (da fields_rule.allowed_groups)
-    - rule_type="record": filtro riga-per-riga (da record_rulse), group vuoto
-      se l'entry sorgente non ha "groups" (regola universale, storico) o
-      valorizzato se l'entry e' scoped a gruppi specifici (una riga per
-      gruppo, stesso filters/actions — vedi Service._get_record_rulse per
-      il match contro session.groups). filters e' una query mongo verbatim
-      (puo' contenere nodi {"var": ...} non ancora risolti — vedi
-      Service._resolve_query_json_logic_vars)
+    """Riga flat di component.properties.models_restricted_fields.record_rulse
+    (vedi app.ozon_env_acl.model_rules_sync) — SOLO Layer 2 (accesso al
+    RECORD: read/create/update/delete, filtro riga-per-riga), sempre
+    rule_type="record". group vuoto se l'entry sorgente non ha "groups"
+    (regola universale, storico) o valorizzato se l'entry e' scoped a
+    gruppi specifici (una riga per gruppo, stesso filters/actions — vedi
+    Service._get_record_rulse per il match contro session.groups). filters
+    e' una query mongo verbatim (puo' contenere nodi {"var": ...} non
+    ancora risolti — vedi Service._resolve_query_json_logic_vars).
+
+    rule_type="fields" (field-masking per gruppo, ex fields_rule.
+    allowed_groups) e' RITIRATO: sostituito da Layer 3 in ozon-env — ACL a
+    livello di CAMPO dichiarata su properties.f_rule/f_rule_cond dello
+    schema field stesso, baked a codegen-time (Model.get_field_rules()/
+    get_field_rules_conditions(), letti da Service._load_field_rule_
+    policies/_get_field_rule_conditions — niente piu' righe rule_type=
+    "fields" in questa collection).
 
     NON registrato in `_STATIC_MODELS` (stesso motivo di ModelGroupsRule):
     esiste un component/form reale per "model_fields_rule". Il campo

@@ -408,13 +408,23 @@ def test_component_upsert_syncs_model_rules_by_default():
                         ]
                     },
                     "models_restricted_fields": {
+                        # "fields_rule" e' config vecchia (rule_type=
+                        # "fields", ritirato in favore di Layer 3/ozon-env):
+                        # presente per provare che viene ignorata.
                         "fields_rule": {
                             "resticted_fields": ["salary"],
                             "allowed_groups": [
                                 {"groups": ["dpo"], "actions": {"read": True}}
                             ],
                         },
-                        "record_rulse": [],
+                        "record_rulse": [
+                            {
+                                "filters": {
+                                    "owner_uid": {"$eq": {"var": "user.uid"}}
+                                },
+                                "actions": {"read": True, "update": True},
+                            }
+                        ],
                     },
                 },
             },
@@ -433,8 +443,9 @@ def test_component_upsert_syncs_model_rules_by_default():
         "mgr.demo.demo_component.manager"
     )
     assert rule_engine.fields.inserted[0]["rec_name"] == (
-        "mfr.demo.demo_component.fields.dpo"
+        "mfr.demo.demo_component.record.0"
     )
+    assert rule_engine.fields.inserted[0]["rule_type"] == "record"
 
 
 def test_component_upsert_create_menu_dashboard_generates_defaults_from_payload():

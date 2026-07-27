@@ -115,7 +115,10 @@ def test_sync_model_rules_writes_flat_rows_using_orm_db_engine():
     assert groups.inserted[0]["rec_name"] == "mgr.demo.document.manager"
     assert groups.inserted[0]["read"] is True
     assert groups.inserted[0]["update"] is True
-    assert {row["rule_type"] for row in fields.inserted} == {"fields", "record"}
+    # "fields_rule" e' config vecchia (rule_type="fields", ritirato in
+    # favore di Layer 3/ozon-env): presente nello schema di input ma nessun
+    # ramo la legge piu', quindi produce zero righe fields_rule-derived.
+    assert {row["rule_type"] for row in fields.inserted} == {"record"}
 
 
 def test_record_rulse_with_groups_writes_one_row_per_group():
@@ -187,4 +190,6 @@ def test_sync_all_model_rules_normalizes_components_and_rewrites_tables():
     group_names = {row["group"] for row in groups.inserted}
     field_types = {row["rule_type"] for row in fields.inserted}
     assert {"admin", "user", "technical_operator", "operator", "manager", "dpo"} <= group_names
-    assert field_types == {"fields", "record"}
+    # default seed produce solo record_rulse (owner-only universale) ora
+    # che "fields_rule" e' ritirato dal default.
+    assert field_types == {"record"}

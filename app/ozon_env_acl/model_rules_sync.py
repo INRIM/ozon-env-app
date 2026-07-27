@@ -106,17 +106,22 @@ async def model_groups_rows(
 async def model_fields_rows(
     env: Any, app_code: str, model_name: str, properties: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    """Flatten component.properties.models_restricted_fields in righe
-    model_fields_rule — kind "fields" (fields_rule.allowed_groups, una riga
-    per group) e kind "record" (record_rulse, una riga per indice).
+    """Flatten component.properties.models_restricted_fields.record_rulse in
+    righe model_fields_rule (rule_type="record"), una per indice (o una per
+    gruppo, se l'entry ha "groups" — vedi sotto).
 
-    Chiavi input con typo (resticted_fields, record_rulse) parsate as-is: e'
-    il formato scritto da normalize_component_properties/i default seed.
-    Il formato legacy {field_path: [groups]} manca di entrambe le chiavi
-    "fields_rule"/"record_rulse": nessun ramo lo gestisce piu' (retirato
-    insieme a synth_policies_from_component_properties, mai popolato dai
-    default correnti) — un component con quel formato non produce righe
-    qui.
+    `rule_type="fields"` (fields_rule.allowed_groups, field-masking per
+    gruppo) e' RITIRATO: sostituito da Layer 3 in ozon-env — ACL a livello
+    di CAMPO dichiarata su properties.f_rule/f_rule_cond dello schema field
+    stesso, baked a codegen-time (vedi Model.get_field_rules()/
+    get_field_rules_conditions(), letti direttamente da
+    Service._load_model_fields_rule_policies/_get_field_rule_conditions,
+    niente piu' sync verso una collection). Una chiave "fields_rule" ancora
+    presente in config vecchia viene semplicemente ignorata qui (nessun
+    ramo la legge piu').
+
+    Chiave input con typo (record_rulse) parsata as-is: e' il formato
+    scritto da normalize_component_properties/i default seed.
 
     `filters` e' scritto come stringa JSON (campo testo + json editor nel
     form model_fields_rule, coerente con queryformeditable/altri campi
@@ -124,48 +129,10 @@ async def model_fields_rows(
     fa un json.loads difensivo, non un dict tipizzato via ORM.
     """
     raw = _parse_dict_property((properties or {}).get("models_restricted_fields"))
-    if raw is None or not ({"fields_rule", "record_rulse"} & raw.keys()):
+    if raw is None or "record_rulse" not in raw:
         return []
 
     rows: list[dict[str, Any]] = []
-
-    fields_rule = raw.get("fields_rule") or {}
-    if isinstance(fields_rule, dict):
-        restricted_fields = list(fields_rule.get("resticted_fields") or [])
-        merged: dict[str, dict[str, bool]] = {}
-        for entry in fields_rule.get("allowed_groups") or []:
-            if not isinstance(entry, dict):
-                continue
-            actions = entry.get("actions") or {}
-            groups = entry.get("groups") or []
-            if not isinstance(groups, (list, tuple, set)):
-                groups = [groups]
-            for group in groups:
-                group_name = _normalize_group(group)
-                if not group_name:
-                    continue
-                bucket = merged.setdefault(
-                    group_name,
-                    {"read": False, "create": False, "update": False, "delete": False},
-                )
-                for op in ("read", "create", "update", "delete"):
-                    bucket[op] = bucket[op] or bool(actions.get(op))
-
-        for group_name, ops in sorted(merged.items()):
-            row = {
-                "rec_name": f"mfr.{app_code}.{model_name}.fields.{group_name}",
-                "app_code": app_code,
-                "model": model_name,
-                "rule_type": "fields",
-                "group": group_name,
-                "restricted_fields": restricted_fields,
-                "filters": "{}",
-                "active": True,
-                "deleted": 0,
-                "sys": True,
-                **ops,
-            }
-            rows.append(await _validated_row(env, _FIELDS_RULE_COLLECTION, row))
 
     record_rulse = raw.get("record_rulse")
     if isinstance(record_rulse, list):
@@ -174,12 +141,10 @@ async def model_fields_rows(
                 continue
             actions = entry.get("actions") or {}
             filters_json = json.dumps(entry.get("filters") or {}, ensure_ascii=False)
-            restricted_fields = list(entry.get("resticted_fields") or [])
             common = {
                 "app_code": app_code,
                 "model": model_name,
                 "rule_type": "record",
-                "restricted_fields": restricted_fields,
                 "filters": filters_json,
                 "active": True,
                 "deleted": 0,

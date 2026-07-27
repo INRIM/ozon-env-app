@@ -30,7 +30,7 @@ from app.services.message_queue import maybe_enqueue_on_save
 from app.ozon_env_acl import CompiledFieldAcl
 from app.ozon_env_acl import QueryFieldAclDeniedError
 from app.ozon_env_acl import QueryOperatorNotAllowedError
-from app.ozon_env_acl import apply_record_rule_override
+from app.ozon_env_acl import apply_field_rule_conditions
 from app.ozon_env_acl import assert_order_field_acl
 from app.ozon_env_acl import assert_query_field_acl
 from app.ozon_env_acl import compile_field_acl_policies
@@ -1005,14 +1005,14 @@ class Service:
                 },
             ) from exc
         baseline_obfuscate_fields = envelope.content.obfucated_fields or []
-        record_rulse = await self._get_record_rulse(model_name)
+        field_rule_conditions = self._get_field_rule_conditions(model_name)
         logger.info(
-            "acl.stream_record model=%s baseline_obfuscate_fields=%s record_rulse_count=%s",
+            "acl.stream_record model=%s baseline_obfuscate_fields=%s field_rule_conditions_count=%s",
             model_name,
             baseline_obfuscate_fields,
-            len(record_rulse),
+            len(field_rule_conditions),
         )
-        if not record_rulse:
+        if not field_rule_conditions:
             return model.stream_find(
                 domain=envelope.content.query,
                 sort=normalized_order,
@@ -1023,9 +1023,9 @@ class Service:
                 fields=envelope.content.fields,
                 batch_size=envelope.content.batch_size,
             )
-        # record_rulse presente: niente oscuramento server-side (altrimenti
-        # il valore reale non e' piu' recuperabile per l'eventuale
-        # override), si applica tutto in Python riga per riga.
+        # f_rule_cond presente su almeno un campo: niente oscuramento
+        # server-side (altrimenti il valore reale non e' piu' recuperabile
+        # per l'eventuale reveal), si applica tutto in Python riga per riga.
         cursor = model.stream_find(
             domain=envelope.content.query,
             sort=normalized_order,
@@ -1036,25 +1036,25 @@ class Service:
             fields=envelope.content.fields,
             batch_size=envelope.content.batch_size,
         )
-        return self._apply_record_rulse_to_stream(
-            cursor, record_rulse, baseline_obfuscate_fields
+        return self._apply_field_rule_conditions_to_stream(
+            cursor, field_rule_conditions, baseline_obfuscate_fields
         )
 
-    async def _apply_record_rulse_to_stream(
+    async def _apply_field_rule_conditions_to_stream(
         self,
         cursor: Any,
-        record_rulse: list[dict[str, Any]],
+        field_rule_conditions: dict[str, dict[str, Any]],
         baseline_obfuscate_fields: list[str],
     ):
         async for item in cursor:
             original_dict = _record_to_dict(item)
             obfuscated_dict = _record_to_dict(item)
             obfuscate_fields_in_place(obfuscated_dict, baseline_obfuscate_fields)
-            final_fields = apply_record_rule_override(
+            final_fields = apply_field_rule_conditions(
                 original=original_dict,
                 obfuscated=obfuscated_dict,
                 baseline_obfuscated_fields=baseline_obfuscate_fields,
-                record_rulse=record_rulse,
+                field_rule_conditions=field_rule_conditions,
                 resolve_var=self._resolve_query_json_logic_vars,
             )
             logger.info(
@@ -1142,6 +1142,7 @@ class Service:
                 model_name,
             )
         record_rulse = await self._get_record_rulse(model_name)
+        field_rule_conditions = self._get_field_rule_conditions(model_name)
         is_admin = bool(getattr(self.session, "is_admin", False))
         is_sys_model = await self._is_sys_model(model_name)
         if record_rulse and not is_admin and not is_sys_model:
@@ -1197,27 +1198,30 @@ class Service:
                 set(obfuscate_fields or []) | set(read_mask_fields)
             )
             return response
-        # Se il model ha record_rulse, l'oscuramento server-side ACL (via
-        # aggregate obfuscate_fields, ozonenv/core/OzonOrm.py:2139) va
-        # saltato per i campi read_mask_fields: una regola record puo'
+        # Se il model ha f_rule_cond su almeno un campo (Layer 3), l'oscuramento
+        # server-side ACL (via aggregate obfuscate_fields, ozonenv/core/
+        # OzonModel.py build_projection_from_obfuscate_fields) va saltato per
+        # i campi read_mask_fields: una condizione record-dipendente puo'
         # dover "svelare" un campo oscurato dalla baseline (es. e' un mio
         # record), ma il valore reale non e' piu' recuperabile se e' gia'
         # stato annullato in query — l'oscuramento ACL resta comunque
-        # garantito subito dopo da acl.apply_read + apply_record_rule_
-        # override, lato Python. Un `obfuscate_fields` esplicito passato
-        # dal chiamante (non ACL, non soggetto a override) resta invece
-        # sempre server-side.
+        # garantito subito dopo da acl.apply_read + apply_field_rule_
+        # conditions, lato Python. Un `obfuscate_fields` esplicito passato
+        # dal chiamante (non ACL, non soggetto a reveal) resta invece
+        # sempre server-side. Model SENZA f_rule_cond restano sul path
+        # veloce $project nativo anche se hanno record_rulse configurato
+        # (record_rulse non tocca piu' i campi, solo Layer 2/accesso).
         find_obfuscate_fields = sorted(
             set(obfuscate_fields or [])
-            | (set() if record_rulse else set(read_mask_fields))
+            | (set() if field_rule_conditions else set(read_mask_fields))
         )
         logger.info(
-            "acl.list_records model=%s find_obfuscate_fields=%s (caller=%s read_mask=%s skipped_for_record_rulse=%s)",
+            "acl.list_records model=%s find_obfuscate_fields=%s (caller=%s read_mask=%s skipped_for_field_rule_conditions=%s)",
             model_name,
             find_obfuscate_fields,
             obfuscate_fields or [],
             read_mask_fields,
-            bool(record_rulse),
+            bool(field_rule_conditions),
         )
         data = await record_model.find(
             domain=domain,
@@ -1242,19 +1246,19 @@ class Service:
             applied_obfuscate_fields,
             len(data) if isinstance(data, list) else 0,
         )
-        if record_rulse and isinstance(data, list):
+        if field_rule_conditions and isinstance(data, list):
             data = [_record_to_dict(item) for item in data]
             per_item_fields: set[str] = set()
             for original_dict, obfuscated_dict in zip(original_items, data):
-                item_fields = apply_record_rule_override(
+                item_fields = apply_field_rule_conditions(
                     original=original_dict,
                     obfuscated=obfuscated_dict,
                     baseline_obfuscated_fields=applied_obfuscate_fields,
-                    record_rulse=record_rulse,
+                    field_rule_conditions=field_rule_conditions,
                     resolve_var=self._resolve_query_json_logic_vars,
                 )
                 logger.debug(
-                    "acl.record_rulse model=%s rec_name=%s baseline=%s final=%s",
+                    "acl.field_rule_conditions model=%s rec_name=%s baseline=%s final=%s",
                     model_name,
                     original_dict.get("rec_name"),
                     applied_obfuscate_fields,
@@ -1263,7 +1267,7 @@ class Service:
                 per_item_fields |= set(item_fields)
             applied_obfuscate_fields = sorted(per_item_fields)
             logger.info(
-                "acl.list_records model=%s record_rulse applied, union_obfuscated=%s",
+                "acl.list_records model=%s field_rule_conditions applied, union_obfuscated=%s",
                 model_name,
                 applied_obfuscate_fields,
             )
@@ -1582,18 +1586,19 @@ class Service:
             rec_name,
             obfuscate_fields,
         )
-        if record_rulse:
+        field_rule_conditions = self._get_field_rule_conditions(model)
+        if field_rule_conditions:
             obfuscated_dict = _record_to_dict(record)
-            obfuscate_fields = apply_record_rule_override(
+            obfuscate_fields = apply_field_rule_conditions(
                 original=original_dict,
                 obfuscated=obfuscated_dict,
                 baseline_obfuscated_fields=obfuscate_fields,
-                record_rulse=record_rulse,
+                field_rule_conditions=field_rule_conditions,
                 resolve_var=self._resolve_query_json_logic_vars,
             )
             record = obfuscated_dict
             logger.info(
-                "acl.load_record model=%s rec_name=%s after_record_rulse=%s",
+                "acl.load_record model=%s rec_name=%s after_field_rule_conditions=%s",
                 model,
                 rec_name,
                 obfuscate_fields,
@@ -2045,10 +2050,14 @@ class Service:
         self, model_key: str
     ) -> list[dict[str, Any]]:
         """Righe `model_fields_rule` (rule_type="record") per `model_key`,
-        scoped per app_code corrente (cache per-request): regole
-        data-dependent, valutate per record da `apply_record_rule_override`
-        — non compilabili in `CompiledFieldAcl` (che e' actor-only, niente
-        contesto riga).
+        scoped per app_code corrente (cache per-request): Layer 2, accesso
+        al RECORD (read/create/update/delete), valutate per record da
+        `evaluate_record_rule_access`/`record_rule_read_domain` — non
+        compilabili in `CompiledFieldAcl` (che e' actor-only, niente
+        contesto riga). Il masking/reveal a livello di CAMPO e' Layer 3
+        (`Model.get_field_rules()`/`get_field_rules_conditions()`, vedi
+        `_load_field_rule_policies`/`_get_field_rule_conditions`), non
+        piu' affare di questa collection.
 
         Fonte di verita': la collection `model_fields_rule` (popolata al
         salva del component da `app.ozon_env_acl.model_rules_sync`), NON
@@ -2098,8 +2107,6 @@ class Service:
                         {
                             "group": row_group,
                             "filters": _safe_json_dict(data.get("filters")),
-                            "restricted_fields": data.get("restricted_fields")
-                            or [],
                             "read": bool(data.get("read", False)),
                             "create": bool(data.get("create", False)),
                             "update": bool(data.get("update", False)),
@@ -2120,6 +2127,34 @@ class Service:
         )
         self._record_rulse_cache[model_key] = record_rulse
         return record_rulse
+
+    def _get_field_rule_conditions(
+        self, model_key: str
+    ) -> dict[str, dict[str, Any]]:
+        """Layer 3: `Model.get_field_rules_conditions()` — baked a
+        codegen-time in ozon-env da `properties.f_rule_cond` sul field
+        (vedi ModelMaker._extract_field_rule). Zero I/O: field_path ->
+        query mongo-shaped (var non risolte), consumata da
+        `apply_field_rule_conditions` per rivelare in lettura (mai
+        scrittura) un campo altrimenti oscurato dalla baseline, se la
+        condizione matcha il record. Fallback sicuro a `{}` se il model
+        non e' ancora stato rigenerato con Layer 3 (default su
+        `BasicModel.get_field_rules_conditions()` in ozon-env)."""
+        try:
+            model_obj = self.env.get(model_key)
+        except Exception:
+            return {}
+        model_cls = getattr(model_obj, "model", None)
+        get_conditions = getattr(model_cls, "get_field_rules_conditions", None)
+        if not callable(get_conditions):
+            return {}
+        try:
+            return get_conditions() or {}
+        except Exception:
+            logger.warning(
+                "get_field_rules_conditions failed model=%s", model_key
+            )
+            return {}
 
     async def _get_model_groups_rule(
         self, model_key: str
@@ -2286,94 +2321,93 @@ class Service:
                 policies = []
             break
         static_count = len(policies or [])
-        model_fields_rule_policies = await self._load_model_fields_rule_policies()
+        model_fields_rule_policies = self._load_field_rule_policies()
         logger.info(
-            "acl.load_policies static=%s model_fields_rule=%s",
+            "acl.load_policies static=%s field_rule=%s",
             static_count,
             len(model_fields_rule_policies),
         )
         return list(policies or []) + model_fields_rule_policies
 
-    async def _load_model_fields_rule_policies(self) -> list[dict[str, Any]]:
-        """FieldAclPolicy OBFUSCATE sintetiche da `model_fields_rule`
-        (rule_type="fields"), scoped per app_code corrente — fonte di
-        verita' per l'oscuramento per-gruppo (vedi `_get_record_rulse` per
-        l'equivalente per-record, rule_type="record").
+    def _load_field_rule_policies(self) -> list[dict[str, Any]]:
+        """FieldAclPolicy sintetiche da Layer 3 (`Model.get_field_rules()`,
+        baked a codegen-time in ozon-env da `properties.f_rule` sul field —
+        vedi ModelMaker._extract_field_rule/OzonOrm.make_local_model).
+        Zero I/O: itera i model gia' registrati in `self.env.models`,
+        nessuna query DB (sostituisce il vecchio `rule_type="fields"` in
+        `model_fields_rule`, ritirato — vedi model_rules_sync.py).
 
-        Una riga = (model, group) con la lista COMPLETA dei campi
-        ristretti per quel model e `read` = quel gruppo puo' leggerli in
-        chiaro. Piu' righe (gruppi diversi) per lo stesso (model, campo)
-        vanno unite in UNA policy con `exclude_groups` = unione di tutti i
-        gruppi ammessi: `read_masks` oscura se ALMENO UNA policy che
-        matcha lo dice, quindi una policy per gruppo separata negherebbe
-        un attore che sta nel gruppo A ma non nel gruppo B, anche se A da
-        solo basterebbe.
+        `f_rule.read`: gruppi esclusi dall'oscuramento READ/OBFUSCATE
+        (stessa semantica di prima: `read_masks` oscura se ALMENO UNA
+        policy matcha, quindi i gruppi di piu' field diversi restano
+        unioni separate per campo, non serve merge esplicito qui — ogni
+        campo produce la SUA policy).
 
-        Niente bypass admin (a differenza di `models_groups`/legacy
-        `models_restricted_fields`, che escludono admin via
-        `is_admin: False`): un campo GDPR-style non deve diventare visibile
-        solo perche' l'attore e' admin — solo gruppo o record_rulse
-        sbloccano il campo, admin incluso (comportamento confermato
-        dall'utente dopo che l'admin vedeva il campo in chiaro su tutta la
-        lista).
+        `f_rule.write`: NUOVO — prima dead code in `fields_rule.allowed_
+        groups.actions.{create,update}` (mai consumato). Qui produce
+        policy DENY su INSERT e UPDATE per chi non e' nei gruppi write —
+        riusa `enforce_write_acl`/`CompiledFieldAcl.denied_fields` gia'
+        esistenti, nessuna modifica li'.
+
+        Niente bypass admin (stesso comportamento di prima, confermato
+        dall'utente): solo gruppo o `f_rule_cond` (read-only, vedi
+        `apply_field_rule_conditions`) sbloccano un campo, admin incluso.
         """
-        try:
-            rule_model = self.env.get("model_fields_rule")
-        except Exception:
-            return []
-        if rule_model is None:
-            return []
-        app_code = str(getattr(self.session, "app_code", "") or "")
-        domain = {
-            "$and": [
-                {"app_code": app_code},
-                {"rule_type": "fields"},
-                {"active": True},
-                {"deleted": 0},
-            ]
-        }
-        try:
-            rows = await rule_model.find(domain=domain, limit=0)
-        except Exception:
-            logger.exception("model_fields_rule policy loading failed")
-            return []
-        logger.info(
-            "acl.model_fields_rule_policies app_code=%s fields_rows_found=%s",
-            app_code,
-            len(rows or []),
-        )
-        groups_by_field: dict[tuple[str, str], set[str]] = {}
-        for row in rows or []:
-            data = _record_to_dict(row)
-            if not data.get("read"):
+        policies: list[dict[str, Any]] = []
+        for model_key, model_obj in (getattr(self.env, "models", None) or {}).items():
+            model_cls = getattr(model_obj, "model", None)
+            get_field_rules = getattr(model_cls, "get_field_rules", None)
+            if not callable(get_field_rules):
                 continue
-            model_key = str(data.get("model") or "").strip()
-            group = str(data.get("group") or "").strip()
-            if not model_key or not group:
+            try:
+                field_rules = get_field_rules() or {}
+            except Exception:
+                logger.warning("get_field_rules failed model=%s", model_key)
                 continue
-            for field_path in data.get("restricted_fields") or []:
-                field_path = str(field_path).strip()
-                if not field_path:
+            for field_path, rule in field_rules.items():
+                if not isinstance(rule, dict):
                     continue
-                groups_by_field.setdefault((model_key, field_path), set()).add(
-                    group
+                read_groups = sorted(
+                    {
+                        str(g).strip().lower()
+                        for g in (rule.get("read") or [])
+                        if str(g).strip()
+                    }
                 )
-        policies = [
-            {
-                "model_key": model_key,
-                "field_path": field_path,
-                "operation": FieldAclOperation.READ.value,
-                "effect": FieldAclEffect.OBFUSCATE.value,
-                "actor_selector": {"exclude_groups": sorted(groups)},
-                "priority": 10,
-            }
-            for (model_key, field_path), groups in groups_by_field.items()
-        ]
-        logger.info(
-            "acl.model_fields_rule_policies app_code=%s policies=%s",
-            app_code,
-            policies,
-        )
+                if read_groups:
+                    policies.append(
+                        {
+                            "model_key": model_key,
+                            "field_path": field_path,
+                            "operation": FieldAclOperation.READ.value,
+                            "effect": FieldAclEffect.OBFUSCATE.value,
+                            "actor_selector": {"exclude_groups": read_groups},
+                            "priority": 10,
+                        }
+                    )
+                write_groups = sorted(
+                    {
+                        str(g).strip().lower()
+                        for g in (rule.get("write") or [])
+                        if str(g).strip()
+                    }
+                )
+                if write_groups:
+                    for operation in (
+                        FieldAclOperation.INSERT.value,
+                        FieldAclOperation.UPDATE.value,
+                    ):
+                        policies.append(
+                            {
+                                "model_key": model_key,
+                                "field_path": field_path,
+                                "operation": operation,
+                                "effect": FieldAclEffect.DENY.value,
+                                "actor_selector": {"exclude_groups": write_groups},
+                                "priority": 10,
+                            }
+                        )
+        logger.info("acl.field_rule_policies policies=%s", len(policies))
         return policies
 
     async def _get_action_record(self, action_name: str) -> CoreModel | None:

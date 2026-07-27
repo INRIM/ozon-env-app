@@ -907,81 +907,50 @@ def _record_matches_filters(record: dict[str, Any], filters: dict[str, Any]) -> 
     return True
 
 
-def evaluate_record_rule_override(
-    record_rulse: list[dict[str, Any]],
+def apply_field_rule_conditions(
     *,
-    record: dict[str, Any],
+    original: dict[str, Any],
+    obfuscated: dict[str, Any],
+    baseline_obfuscated_fields: list[str],
+    field_rule_conditions: dict[str, dict[str, Any]],
     resolve_var: Any,
-) -> list[str] | None:
-    """Valuta `record_rulse` contro UN record gia' caricato (post-var-resolve).
+) -> list[str]:
+    """Layer 3 (f_rule_cond): per ogni campo oscurato dalla baseline
+    `fields_rule`/`f_rule` (via `CompiledFieldAcl.apply_read`), se il model
+    ha una condizione record-dipendente per quel campo (`Model.
+    get_field_rules_conditions()`, baked a codegen-time in ozon-env) e
+    quella condizione (risolta via `resolve_var` + matchata via
+    `_record_matches_filters`) e' vera sul record ORIGINALE, rivela il
+    valore vero (`restore_path`) — SOLO in lettura, mai in scrittura (vedi
+    `Service._load_model_fields_rule_policies`: `f_rule.write` e' un asse
+    separato, statico per gruppo, mai influenzato da f_rule_cond).
 
-    `resolve_var` e' un callable `(query_dict) -> query_dict` che risolve i
-    nodi json-logic `{"var": "user.uid"}` presenti in `filters` (iniettato
-    dal chiamante per evitare un import circolare verso app.services.service,
-    che gia' importa questo modulo).
+    Sostituisce il vecchio `evaluate_record_rule_override`/
+    `apply_record_rule_override` basato su `record_rulse`: quel meccanismo
+    univa accesso-al-record e reveal-di-campo nella stessa riga (un filtro
+    -> una LISTA di campi sbloccati); qui e' l'inverso, un campo -> UNA
+    condizione — piu' preciso, e permette a `record_rulse` di restare
+    puramente Layer 2 (accesso al record, non ai suoi campi).
 
-    Se UNA regola matcha il record, ritorna il suo `restricted_fields`:
-    NON e' la lista finale di campi oscurati, e' lo SCOPE di campi che
-    QUESTA regola sblocca (tipicamente `[]` = sblocca tutto quello che la
-    baseline oscura). Il chiamante (`apply_record_rule_override`) fa la
-    differenza insiemistica con la baseline — un campo fuori scope
-    (es. "token" quando la regola copre solo "codicefiscale") resta
-    oscurato anche a match, non viene rivelato per errore.
-
-    Se NESSUNA regola matcha, ritorna None (il chiamante mantiene
-    l'oscuramento di baseline da fields_rule per intero).
-
-    Stessa eccezione di `evaluate_record_rule_access` per filtro vuoto su
-    riga `group`-scoped: match incondizionato (vedi lì per il perche')."""
-    if not record_rulse or not isinstance(record, dict):
-        return None
-    rec_name = record.get("rec_name")
-    for index, rule in enumerate(record_rulse):
-        raw_filters = rule.get("filters") or {}
-        if not raw_filters:
-            if not str(rule.get("group") or "").strip():
-                logger.debug(
-                    "acl.record_rule rec_name=%s rule=%s raw_filters=%s -> skip (filtro vuoto, regola universale)",
-                    rec_name,
-                    index,
-                    raw_filters,
+    Ritorna la lista finale di campi ancora oscurati per questo item."""
+    if not field_rule_conditions:
+        return list(baseline_obfuscated_fields)
+    final_obfuscated: list[str] = []
+    for field_path in baseline_obfuscated_fields:
+        raw_cond = field_rule_conditions.get(field_path)
+        if raw_cond:
+            resolved = resolve_var(raw_cond)
+            if (
+                isinstance(resolved, dict)
+                and resolved
+                and _record_matches_filters(original, resolved)
+            ):
+                restore_path(
+                    obfuscated, field_path, _read_path(original, field_path)
                 )
                 continue
-            resolved_filters = {}
-        else:
-            resolved_filters = resolve_var(raw_filters)
-            if not isinstance(resolved_filters, dict) or not resolved_filters:
-                logger.debug(
-                    "acl.record_rule rec_name=%s rule=%s raw_filters=%s -> skip (filtro non risolto)",
-                    rec_name,
-                    index,
-                    raw_filters,
-                )
-                continue
-        matched = not resolved_filters or _record_matches_filters(record, resolved_filters)
-        logger.debug(
-            "acl.record_rule rec_name=%s rule=%s resolved_filters=%s matched=%s",
-            rec_name,
-            index,
-            resolved_filters,
-            matched,
-        )
-        if matched:
-            raw_restricted = rule.get("restricted_fields")
-            if raw_restricted is None:
-                raw_restricted = rule.get("resticted_fields")
-            reveal_scope = [
-                str(f).strip() for f in (raw_restricted or []) if str(f).strip()
-            ]
-            logger.debug(
-                "acl.record_rule rec_name=%s rule=%s MATCH -> sblocca (dalla baseline) %s",
-                rec_name,
-                index,
-                reveal_scope or "[tutto]",
-            )
-            return reveal_scope
-    logger.debug("acl.record_rule rec_name=%s nessuna regola matcha", rec_name)
-    return None
+        final_obfuscated.append(field_path)
+    return final_obfuscated
 
 
 _MODEL_ACTION_KEYS: tuple[str, ...] = ("read", "create", "update", "delete", "export")
@@ -1034,60 +1003,51 @@ def evaluate_record_rule_access(
     record: dict[str, Any],
     resolve_var: Any,
 ) -> dict[str, bool] | None:
-    """Valuta `record_rulse` (rule_type="record") contro UN record e ritorna
-    le azioni concesse (read/create/update/delete) dalla PRIMA regola che
-    matcha, o None se nessuna regola matcha.
+    """Valuta `record_rulse` (rule_type="record", Layer 2 — accesso al
+    RECORD, non ai suoi campi: quello e' Layer 3/f_rule) contro UN record e
+    ritorna le azioni concesse (read/create/update/delete), UNIONE (OR
+    logico, stesso pattern di `model_group_access`) di TUTTE le regole che
+    matchano — non piu' first-match-wins: un utente che appartiene a piu'
+    gruppi scoped (es. gdpr+dpo) ottiene il piu' permissivo tra le regole
+    che matchano il record, indipendente dall'ordine delle entry in
+    config.
 
-    Stessa matching logic (filtri risolti via resolve_var + _record_matches_
-    filters) di evaluate_record_rule_override, ma legge il campo azioni della
-    riga invece di restricted_fields — vista diversa della stessa riga
-    model_fields_rule. None (nessun match) e' fail-closed: il chiamante
+    None (nessuna regola matcha) e' fail-closed: il chiamante
     (record_rule_access) nega tutto, non concede la baseline.
 
-    Filtro vuoto ({}) su una riga con `group` valorizzato (entry scoped a
-    gruppi specifici, vedi model_rules_sync.record_rulse groups per-entry)
-    = match incondizionato per chi e' gia' filtrato in quel gruppo da
-    Service._get_record_rulse (es. dpo: read-all senza owner-check). Su una
-    riga universale (group="", storico/default seed) resta fail-closed
-    com'era: un filtro vuoto li' non deve aprire il record a chiunque.
-
-    Order-dependent per un utente in PIU' gruppi scoped (es. gdpr+dpo):
-    vince la PRIMA riga che matcha nell'ordine di `record_rulse` (ordine di
-    sync/insert in model_fields_rule, non un merge/OR come fields_rule).
-    Se un catch-all a filtro vuoto (dpo) precede in config una entry piu'
-    permissiva sul proprio record (gdpr owner-match), un utente in
-    entrambi i gruppi puo' risultare "ombreggiato" a read-only sul proprio
-    record. Ordina le entry sorgente (component.properties.record_rulse)
-    mettendo prima quelle con filtro/grant piu' ampio per lo stesso utente,
-    i catch-all a filtro vuoto per ultimi."""
+    Filtro vuoto ({}) NON matcha mai, incondizionatamente — anche su una
+    riga `group`-scoped. Un accesso incondizionato per un intero gruppo
+    non e' un concetto per-record: va espresso a Layer 1 (model_groups_
+    rule) o Layer 3 (f_rule), non qui."""
     if not record_rulse or not isinstance(record, dict):
         return None
     rec_name = record.get("rec_name")
+    matched_any = False
+    granted = dict(_NO_RECORD_ACCESS)
     for index, rule in enumerate(record_rulse):
         raw_filters = rule.get("filters") or {}
         if not raw_filters:
-            if not str(rule.get("group") or "").strip():
-                continue
-            resolved_filters = {}
-        else:
-            resolved_filters = resolve_var(raw_filters)
-            if not isinstance(resolved_filters, dict) or not resolved_filters:
-                continue
-        if not resolved_filters or _record_matches_filters(record, resolved_filters):
-            actions = {
-                key: bool(rule.get(key, False)) for key in _RECORD_ACTION_KEYS
-            }
+            continue
+        resolved_filters = resolve_var(raw_filters)
+        if not isinstance(resolved_filters, dict) or not resolved_filters:
+            continue
+        if _record_matches_filters(record, resolved_filters):
+            matched_any = True
+            for key in _RECORD_ACTION_KEYS:
+                granted[key] = granted[key] or bool(rule.get(key, False))
             logger.debug(
-                "acl.record_rule_access rec_name=%s rule=%s MATCH -> %s",
+                "acl.record_rule_access rec_name=%s rule=%s MATCH -> %s (union so far=%s)",
                 rec_name,
                 index,
-                actions,
+                {key: bool(rule.get(key, False)) for key in _RECORD_ACTION_KEYS},
+                granted,
             )
-            return actions
-    logger.debug(
-        "acl.record_rule_access rec_name=%s nessuna regola matcha", rec_name
-    )
-    return None
+    if not matched_any:
+        logger.debug(
+            "acl.record_rule_access rec_name=%s nessuna regola matcha", rec_name
+        )
+        return None
+    return granted
 
 
 def record_rule_access(
@@ -1129,26 +1089,21 @@ def record_rule_read_domain(
     resolve_var: Any,
 ) -> dict[str, Any]:
     """Domain mongo che restringe una query alle sole righe leggibili secondo
-    record_rulse, per un attore NON admin — OR dei filtri risolti (gia'
-    scoped sull'utente corrente via resolve_var) di ogni regola con
-    read=True. Se nessuna regola concede read, ritorna un domain che non
-    matcha nulla (fail-closed: un OR vuoto in mongo matcherebbe tutto, qui
-    deve invece nascondere tutto).
+    record_rulse (Layer 2), per un attore NON admin — OR dei filtri
+    risolti (gia' scoped sull'utente corrente via resolve_var) di ogni
+    regola con read=True. Se nessuna regola concede read, ritorna un
+    domain che non matcha nulla (fail-closed: un OR vuoto in mongo
+    matcherebbe tutto, qui deve invece nascondere tutto).
 
-    Stessa eccezione di evaluate_record_rule_access/_override per filtro
-    vuoto su riga `group`-scoped con read=True: e' un via libera incondizionato
-    per chi e' gia' filtrato in quel gruppo da Service._get_record_rulse
-    (dpo: read-all) — nessun'altra clausola serve, l'intero domain resta
-    senza restrizioni (list/stream vedono tutte le righe, non solo quelle
-    coperte dalle altre regole)."""
+    Filtro vuoto ({}) non contribuisce mai una clausola, incondizionatamente
+    (stessa scelta di `evaluate_record_rule_access`): un accesso senza
+    restrizioni per un intero gruppo non e' un concetto per-record."""
     clauses: list[dict[str, Any]] = []
     for rule in record_rulse:
         if not rule.get("read", False):
             continue
         raw_filters = rule.get("filters") or {}
         if not raw_filters:
-            if str(rule.get("group") or "").strip():
-                return {}
             continue
         resolved = resolve_var(raw_filters)
         if isinstance(resolved, dict) and resolved:
@@ -1170,46 +1125,6 @@ def _read_path(payload: Any, field_path: str) -> Any:
     if parts:
         return _path_get_child(current, parts[-1])
     return None
-
-
-def apply_record_rule_override(
-    *,
-    original: dict[str, Any],
-    obfuscated: dict[str, Any],
-    baseline_obfuscated_fields: list[str],
-    record_rulse: list[dict[str, Any]],
-    resolve_var: Any,
-) -> list[str]:
-    """Applica `record_rulse` a UN item gia' passato da
-    `CompiledFieldAcl.apply_read` (baseline `fields_rule`, per-actor).
-
-    Muta `obfuscated` in place: se una regola matcha, `evaluate_record_
-    rule_override` ritorna lo SCOPE di campi che quella regola sblocca —
-    qui si fa la differenza insiemistica con la baseline (`baseline -
-    scope`), NON una sostituzione: un campo oscurato dalla baseline ma
-    FUORI dallo scope della regola (es. "token" quando la regola copre
-    solo "codicefiscale") resta oscurato anche a match. Scope vuoto `[]`
-    = sblocca tutto cio' che la baseline oscura. Se nessuna regola matcha,
-    la baseline resta invariata.
-
-    Ritorna la lista finale di campi oscurati per questo item.
-    """
-    if not record_rulse:
-        return list(baseline_obfuscated_fields)
-    reveal_scope = evaluate_record_rule_override(
-        record_rulse, record=original, resolve_var=resolve_var
-    )
-    if reveal_scope is None:
-        return list(baseline_obfuscated_fields)
-    reveal_all = not reveal_scope
-    reveal_set = set(reveal_scope)
-    final_obfuscated: list[str] = []
-    for field_path in baseline_obfuscated_fields:
-        if reveal_all or field_path in reveal_set:
-            restore_path(obfuscated, field_path, _read_path(original, field_path))
-        else:
-            final_obfuscated.append(field_path)
-    return final_obfuscated
 
 
 def compile_field_acl_policies(

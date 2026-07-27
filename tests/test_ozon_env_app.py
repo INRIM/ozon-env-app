@@ -479,13 +479,21 @@ def test_insert_update_component_syncs_model_rules_on_save():
                 ]
             },
             "models_restricted_fields": {
+                # "fields_rule" e' config vecchia (rule_type="fields",
+                # ritirato in favore di Layer 3/ozon-env): presente per
+                # provare che viene ignorata, non produce piu' righe.
                 "fields_rule": {
                     "resticted_fields": ["salary"],
                     "allowed_groups": [
                         {"groups": ["dpo"], "actions": {"read": True}}
                     ],
                 },
-                "record_rulse": [],
+                "record_rulse": [
+                    {
+                        "filters": {"owner_uid": {"$eq": {"var": "user.uid"}}},
+                        "actions": {"read": True, "update": True},
+                    }
+                ],
             },
         },
     }
@@ -495,7 +503,8 @@ def test_insert_update_component_syncs_model_rules_on_save():
     assert rule_engine.groups.deleted == [{"app_code": "demo", "model": "document"}]
     assert rule_engine.fields.deleted == [{"app_code": "demo", "model": "document"}]
     assert rule_engine.groups.inserted[0]["rec_name"] == "mgr.demo.document.manager"
-    assert rule_engine.fields.inserted[0]["rec_name"] == "mfr.demo.document.fields.dpo"
+    assert rule_engine.fields.inserted[0]["rec_name"] == "mfr.demo.document.record.0"
+    assert rule_engine.fields.inserted[0]["rule_type"] == "record"
 
 
 def test_runtime_model_guard_skips_update_model_for_static_component(monkeypatch):
