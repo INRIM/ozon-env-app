@@ -19,13 +19,20 @@ class _AsyncCursor:
 
 
 class _Collection:
-    def __init__(self, rows=None):
+    def __init__(self, rows=None, existing=0):
         self.rows = list(rows or [])
         self.deleted = []
         self.inserted = []
+        # Righe gia' presenti per lo scope (app_code, model). Serve al
+        # watchdog di _replace_rules, che rifiuta di cancellare regole
+        # esistenti quando il calcolo ne produce zero.
+        self.existing = existing
 
     def find(self, query):
         return _AsyncCursor(self.rows)
+
+    async def count_documents(self, query):
+        return self.existing
 
     async def delete_many(self, query):
         self.deleted.append(query)
@@ -193,3 +200,177 @@ def test_sync_all_model_rules_normalizes_components_and_rewrites_tables():
     # default seed produce solo record_rulse (owner-only universale) ora
     # che "fields_rule" e' ritirato dal default.
     assert field_types == {"record"}
+
+
+# --- Default ACL: copertura dei gruppi ------------------------------------
+
+
+# Gruppi previsti dalla collection `groups` (seed applicativo). Se ne
+# viene aggiunto uno, va deciso esplicitamente che permessi ha nei
+# default: con model_group_access fail-closed, un gruppo non citato qui
+# non ha accesso a NESSUN model che usa i default — e il sintomo (utente
+# che "non vede niente") non punta a questo file.
+_EXPECTED_GROUPS = {
+    "admin",
+    "user",
+    "operator",
+    "manager",
+    "dpo",
+    "gdpr",
+    "technical_operator",
+}
+
+
+def _default_groups(defaults):
+    return {g for rule in defaults["rules"] for g in rule["groups"]}
+
+
+def test_non_sys_defaults_cover_every_known_group():
+    from app.core.OzonEnvApp import _DEFAULT_MODELS_GROUPS_NON_SYS
+
+    missing = _EXPECTED_GROUPS - _default_groups(_DEFAULT_MODELS_GROUPS_NON_SYS)
+
+    assert not missing, (
+        f"gruppi senza permessi nei default non_sys: {sorted(missing)} — "
+        "fail-closed, resterebbero senza accesso"
+    )
+
+
+def test_sys_defaults_stay_restricted():
+    """I model `sys` sono configurazione condivisa: solo admin e
+    technical_operator. Questo test e' un fermo: allargarli e' una
+    decisione, non una svista."""
+    from app.core.OzonEnvApp import _DEFAULT_MODELS_GROUPS_SYS
+
+    assert _default_groups(_DEFAULT_MODELS_GROUPS_SYS) == {
+        "admin",
+        "technical_operator",
+    }
+
+
+def test_gdpr_has_same_profile_as_other_functional_roles():
+    from app.core.OzonEnvApp import _DEFAULT_MODELS_GROUPS_NON_SYS
+
+    actions = {
+        group: rule["actions"]
+        for rule in _DEFAULT_MODELS_GROUPS_NON_SYS["rules"]
+        for group in rule["groups"]
+    }
+
+    assert actions["gdpr"] == actions["dpo"] == actions["manager"]
+    assert actions["gdpr"]["delete"] is False
+
+
+# --- Watchdog: nessuna cancellazione senza sostituzione -------------------
+
+
+def _sync(schema, groups, fields):
+    env = _Env(_Engine({
+        "model_groups_rule": groups,
+        "model_fields_rule": fields,
+    }))
+    asyncio.run(sync_model_rules(env, schema))
+
+
+def test_malformed_models_groups_leaves_existing_rules_untouched():
+    """`models_groups` come ARRAY (la forma che mostra il json editor del
+    form) invece che come oggetto `{"rules": [...]}`.
+
+    Prima: _parse_dict_property degradava a None, si generavano 0 righe e
+    il delete_many incondizionato azzerava l'ACL del model — con
+    model_group_access fail-closed, lockout di tutti i non-admin.
+    """
+    groups = _Collection(existing=6)
+    fields = _Collection(existing=1)
+    schema = {
+        "rec_name": "document",
+        "properties": {"models_groups": []},
+    }
+
+    _sync(schema, groups, fields)
+
+    assert groups.deleted == [], (
+        "ha cancellato regole valide su input malformato"
+    )
+    assert groups.inserted == []
+
+
+def test_malformed_models_groups_string_is_not_silently_ignored():
+    groups = _Collection(existing=6)
+    fields = _Collection(existing=0)
+    schema = {
+        "rec_name": "document",
+        "properties": {"models_groups": "non-json"},
+    }
+
+    _sync(schema, groups, fields)
+
+    assert groups.deleted == []
+
+
+def test_empty_result_does_not_wipe_existing_group_rules():
+    """Property formalmente valida ma senza regole utili: se righe
+    esistono, non si cancella (sarebbe un lockout silenzioso)."""
+    groups = _Collection(existing=6)
+    fields = _Collection(existing=0)
+    schema = {
+        "rec_name": "document",
+        "properties": {"models_groups": {"rules": []}},
+    }
+
+    _sync(schema, groups, fields)
+
+    assert groups.deleted == []
+    assert groups.inserted == []
+
+
+def test_empty_result_does_not_wipe_existing_record_rules():
+    """Stessa guardia sulla tabella record: azzerarla non blocca nessuno,
+    ma TOGLIE il filtro per riga e allarga l'accesso."""
+    groups = _Collection(existing=0)
+    fields = _Collection(existing=3)
+    schema = {
+        "rec_name": "document",
+        "properties": {"models_restricted_fields": {"record_rulse": []}},
+    }
+
+    _sync(schema, groups, fields)
+
+    assert fields.deleted == []
+    assert fields.inserted == []
+
+
+def test_empty_result_is_allowed_when_nothing_exists_yet():
+    """Nessuna riga da proteggere: il sync normale non deve essere
+    ostacolato dal watchdog (primo avvio, model nuovo)."""
+    groups = _Collection(existing=0)
+    fields = _Collection(existing=0)
+    schema = {
+        "rec_name": "document",
+        "properties": {"models_groups": {"rules": []}},
+    }
+
+    _sync(schema, groups, fields)
+
+    assert groups.deleted == [{"app_code": "demo", "model": "document"}]
+
+
+def test_valid_rules_still_replace_existing_rows():
+    """Il watchdog non deve impedire un aggiornamento legittimo."""
+    groups = _Collection(existing=6)
+    fields = _Collection(existing=0)
+    schema = {
+        "rec_name": "document",
+        "properties": {
+            "models_groups": {
+                "rules": [
+                    {"groups": ["manager"], "actions": {"read": True}}
+                ]
+            }
+        },
+    }
+
+    _sync(schema, groups, fields)
+
+    assert groups.deleted == [{"app_code": "demo", "model": "document"}]
+    assert [r["group"] for r in groups.inserted] == ["manager"]

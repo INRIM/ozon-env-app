@@ -79,8 +79,13 @@ _DEFAULT_MODELS_GROUPS_NON_SYS: dict[str, Any] = {
                 "export": True,
             },
         },
+        # Ruoli funzionali: stesso profilo per tutti (scrittura senza
+        # cancellazione). `gdpr` era l'unico gruppo presente in `groups`
+        # ma assente qui: con model_group_access fail-closed, chi stava
+        # solo in quel gruppo non aveva accesso a NESSUN model che usa i
+        # default. Vedi tests/test_model_rules_sync.py.
         {
-            "groups": ["operator", "manager", "dpo"],
+            "groups": ["operator", "manager", "dpo", "gdpr"],
             "actions": {
                 "read": True,
                 "create": True,

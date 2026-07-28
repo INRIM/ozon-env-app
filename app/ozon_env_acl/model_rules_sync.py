@@ -10,6 +10,26 @@ _GROUPS_RULE_COLLECTION = "model_groups_rule"
 _FIELDS_RULE_COLLECTION = "model_fields_rule"
 
 
+class MalformedAclPropertyError(ValueError):
+    """`component.properties.<key>` c'e' ma non ha la forma attesa.
+
+    Distinta da "proprieta' assente": assente significa "usa i default"
+    (li inietta `normalize_component_properties`), malformata significa
+    che qualcuno ha scritto qualcosa di sbagliato — e in quel caso
+    l'ultima cosa da fare e' interpretarla come "nessuna regola" e
+    cancellare le righe esistenti.
+    """
+
+    def __init__(self, property_name: str, value: Any) -> None:
+        self.property_name = property_name
+        self.value = value
+        super().__init__(
+            f"'{property_name}' deve essere un oggetto JSON "
+            f"(es. {{\"rules\": [...]}}), ricevuto "
+            f"{type(value).__name__}: {str(value)[:120]}"
+        )
+
+
 def _get_db_engine(env: Any) -> Any:
     for candidate in (
         getattr(getattr(env, "db", None), "engine", None),
@@ -36,7 +56,21 @@ async def _validated_row(env: Any, collection_name: str, row: dict[str, Any]) ->
     return record.get_dict(exclude={"id"})
 
 
-def _parse_dict_property(raw: Any) -> dict[str, Any] | None:
+def _parse_dict_property(
+    raw: Any, property_name: str = "acl property"
+) -> dict[str, Any] | None:
+    """`None` = proprieta' assente (usa i default). Dict = valore valido.
+
+    Qualunque altra cosa (list, numero, stringa non-JSON, JSON che non e'
+    un oggetto) alza `MalformedAclPropertyError` invece di degradare a
+    `None`: il ramo silenzioso faceva sembrare "nessuna regola" un
+    valore semplicemente scritto male, e il chiamante cancellava le
+    righe buone. Il caso piu' facile da innescare e' il json editor del
+    form, che presenta il campo come array `[]` mentre qui serve un
+    oggetto `{"rules": [...]}`.
+    """
+    if raw is None:
+        return None
     if isinstance(raw, dict):
         return raw
     if isinstance(raw, str):
@@ -45,10 +79,12 @@ def _parse_dict_property(raw: Any) -> dict[str, Any] | None:
             return None
         try:
             parsed = json.loads(text)
-        except Exception:
-            return None
-        return parsed if isinstance(parsed, dict) else None
-    return None
+        except Exception as exc:
+            raise MalformedAclPropertyError(property_name, raw) from exc
+        if not isinstance(parsed, dict):
+            raise MalformedAclPropertyError(property_name, parsed)
+        return parsed
+    raise MalformedAclPropertyError(property_name, raw)
 
 
 async def model_groups_rows(
@@ -64,7 +100,9 @@ async def model_groups_rows(
     quindi il model resta senza righe model_groups_rule per i non-admin
     (fail-closed, vedi Service._get_model_group_access).
     """
-    raw = _parse_dict_property((properties or {}).get("models_groups"))
+    raw = _parse_dict_property(
+        (properties or {}).get("models_groups"), "models_groups"
+    )
     if raw is None:
         return []
 
@@ -128,7 +166,10 @@ async def model_fields_rows(
     JSON-in-textarea dell'app) — chi legge la riga (Service._get_record_rulse)
     fa un json.loads difensivo, non un dict tipizzato via ORM.
     """
-    raw = _parse_dict_property((properties or {}).get("models_restricted_fields"))
+    raw = _parse_dict_property(
+        (properties or {}).get("models_restricted_fields"),
+        "models_restricted_fields",
+    )
     if raw is None or "record_rulse" not in raw:
         return []
 
@@ -184,6 +225,68 @@ async def model_fields_rows(
     return rows
 
 
+async def _replace_rules(
+    collection: Any,
+    *,
+    app_code: str,
+    model_name: str,
+    build_rows: Any,
+    table: str,
+    empty_means: str,
+) -> None:
+    """Sostituisce le righe di (app_code, model) — ma solo se ha davvero
+    qualcosa con cui sostituirle.
+
+    Due guardie, entrambe contro lo stesso incidente: un `delete_many`
+    seguito da nessun insert. Le due tabelle rompono in direzioni
+    opposte — azzerare `model_groups_rule` NEGA tutto ai non-admin,
+    azzerare `model_fields_rule` TOGLIE il filtro per riga e allarga
+    l'accesso — quindi in nessuno dei due casi va fatto per sbaglio.
+
+    1. property malformata -> non si tocca niente (le righe correnti
+       restano quelle buone);
+    2. property valida ma che produce zero righe MENTRE ne esistono ->
+       non si cancella: e' quasi sempre un errore di configurazione, non
+       la volonta' di azzerare l'ACL.
+
+    Per azzerare davvero le regole di un model: togliere la property
+    (tornano i default) o scriverne una con le azioni tutte a `false`.
+    """
+    scope = {"app_code": app_code, "model": model_name}
+    try:
+        rows = await build_rows()
+    except MalformedAclPropertyError as exc:
+        logger.error(
+            "sync_model_rules: %s malformata per model=%s app_code=%s — "
+            "righe %s LASCIATE INVARIATE. %s",
+            exc.property_name,
+            model_name,
+            app_code,
+            table,
+            exc,
+        )
+        return
+
+    if not rows:
+        existing = await collection.count_documents(scope)
+        if existing:
+            logger.error(
+                "sync_model_rules: model=%s app_code=%s produce 0 righe ma "
+                "%s ne ha %s — cancellazione ANNULLATA perche' %s. "
+                "Correggere properties o azzerare esplicitamente.",
+                model_name,
+                app_code,
+                table,
+                existing,
+                empty_means,
+            )
+            return
+
+    await collection.delete_many(scope)
+    if rows:
+        await collection.insert_many(rows)
+
+
 async def sync_model_rules(env: Any, schema: dict[str, Any]) -> None:
     """Cancella e riscrive le righe model_groups_rule/model_fields_rule per
     (app_code, model) a partire da schema["properties"]. Fail-soft: un
@@ -202,20 +305,34 @@ async def sync_model_rules(env: Any, schema: dict[str, Any]) -> None:
         if not isinstance(properties, dict):
             properties = {}
 
-        groups_rows = await model_groups_rows(env, app_code, model_name, properties)
-        fields_rows = await model_fields_rows(env, app_code, model_name, properties)
-
         engine = _get_db_engine(env)
 
-        groups_coll = engine.get_collection(_GROUPS_RULE_COLLECTION)
-        await groups_coll.delete_many({"app_code": app_code, "model": model_name})
-        if groups_rows:
-            await groups_coll.insert_many(groups_rows)
-
-        fields_coll = engine.get_collection(_FIELDS_RULE_COLLECTION)
-        await fields_coll.delete_many({"app_code": app_code, "model": model_name})
-        if fields_rows:
-            await fields_coll.insert_many(fields_rows)
+        await _replace_rules(
+            engine.get_collection(_GROUPS_RULE_COLLECTION),
+            app_code=app_code,
+            model_name=model_name,
+            build_rows=lambda: model_groups_rows(
+                env, app_code, model_name, properties
+            ),
+            table=_GROUPS_RULE_COLLECTION,
+            empty_means=(
+                "nessun gruppo avrebbe piu' accesso al model "
+                "(model_group_access e' fail-closed): lockout dei non-admin"
+            ),
+        )
+        await _replace_rules(
+            engine.get_collection(_FIELDS_RULE_COLLECTION),
+            app_code=app_code,
+            model_name=model_name,
+            build_rows=lambda: model_fields_rows(
+                env, app_code, model_name, properties
+            ),
+            table=_FIELDS_RULE_COLLECTION,
+            empty_means=(
+                "sparirebbe il filtro record-level: gli utenti vedrebbero "
+                "righe che oggi non vedono"
+            ),
+        )
     except Exception:
         logger.exception(
             "sync_model_rules failed for model=%s — rule tables left stale",
