@@ -128,6 +128,27 @@ async def logout(
     return response
 
 
+def _oauth_error(response: httpx.Response) -> tuple[str, str]:
+    """Estrae `error`/`error_description` da una risposta OAuth2.
+
+    Il corpo di errore di Keycloak non contiene segreti (sono codici
+    standard RFC 6749 piu' una descrizione), quindi puo' essere loggato e
+    restituito: e' l'unica cosa che distingue un redirect_uri sbagliato
+    (`invalid_grant`) da un secret sbagliato (`invalid_client`) o da un
+    client non abilitato al flusso (`unauthorized_client`).
+    """
+    try:
+        payload = response.json()
+    except ValueError:
+        return "", response.text[:200]
+    if not isinstance(payload, dict):
+        return "", ""
+    return (
+        str(payload.get("error", "") or ""),
+        str(payload.get("error_description", "") or "")[:200],
+    )
+
+
 async def _exchange_code(settings: EnvSettings, code: str) -> dict:
     async with httpx.AsyncClient(timeout=20.0) as client:
         response = await client.post(
@@ -141,8 +162,30 @@ async def _exchange_code(settings: EnvSettings, code: str) -> dict:
             },
         )
     if response.status_code >= 400:
+        error, description = _oauth_error(response)
+        # Endpoint e redirect_uri nel log: la causa piu' frequente e' che
+        # non combaciano con quelli usati nella richiesta /authorize (es.
+        # .env che punta a un realm o a un host keycloak diverso da
+        # quello con cui l'utente ha fatto login). Senza questi due
+        # valori il 502 non e' diagnosticabile. Nessun segreto: il
+        # client_secret non viene mai loggato.
+        logger.error(
+            "keycloak token exchange failed status=%s error=%s "
+            "description=%s token_endpoint=%s redirect_uri=%s client_id=%s",
+            response.status_code,
+            error,
+            description,
+            settings.keycloak_token_endpoint,
+            settings.redirect_uri,
+            settings.keycloak_client_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Keycloak token exchange failed ({response.status_code})",
+            detail={
+                "message": "Keycloak token exchange failed",
+                "status": response.status_code,
+                "error": error,
+                "error_description": description,
+            },
         )
     return response.json() if response.content else {}

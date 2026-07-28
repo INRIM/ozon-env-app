@@ -422,3 +422,59 @@ def test_ensure_sso_token_fresh_fails_when_expired_without_refresh():
         )
 
     assert exc.value.status_code == 401
+
+
+# --- /auth/callback: diagnosticabilita' del 502 ---------------------------
+
+
+class _FakeResponse:
+    """Risposta httpx minimale per _oauth_error."""
+
+    def __init__(self, payload=None, text=""):
+        self._payload = payload
+        self.text = text
+
+    def json(self):
+        if self._payload is None:
+            raise ValueError("no json")
+        return self._payload
+
+
+def test_oauth_error_extracts_code_and_description():
+    """Il 502 deve dire PERCHE': `invalid_grant` (redirect_uri/realm
+    sbagliati) e `invalid_client` (secret sbagliato) hanno fix opposti,
+    ma prima erano indistinguibili — il corpo veniva scartato."""
+    from app.api.auth_routes import _oauth_error
+
+    error, description = _oauth_error(
+        _FakeResponse(
+            {
+                "error": "invalid_grant",
+                "error_description": "Code not valid",
+            }
+        )
+    )
+
+    assert error == "invalid_grant"
+    assert description == "Code not valid"
+
+
+def test_oauth_error_falls_back_to_text_when_not_json():
+    from app.api.auth_routes import _oauth_error
+
+    error, description = _oauth_error(
+        _FakeResponse(payload=None, text="502 Bad Gateway from proxy")
+    )
+
+    assert error == ""
+    assert "Bad Gateway" in description
+
+
+def test_oauth_error_truncates_long_description():
+    from app.api.auth_routes import _oauth_error
+
+    _, description = _oauth_error(
+        _FakeResponse({"error": "x", "error_description": "A" * 5000})
+    )
+
+    assert len(description) == 200
