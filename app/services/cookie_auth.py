@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import secrets
+import zlib
 from functools import lru_cache
 from typing import Any
 
@@ -44,15 +45,31 @@ def _fernet(secret: str) -> Fernet:
     return Fernet(base64.urlsafe_b64encode(key_material))
 
 
+# Il payload va COMPRESSO prima di cifrare. Il bundle keycloak e' fatto
+# di JWT (base64 di JSON): comprime ~4x. Senza zlib il cookie passa da
+# ~1.2 KB a ~5 KB e sfonda due limiti diversi:
+#   - i proxy_buffer_size di default di nginx (4 KB) -> 502 "upstream
+#     sent too big header" sul reverse proxy davanti all'app;
+#   - il limite di ~4 KB per singolo cookie dei browser.
+# `itsdangerous`, usato prima, comprimeva di suo; Fernet no, quindi la
+# compressione va fatta a mano qui. Non indebolisce la cifratura: il
+# testo cifrato e' comunque autenticato, e il contenuto non e' scelto
+# dall'attaccante (nessun oracolo tipo CRIME/BREACH: il cookie non
+# mescola dati attaccante-controllati con il segreto, e non viaggia su
+# un canale dove l'attaccante ne osserva la lunghezza a ripetizione).
+_ZLIB_LEVEL = 9
+
+
 def sign_token(token: Any, secret: str) -> str:
-    """Serializza e CIFRA il payload per il cookie.
+    """Serializza, COMPRIME e CIFRA il payload per il cookie.
 
     Il nome resta `sign_token` per non toccare i chiamanti: la firma c'e'
     ancora (Fernet autentica), in piu' ora il contenuto e' cifrato.
     Accetta str (state OAuth2) o dict (bundle token).
     """
     payload = json.dumps(token, separators=(",", ":"), default=str)
-    return _fernet(secret).encrypt(payload.encode("utf-8")).decode("ascii")
+    compressed = zlib.compress(payload.encode("utf-8"), _ZLIB_LEVEL)
+    return _fernet(secret).encrypt(compressed).decode("ascii")
 
 
 def verify_token(
@@ -76,8 +93,8 @@ def verify_token(
     except (InvalidToken, UnicodeEncodeError, ValueError, TypeError):
         return None
     try:
-        return json.loads(raw.decode("utf-8"))
-    except (ValueError, UnicodeDecodeError):
+        return json.loads(zlib.decompress(raw).decode("utf-8"))
+    except (zlib.error, ValueError, UnicodeDecodeError):
         return None
 
 

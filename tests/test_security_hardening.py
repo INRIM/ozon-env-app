@@ -8,6 +8,8 @@ Vedi docs/SECURITY_AUDIT_2026-07.it.md.
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -320,6 +322,57 @@ def test_session_cookie_rejects_expired_value():
     cookie = sign_token({"access_token": "AT"}, secret)
 
     assert verify_token(cookie, secret, max_age=0) is None
+
+
+def test_session_cookie_stays_under_proxy_and_browser_limits():
+    """Il cookie DEVE restare ben sotto i 4 KB.
+
+    Regressione reale (2026-07-28): passando da itsdangerous a Fernet si
+    era persa la compressione zlib che itsdangerous faceva di suo. Il
+    cookie e' passato da ~1.2 KB a ~5 KB e ha rotto il login end-to-end
+    in due punti:
+      - nginx davanti all'app: 502 "upstream sent too big header"
+        (proxy_buffer_size di default 4 KB);
+      - il limite di ~4 KB per singolo cookie dei browser.
+    Il backend rispondeva 302 e creava la sessione: il fallimento era
+    invisibile nei suoi log.
+    """
+    secret = "unit-test-secret"
+    # Bundle keycloak realistico: due JWT con roles/groups.
+    def _jwt(pad: int) -> str:
+        head = base64.urlsafe_b64encode(
+            b'{"alg":"RS256","typ":"JWT"}'
+        ).rstrip(b"=").decode()
+        body = base64.urlsafe_b64encode(
+            json.dumps(
+                {
+                    "sub": "x" * 40,
+                    "roles": [f"role-{i}" for i in range(12)],
+                    "groups": [f"/group-{i}" for i in range(8)],
+                    "pad": "a" * pad,
+                }
+            ).encode()
+        ).rstrip(b"=").decode()
+        sig = base64.urlsafe_b64encode(b"s" * 256).rstrip(b"=").decode()
+        return f"{head}.{body}.{sig}"
+
+    bundle = {
+        "access_token": _jwt(700),
+        "refresh_token": _jwt(900),
+        "expires_in": 300,
+        "token_type": "Bearer",
+        "scope": "openid profile email",
+    }
+
+    cookie = sign_token(bundle, secret)
+
+    # Margine: il valore del cookie piu' attributi, Location, csrf e
+    # delete-cookie devono stare in un buffer da 4 KB.
+    assert len(cookie) < 2500, (
+        f"cookie di {len(cookie)} B: rischio 502 sul reverse proxy e "
+        "superamento del limite browser"
+    )
+    assert verify_token(cookie, secret) == bundle
 
 
 def test_session_cookie_rejects_garbage():
