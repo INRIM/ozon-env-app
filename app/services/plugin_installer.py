@@ -81,6 +81,11 @@ class PluginInstaller:
                     count,
                     len(newly_inserted),
                 )
+                await self._register_new_component_models(
+                    components,
+                    newly_inserted,
+                    service,
+                )
                 if auto_create_actions:
                     # Gate su "questo model ha gia' almeno un'action?", non
                     # su "upserted_id era settato ADESSO" (newly_inserted):
@@ -130,6 +135,34 @@ class PluginInstaller:
 
         await self._mark_installed(module_name, db)
         logger.info("plugin '%s' installed", module_name)
+
+    async def _register_new_component_models(
+        self,
+        components: list[dict],
+        newly_inserted: set[str],
+        service: Any,
+    ) -> None:
+        """Registra nello stesso bootstrap i model appena inseriti raw.
+
+        `env.init_env()` precede l'installazione dei plugin, quindi al primo
+        avvio non può conoscere i component che il plugin inserirà subito
+        dopo. Senza questa registrazione, il pass ACL finale trova in Mongo
+        `model_groups_rule`/`model_fields_rule`, ma `env.get()` restituisce
+        ancora ``None`` fino al riavvio successivo.
+        """
+        if not newly_inserted:
+            return
+
+        from app.core.OzonEnvApp import is_runtime_model_name
+
+        component_names = {
+            str(component.get("rec_name") or "").strip()
+            for component in components
+            if isinstance(component, dict)
+        }
+        for model_name in sorted(component_names & newly_inserted):
+            if is_runtime_model_name(model_name):
+                await service.env.orm.add_model(model_name)
 
     async def _create_menu_dashboard_for_components(
         self, module_name: str, components: list[dict], service: Any

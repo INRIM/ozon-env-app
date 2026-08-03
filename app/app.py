@@ -136,9 +136,22 @@ def custom_openapi() -> dict:
                 "title": "ClientSessionPayload",
                 "type": "object",
                 "properties": {
-                    "token": {
+                    "uid": {
                         "type": "string",
-                        "description": "Valid Keycloak Token",
+                        "description": "Authenticated user identifier.",
+                    },
+                    "username": {
+                        "type": "string",
+                        "description": (
+                            "Authenticated username; falls back to `uid`."
+                        ),
+                    },
+                    "authenticated": {
+                        "type": "boolean",
+                        "description": (
+                            "True when the response contains an authenticated "
+                            "user identity."
+                        ),
                     },
                     "app_code": {
                         "type": "string",
@@ -147,13 +160,6 @@ def custom_openapi() -> dict:
                             "Precedence: `?app_code=` query parameter, "
                             "`app_code` cookie, then APP_CODE/OZON_APP_CODE "
                             f"(default: `{configured_app_code}`)."
-                        ),
-                    },
-                    "sso_refresh": {
-                        "type": "string",
-                        "description": (
-                            "Current Keycloak refresh token cached in session "
-                            "(available in Keycloak mode)."
                         ),
                     },
                     "sso_expire": {
@@ -165,7 +171,12 @@ def custom_openapi() -> dict:
                         ),
                     },
                 },
-                "required": ["token", "app_code"],
+                "required": [
+                    "uid",
+                    "username",
+                    "authenticated",
+                    "app_code",
+                ],
                 "additionalProperties": True,
             }
         )

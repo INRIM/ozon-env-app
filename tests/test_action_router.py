@@ -190,6 +190,28 @@ def test_action_post_endpoint():
     app.dependency_overrides.clear()
 
 
+def test_action_post_removes_legacy_payload_credentials():
+    client = _client()
+    res = client.post(
+        "/action/save_action/REC100",
+        headers={"Authorization": "Bearer transport-token"},
+        json={
+            "status": "updated",
+            "authtoken": "legacy-secret",
+            "authToken": "legacy-secret-2",
+            "auth_token": "legacy-secret-3",
+        },
+    )
+
+    assert res.status_code == 200
+    data = res.json()["content"]["data"]
+    assert data["status"] == "updated"
+    assert "authtoken" not in data
+    assert "authToken" not in data
+    assert "auth_token" not in data
+    app.dependency_overrides.clear()
+
+
 def test_action_delete_endpoint():
     client = _client()
     res = client.request(

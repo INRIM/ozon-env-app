@@ -2,6 +2,7 @@ from typing import Any
 
 from ozonenv.core.OzonModel import OzonModelBase
 from pydantic import BaseModel
+from pydantic import ConfigDict
 from pydantic import Field
 
 from app.services.utils import check_parse_json
@@ -91,6 +92,11 @@ class RemoteSelectRequest(BaseModel):
         return bool(cleaned)
 
 class ResponseObjectData(BaseModel):
+    model_config = ConfigDict(
+        serialize_by_alias=True,
+        validate_by_name=True,
+    )
+
     # mode: form | list | list_stream | redirect | status
     #   - redirect: il client naviga verso `next_action_url` (route-token, es.
     #     "#" = reload pagina corrente, "list_x" = vista named). Usato dalle
@@ -105,7 +111,7 @@ class ResponseObjectData(BaseModel):
     query: dict = Field(default_factory=dict)
     obfucated_fields: list[str] = Field(default_factory=list)
     editable_fields: list[str] = Field(default_factory=list)
-    schema: Any = []
+    response_schema: Any = Field(default_factory=list, alias="schema")
     properties: dict = Field(default_factory=dict)
     sort: str = ""
     rec_name: str = ""

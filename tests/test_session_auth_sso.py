@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
+from ozonenv.core.auth import TokenVerificationError
 from starlette.requests import Request
 
 from app.core.session import AppSession
@@ -187,6 +188,56 @@ def test_session_to_app_session_returns_app_session():
     assert session.app_code == "mci"
     assert session.sso_token == ""
     assert session.sso_refresh == ""
+
+
+@pytest.mark.parametrize(
+    "header_name",
+    sorted(
+        session_auth.OAUTH2_PROXY_IDENTITY_HEADER_FAMILY
+        - {"x-remote-user"}
+    ),
+)
+def test_only_configured_identity_header_is_trusted(header_name):
+    request = _build_request(
+        "/get_session",
+        headers=[(header_name.encode("ascii"), b"spoofed.user")],
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        session_auth._extract_remote_user(request, _settings())
+
+    assert exc_info.value.status_code == 401
+
+
+def test_configured_identity_header_is_trusted():
+    request = _build_request(
+        "/get_session",
+        headers=[(b"x-remote-user", b"trusted.user")],
+    )
+
+    assert session_auth._extract_remote_user(request, _settings()) == "trusted.user"
+
+
+def test_build_keycloak_session_from_tokens_maps_invalid_token_to_401():
+    class RejectingEnv:
+        def __init__(self):
+            self.params = {}
+
+        async def session_app(self):
+            raise TokenVerificationError("Audience doesn't match")
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(
+            session_auth.build_keycloak_session_from_tokens(
+                ozon_env=RejectingEnv(),
+                settings=_settings(),
+                app_code="nob-test",
+                token={"access_token": "invalid"},
+            )
+        )
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "Audience doesn't match"
 
 
 def test_build_keycloak_session_reads_sso_tokens_from_headers():

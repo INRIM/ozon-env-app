@@ -37,6 +37,24 @@ def _is_enabled_flag(value: Any) -> bool:
     return bool(value)
 
 
+def action_groups(action: Any) -> set[str]:
+    """Gruppi dichiarati sull'action, normalizzati lowercase.
+
+    Accetta sia lista/set/tupla sia stringa comma-separated (il builder
+    persiste `groups` come lista, ma config legacy usa la stringa).
+    Set vuoto = action senza scope esplicito.
+    """
+
+    raw = getattr(action, "groups", None) or []
+    if isinstance(raw, str):
+        values = raw.split(",")
+    elif isinstance(raw, (list, set, tuple)):
+        values = list(raw)
+    else:
+        return set()
+    return {str(item).strip().lower() for item in values if str(item).strip()}
+
+
 def _merge_query(
         base_query: dict[str, Any], extra_query: dict[str, Any]
 ) -> dict[str, Any]:
@@ -82,6 +100,27 @@ class ActionRuntime:
     def __init__(self, service):
         self.service = service
 
+    def _set_action_scope(self, action: CoreModel) -> None:
+        """Fissa i gruppi dell'action in esecuzione come scope ACL per la
+        richiesta corrente.
+
+        Da chiamare SOLO dopo che `_is_action_allowed` e' passato: a quel
+        punto l'appartenenza dell'utente ai gruppi dell'action e' gia'
+        verificata, quindi le record rule vanno filtrate sul gruppo
+        dell'action — non su tutti i gruppi dell'utente. Un utente
+        `[operator, manager]` che apre una action `manager` non deve
+        trascinarsi dentro le regole `operator`.
+
+        Action senza `groups` -> scope vuoto -> `_get_record_rulse` resta
+        sui gruppi di sessione (comportamento storico invariato).
+        """
+        self.service.action_groups = action_groups(action)
+        logger.info(
+            "acl.action_scope action=%s groups=%s",
+            getattr(action, "rec_name", ""),
+            sorted(self.service.action_groups),
+        )
+
     async def _is_action_allowed(self, action: CoreModel) -> bool:
         session = getattr(self.service, "session", None)
         if not session:
@@ -91,20 +130,18 @@ class ActionRuntime:
             return True
 
         user = getattr(session, "user", None) or {}
-        user_groups = set(user.get("groups", []) if isinstance(user, dict) else [])
+        user_groups = {
+            str(g or "").strip().lower()
+            for g in (user.get("groups", []) if isinstance(user, dict) else [])
+            if str(g or "").strip()
+        }
 
         # Check action-specific groups if defined
-        action_groups_raw = getattr(action, "groups", None) or []
-        if isinstance(action_groups_raw, str):
-            action_groups = {g.strip() for g in action_groups_raw.split(",") if g.strip()}
-        elif isinstance(action_groups_raw, (list, set, tuple)):
-            action_groups = {str(g).strip() for g in action_groups_raw if str(g).strip()}
-        else:
-            action_groups = set()
+        groups = action_groups(action)
 
-        if action_groups:
+        if groups:
             # If groups are explicitly set, the user must belong to at least one of them
-            return bool(user_groups & action_groups)
+            return bool(user_groups & groups)
 
         # Nessun override esplicito: per le action sys/admin, la visibilita'
         # e' decisa dal gate CRUD model-level (model_groups_rule) sul model
@@ -333,6 +370,7 @@ class ActionRuntime:
                 status_code=403,
                 detail=f"Action '{action_name}' is restricted",
             )
+        self._set_action_scope(action)
 
         action_mode = action.mode
         action_model = action.model
@@ -454,7 +492,7 @@ class ActionRuntime:
             schema_record.components if schema_record else None
         )
         if isinstance(schema_components, list):
-            res.schema = schema_components
+            res.response_schema = schema_components
         schema_properties = getattr(schema_record, "properties", None) or {}
         if isinstance(schema_properties, str):
             try:
@@ -525,6 +563,7 @@ class ActionRuntime:
                 status_code=403,
                 detail=f"Action '{action_name}' is restricted",
             )
+        self._set_action_scope(action)
 
         target_model = action.model
         if not target_model:
@@ -635,6 +674,7 @@ class ActionRuntime:
                 status_code=403,
                 detail=f"Action '{action_name}' is restricted",
             )
+        self._set_action_scope(action)
 
         target_model = action.model
         if not target_model:

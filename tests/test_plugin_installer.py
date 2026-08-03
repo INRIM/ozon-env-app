@@ -110,6 +110,7 @@ class _SpyService:
     def __init__(self, action_coll=None):
         self.calls = []
         self._action_coll = action_coll
+        self.env = _FakeEnv()
 
     async def _create_menu_dashboard_for_component(self, schema):
         rec_name = schema.get("rec_name")
@@ -118,6 +119,19 @@ class _SpyService:
             await self._action_coll.insert_one(
                 {"model": rec_name, "rec_name": f"action_{rec_name}", "deleted": 0}
             )
+
+
+class _FakeOrm:
+    def __init__(self):
+        self.add_model_calls = []
+
+    async def add_model(self, model_name):
+        self.add_model_calls.append(model_name)
+
+
+class _FakeEnv:
+    def __init__(self):
+        self.orm = _FakeOrm()
 
 
 def test_create_menu_dashboard_for_components_invokes_hook_per_component():
@@ -186,6 +200,21 @@ def test_install_plugin_creates_menu_dashboard_by_default(tmp_path):
     asyncio.run(installer._install_plugin(plugin_dir, db, service))
 
     assert service.calls == ["demo_model"]
+    assert service.env.orm.add_model_calls == ["demo_model"]
+
+
+def test_install_plugin_does_not_register_existing_component_again(tmp_path):
+    plugin_dir = _write_plugin(tmp_path)
+    db, action_coll = _fake_db()
+    installer = PluginInstaller(cfg={})
+
+    first_service = _SpyService(action_coll)
+    asyncio.run(installer._install_plugin(plugin_dir, db, first_service))
+    assert first_service.env.orm.add_model_calls == ["demo_model"]
+
+    second_service = _SpyService(action_coll)
+    asyncio.run(installer._install_plugin(plugin_dir, db, second_service))
+    assert second_service.env.orm.add_model_calls == []
 
 
 def test_install_plugin_skips_menu_dashboard_when_auto_create_actions_false(

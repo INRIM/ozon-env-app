@@ -51,10 +51,30 @@ def _session_response_data(session: Any) -> dict[str, Any]:
     session_data = session.get_dict()
     user = session_data.get("user")
     user_data = session_data.get("user_data", {})
-    session_data["user"] = {
+    normalized_user = {
         **(user if isinstance(user, dict) else {}),
         "user_data": user_data if isinstance(user_data, dict) else {},
     }
+    uid = str(
+        session_data.get("uid")
+        or session_data.get("user_uid")
+        or normalized_user.get("uid")
+        or ""
+    ).strip()
+    username = str(
+        session_data.get("username")
+        or normalized_user.get("username")
+        or normalized_user.get("preferred_username")
+        or uid
+    ).strip()
+    if uid:
+        normalized_user["uid"] = uid
+    if username:
+        normalized_user["username"] = username
+    session_data["user"] = normalized_user
+    session_data["uid"] = uid
+    session_data["username"] = username
+    session_data["authenticated"] = bool(uid)
     for sensitive_key in ("token", "sso_token", "sso_refresh", "claims"):
         session_data.pop(sensitive_key, None)
     return session_data

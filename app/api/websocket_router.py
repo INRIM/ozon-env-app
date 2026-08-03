@@ -14,6 +14,7 @@ from fastapi import WebSocketDisconnect
 from app.app_settings import get_env_settings
 from app.deps.app_env import WsAuthError
 from app.deps.app_env import build_authed_env_from_token
+from app.services.action_payload import sanitize_action_payload
 from app.services.cookie_auth import verify_token
 from app.services.service import Service
 
@@ -257,7 +258,7 @@ async def ws_actions(
             request_id = str(message.get("request_id", "") or "")
             action_name = str(message.get("action_name", "") or "").strip()
             rec_name = str(message.get("rec_name", "") or "").strip()
-            data = message.get("data") or {}
+            data = sanitize_action_payload(message.get("data"))
             if not action_name:
                 await websocket.send_json(
                     {

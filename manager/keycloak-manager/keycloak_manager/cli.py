@@ -50,6 +50,20 @@ def _ask_yes(prompt: str, default: bool = True) -> bool:
     return answer in {"s", "si", "y", "yes"}
 
 
+def audience_client_ids(
+    app_client_id: str,
+    m2m_client_id: str,
+    extra_client_ids: str = "",
+) -> list[str]:
+    """Consumer che devono ricevere l'audience, senza duplicati."""
+    candidates = [
+        m2m_client_id,
+        app_client_id,
+        *(item.strip() for item in extra_client_ids.split(",")),
+    ]
+    return list(dict.fromkeys(item for item in candidates if item))
+
+
 # --- steps (I/O) --------------------------------------------------------
 
 
@@ -85,7 +99,7 @@ async def step_m2m_client(admin: KeycloakAdmin, session: Session) -> None:
     extra = _ask(
         "altri client a cui assegnare l'audience (CSV, opzionale)", ""
     )
-    assign_to = [m2m_id] + [c.strip() for c in extra.split(",") if c.strip()]
+    assign_to = audience_client_ids(app_client_id, m2m_id, extra)
 
     m2m = await pipeline.ensure_m2m_client(admin, m2m_id)
     aud = await pipeline.bind_client_audience(
@@ -127,7 +141,7 @@ def step_generate_env(session: Session) -> None:
         shown = v if "SECRET" not in k else "***"
         print(f"    {k}={shown}")
     print(
-        "\n  ⚠️ TOKEN_AUDIENCE -> OZON_TOKEN_AUDIENCE lato app: abilita la "
+        "\n  ⚠️ OZON_TOKEN_AUDIENCE lato app abilita la "
         "verifica aud SOLO dopo che tutti i client emettono l'aud."
     )
 

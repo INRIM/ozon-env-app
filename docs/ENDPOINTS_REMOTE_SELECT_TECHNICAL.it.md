@@ -44,8 +44,9 @@
 - Response: oggetto sessione serializzato (non envelope `ResponseObject`), ad esempio:
 ```json
 {
-  "token": "....",
-  "user_uid": "...",
+  "uid": "...",
+  "username": "...",
+  "authenticated": true,
   "app_code": "..."
 }
 ```

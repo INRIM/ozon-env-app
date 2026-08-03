@@ -17097,7 +17097,7 @@
       "mode": "Form",
       "list_query": "{}",
       "listOrderString": "",
-      "context_button_mode": "",
+      "context_button_mode": "Form",
       "button_icon": "fa-plus",
       "callType": null,
       "url": "",
@@ -17165,7 +17165,9 @@
     "list_query": "{}",
     "force_domain_query": false,
     "listOrderString": "",
-    "context_button_mode": [],
+    "context_button_mode": [
+      "form"
+    ],
     "button_icon": "fa-plus",
     "builder_enabled": false,
     "next_action_name": "list_fast_actions_config",

@@ -1,4 +1,13 @@
+from keycloak_manager.cli import audience_client_ids
 from keycloak_manager.cli import raw_m2m_admin_kwargs
+
+
+def test_audience_client_ids_includes_app_and_m2m_without_duplicates():
+    assert audience_client_ids(
+        "nob-app",
+        "scheduler",
+        "reporting, nob-app, reporting",
+    ) == ["scheduler", "nob-app", "reporting"]
 
 
 def test_raw_m2m_admin_kwargs_client_credentials():

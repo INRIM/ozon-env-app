@@ -16,6 +16,7 @@ from ozonenv.core.OzonModel import OzonModelBase
 
 from .action_runtime import ActionRuntime
 from .action_runtime import _is_enabled_flag
+from .action_runtime import action_groups
 from .common import *
 from .formio import get_formio_select_options
 from app.app_settings import get_env_settings
@@ -258,7 +259,13 @@ class Service:
         self.service_registry = ServiceRegistryCore(env)
         self.webhooks = WebhookDispatcher.from_settings(get_env_settings())
         self._compiled_field_acl: CompiledFieldAcl | None = None
-        self._record_rulse_cache: dict[str, list[dict[str, Any]]] = {}
+        # Gruppi dell'action in esecuzione (ActionRuntime._set_action_scope):
+        # quando valorizzati sostituiscono i gruppi di sessione come scope
+        # delle record rule. Vuoto = nessuna action scoped -> gruppi utente.
+        self.action_groups: set[str] = set()
+        self._record_rulse_cache: dict[
+            tuple[str, frozenset[str]], list[dict[str, Any]]
+        ] = {}
         self._model_groups_rule_cache: dict[str, list[dict[str, Any]]] = {}
         self._sys_model_cache: dict[str, bool] = {}
         self.date_engine = DateEngineApp()
@@ -1541,6 +1548,16 @@ class Service:
                 status_code=404,
                 detail=f"Action '{action_name}' not found",
             )
+        # Stesso gate + stesso scope di handle_get: la fast search serve la
+        # griglia di un'action di list, quindi deve vedere esattamente le
+        # righe che l'action vede — altrimenti la lista mostra record che
+        # poi in apertura danno 404.
+        if not await self.action_runtime._is_action_allowed(action):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Action '{action_name}' is restricted",
+            )
+        self.action_runtime._set_action_scope(action)
         action_model = action.model
         action_mode = action.mode
         if action_mode != "list":
@@ -2094,7 +2111,10 @@ class Service:
         return FieldAclOperation.INSERT.value, None
 
     async def _get_record_rulse(
-        self, model_key: str
+        self,
+        model_key: str,
+        *,
+        scope_groups: set[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Righe `model_fields_rule` (rule_type="record") per `model_key`,
         scoped per app_code corrente (cache per-request): Layer 2, accesso
@@ -2111,14 +2131,32 @@ class Service:
         `component.properties` — quest'ultima puo' non persistere la
         config (es. `user` e' un identity model escluso dai default, ma un
         admin puo' comunque aver configurato la regola via builder in
-        passato: il sync l'ha scritta in `model_fields_rule` a prescindere)."""
-        if model_key in self._record_rulse_cache:
+        passato: il sync l'ha scritta in `model_fields_rule` a prescindere).
+
+        Scope dei gruppi: se c'e' un'action in esecuzione con `groups`
+        espliciti (`self.action_groups`, vedi
+        `ActionRuntime._set_action_scope`), il filtro usa QUELLI e non i
+        gruppi dell'utente — l'action ha gia' verificato l'appartenenza,
+        quindi il contesto e' l'action, non la somma dei ruoli di chi
+        clicca. Un utente `[operator, manager]` che apre una action
+        `manager` non deve trascinarsi dentro le regole `operator`.
+        Senza action scoped si ricade sui gruppi di sessione.
+
+        `scope_groups` esplicito serve a valutare le regole nello scope di
+        un'action che NON e' quella in esecuzione — la dashboard conta le
+        righe di piu' action in una sola richiesta, ognuna col proprio
+        scope (vedi `_make_menu_item`)."""
+        if scope_groups is None:
+            scope_groups = self._record_rule_scope_groups()
+        cache_key = (model_key, frozenset(scope_groups))
+        if cache_key in self._record_rulse_cache:
             logger.info(
-                "acl.record_rulse model=%s cache_hit count=%s",
+                "acl.record_rulse model=%s scope=%s cache_hit count=%s",
                 model_key,
-                len(self._record_rulse_cache[model_key]),
+                sorted(scope_groups),
+                len(self._record_rulse_cache[cache_key]),
             )
-            return self._record_rulse_cache[model_key]
+            return self._record_rulse_cache[cache_key]
         record_rulse: list[dict[str, Any]] = []
         app_code = str(getattr(self.session, "app_code", "") or "")
         try:
@@ -2134,21 +2172,15 @@ class Service:
                     ]
                 }
                 rows = await rule_model.find(domain=domain, limit=0)
-                session_user = getattr(self.session, "user", None)
-                actor_groups = (
-                    session_user.get("groups") if isinstance(session_user, dict) else []
-                )
-                session_groups = {
-                    str(g or "").strip().lower() for g in (actor_groups or [])
-                }
                 for row in rows or []:
                     data = _record_to_dict(row)
                     row_group = str(data.get("group") or "").strip().lower()
                     # group="" = regola universale (storica); group valorizzato
-                    # = entry scoped, applicabile solo se la sessione e'
-                    # membro di quel gruppo (vedi model_rules_sync.record_rulse
-                    # groups per-entry).
-                    if row_group and row_group not in session_groups:
+                    # = entry scoped, applicabile solo se rientra nello scope
+                    # corrente — gruppi dell'action se l'action li dichiara,
+                    # altrimenti gruppi di sessione (vedi
+                    # model_rules_sync.record_rulse groups per-entry).
+                    if row_group and row_group not in scope_groups:
                         continue
                     record_rulse.append(
                         {
@@ -2166,14 +2198,31 @@ class Service:
             )
             record_rulse = []
         logger.info(
-            "acl.record_rulse model=%s app_code=%s rows_found=%s rules=%s",
+            "acl.record_rulse model=%s app_code=%s scope=%s rows_found=%s rules=%s",
             model_key,
             app_code,
+            sorted(scope_groups),
             len(record_rulse),
             record_rulse,
         )
-        self._record_rulse_cache[model_key] = record_rulse
+        self._record_rulse_cache[cache_key] = record_rulse
         return record_rulse
+
+    def _record_rule_scope_groups(self) -> set[str]:
+        """Gruppi che definiscono lo scope delle record rule per questa
+        richiesta: quelli dell'action in esecuzione se dichiarati, altrimenti
+        quelli dell'utente in sessione."""
+        if self.action_groups:
+            return set(self.action_groups)
+        session_user = getattr(self.session, "user", None)
+        actor_groups = (
+            session_user.get("groups") if isinstance(session_user, dict) else []
+        )
+        return {
+            str(g or "").strip().lower()
+            for g in (actor_groups or [])
+            if str(g or "").strip()
+        }
 
     def _get_field_rule_conditions(
         self, model_key: str
@@ -2696,6 +2745,41 @@ class Service:
             domain = model.get_domain(query)
         return await model.count(domain=domain)
 
+    async def _narrow_read_domain(
+        self,
+        model_name: str,
+        domain: dict[str, Any],
+        *,
+        scope_groups: set[str] | None = None,
+    ) -> dict[str, Any]:
+        """Applica a un domain di sola lettura gli stessi due gate ACL di
+        `list_records`: Layer 1 `model_group_access.read` e Layer 2
+        `record_rule_read_domain`. Necessario dove si conta/legge fuori da
+        `list_records` (dashboard) — altrimenti il contatore di una card
+        mostra righe che la lista poi nasconde.
+
+        `scope_groups`: scope dei gruppi per le record rule; None = scope
+        corrente (action in esecuzione o gruppi di sessione)."""
+        model_access = await self._get_model_group_access(model_name)
+        if not model_access["read"]:
+            return _merge_query(domain, {"rec_name": {"$in": []}})
+        record_rulse = await self._get_record_rulse(
+            model_name, scope_groups=scope_groups
+        )
+        if not record_rulse:
+            return domain
+        if getattr(self.session, "is_admin", False):
+            return domain
+        if await self._is_sys_model(model_name):
+            return domain
+        return _merge_query(
+            domain,
+            record_rule_read_domain(
+                record_rulse,
+                resolve_var=self._resolve_query_json_logic_vars,
+            ),
+        )
+
     async def _make_menu_item(
         self, card: dict[str, Any], rec_b: CoreModel
     ) -> dict[str, Any] | bool:
@@ -2716,6 +2800,15 @@ class Service:
                 self._parse_query_dict(rec_b.list_query)
             )
             q = await self._default_query(cc_model, list_query)
+            # Il contatore della card deve coincidere con quello che la
+            # lista mostra: stesso ACL, e nello scope dei gruppi di QUESTA
+            # action (ogni card della dashboard e' un'action diversa, non
+            # si puo' usare self.action_groups).
+            q = await self._narrow_read_domain(
+                action_model_name,
+                q,
+                scope_groups=action_groups(rec_b) or None,
+            )
             number = await self._count_base(cc_model, q)
 
         return {

@@ -44,7 +44,7 @@ _DEFAULT_MODELS_RESTRICTED_FIELDS: dict[str, Any] = {
                 "delete": True,
             },
         }
-    ],
+    ]
 }
 
 _DEFAULT_MODELS_GROUPS_NON_SYS: dict[str, Any] = {

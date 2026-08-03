@@ -5,8 +5,10 @@ from fastapi.testclient import TestClient
 from app.app import app
 from app.api.websocket_router import WsActionResult
 from app.api.websocket_router import get_ws_action_runner
+from app.api import websocket_router
 from app.deps.app_env import WsAuthError
 from app.services.common import ResponseObjectData
+from app.services.cookie_auth import sign_token
 
 
 class FakeRunner:
@@ -14,8 +16,10 @@ class FakeRunner:
 
     def __init__(self) -> None:
         self.calls: list[dict] = []
+        self.auth_calls: list[dict] = []
 
     async def authenticate(self, token, app_code) -> str:
+        self.auth_calls.append({"token": token, "app_code": app_code})
         if token == "bad" or not token:
             raise WsAuthError("Invalid session")
         return "u.test"
@@ -85,6 +89,66 @@ def test_ws_action_completed():
 
     assert runner.calls[0]["action_name"] == "submit_calendar"
     assert runner.calls[0]["app_code"] == "app1"
+
+
+def test_ws_action_authenticates_with_session_cookie():
+    runner = FakeRunner()
+    client = _client(runner)
+    cookie_token = "cookie-session-token"
+    client.cookies.set(
+        websocket_router.settings.auth_cookie_name,
+        sign_token(cookie_token, websocket_router.settings.session_secret),
+    )
+    origin = websocket_router.settings.external_base_url.rstrip("/")
+    try:
+        with client.websocket_connect(
+            "/ws/actions",
+            headers={"origin": origin},
+        ) as ws:
+            ws.send_json(
+                {
+                    "request_id": "cookie-1",
+                    "action_name": "submit_calendar",
+                    "data": {"form": {"a": 1}},
+                }
+            )
+            assert ws.receive_json()["status"] == "running"
+            assert ws.receive_json()["status"] == "completed"
+    finally:
+        app.dependency_overrides.clear()
+
+    assert runner.auth_calls == [
+        {
+            "token": cookie_token,
+            "app_code": websocket_router.settings.app_code,
+        }
+    ]
+
+
+def test_ws_action_removes_legacy_payload_credentials():
+    runner = FakeRunner()
+    client = _client(runner)
+    try:
+        with client.websocket_connect("/ws/actions") as ws:
+            ws.send_json({"type": "auth", "token": "ok"})
+            ws.send_json(
+                {
+                    "request_id": "legacy-auth",
+                    "action_name": "submit_calendar",
+                    "data": {
+                        "value": 1,
+                        "authtoken": "legacy-secret",
+                        "authToken": "legacy-secret-2",
+                        "auth_token": "legacy-secret-3",
+                    },
+                }
+            )
+            assert ws.receive_json()["status"] == "running"
+            assert ws.receive_json()["status"] == "completed"
+    finally:
+        app.dependency_overrides.clear()
+
+    assert runner.calls[0]["data"] == {"value": 1}
 
 
 def test_ws_action_error_payload():

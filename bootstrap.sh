@@ -81,106 +81,6 @@ start_services() {
     done
 }
 
-scaffold_worker_compose() {
-    local worker_dir="$1"
-    local worker_name
-    local compose_file
-    local modules=()
-    local py_file
-    local module_name
-    local service_name
-
-    worker_name="$(basename "$worker_dir")"
-    compose_file="${worker_dir}/docker-compose.yml"
-    [[ ! -f "$compose_file" ]] || return 0
-
-    while IFS= read -r py_file; do
-        modules+=("$(basename "$py_file" .py)")
-    done < <(find "$worker_dir" -mindepth 1 -maxdepth 1 -type f -name '*.py' ! -name '__init__.py' | sort)
-
-    if [[ ${#modules[@]} -eq 0 ]]; then
-        echo "WARN: worker ${worker_name} senza moduli Python avviabili, scaffold saltato." >&2
-        return 1
-    fi
-
-    echo "→ creo scaffold docker-compose.yml per worker ${worker_name}..."
-    cat > "$compose_file" <<EOF
-name: ozon-env-app-${worker_name}
-
-x-worker-base: &worker-base
-  image: ozonapp-worker:latest
-  build:
-    context: ..
-    dockerfile: ozon_camunda_worker/Dockerfile
-  env_file:
-    - path: ../../.env
-    - path: service.env
-      required: false
-  environment:
-    PYTHONPATH: /app/workers
-    OZON_LOCALEDIR: /tmp/ozon-locale
-    OZON_APPLANG: it
-  volumes:
-    - ../../workers:/app/workers
-    - ../../models:/models
-  extra_hosts:
-    - "host.docker.internal:host-gateway"
-  networks:
-    - ozn-network
-  restart: unless-stopped
-  mem_limit: 384m
-
-services:
-EOF
-
-    for module_name in "${modules[@]}"; do
-        service_name="${module_name//_/-}"
-        cat >> "$compose_file" <<EOF
-  ${service_name}:
-    <<: *worker-base
-    command:
-      [
-        "sh",
-        "-c",
-        "mkdir -p /tmp/ozon-locale && /app/.venv/bin/python /app/workers/ozon_camunda_worker/wait_for_camunda.py && exec /app/.venv/bin/python -m ${worker_name}.${module_name}",
-      ]
-
-EOF
-    done
-
-    cat >> "$compose_file" <<EOF
-networks:
-  ozn-network:
-    external: true
-    name: ozn-network
-EOF
-}
-
-start_workers() {
-    local workers_dir="${SCRIPT_DIR}/workers"
-    local worker_dirs=()
-    local worker_dir
-
-    [[ -d "$workers_dir" ]] || return 0
-
-    while IFS= read -r worker_dir; do
-        worker_dirs+=("$worker_dir")
-    done < <(find "$workers_dir" -mindepth 1 -maxdepth 1 -type d ! -name '.*' ! -name 'ozon_camunda_worker' | sort)
-
-    select_items "worker" "${worker_dirs[@]}"
-    for worker_dir in "${SELECTED_ITEMS[@]}"; do
-        if [[ -x "${worker_dir}/run.sh" ]]; then
-            echo "→ avvio worker $(basename "$worker_dir")..."
-            (cd "$worker_dir" && ./run.sh)
-            continue
-        fi
-
-        scaffold_worker_compose "$worker_dir" || continue
-        echo "→ avvio worker $(basename "$worker_dir") via docker compose..."
-        (cd "$worker_dir" && docker compose up -d --build)
-    done
-}
-
 ADMIN_UID="${1:-}"
 if [[ -z "$ADMIN_UID" ]]; then
     read -rp "Admin UID: " ADMIN_UID
@@ -209,4 +109,4 @@ docker compose run --rm \
     uv run python bootstrap.py --admin "$ADMIN_UID" "${@:2}"
 
 start_services
-start_workers
+"${SCRIPT_DIR}/workers/start-workers.sh"

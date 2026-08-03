@@ -1099,7 +1099,7 @@ def test_list_action_uses_model_data_and_view_name_schema():
     # action.listOrderString == "" -> nessun order
     assert called["order"] == ""
     assert res.model == "documento"
-    assert res.schema == [{"key": "beni_servizi_schema"}]
+    assert res.response_schema == [{"key": "beni_servizi_schema"}]
     assert res.data == [{"rec_name": "DOC-1"}]
     assert "next_action_name" not in (res.fields if isinstance(res.fields, dict) else {})
 
@@ -1315,7 +1315,7 @@ def test_form_action_uses_model_data_and_view_name_schema():
     assert called["model_name"] == "documento"
     assert called["rec_name"] == "DOC-1"
     assert res.model == "documento"
-    assert res.schema == [{"key": "beni_servizi_schema"}]
+    assert res.response_schema == [{"key": "beni_servizi_schema"}]
     assert res.data == {"rec_name": "DOC-1", "state": "draft"}
 
 
@@ -1606,7 +1606,7 @@ def test_form_form_doc_bene_servizi_uses_view_name_schema():
     assert called["model_name"] == "documento"
     assert called["rec_name"] == "ORDINE63423"
     assert res.model == "documento"
-    assert res.schema == [{"key": "beni_servizi_schema"}]
+    assert res.response_schema == [{"key": "beni_servizi_schema"}]
     assert res.data == {"rec_name": "ORDINE63423", "stato": "bozza"}
 
 

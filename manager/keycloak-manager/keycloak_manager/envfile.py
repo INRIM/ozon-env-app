@@ -21,7 +21,7 @@ def build_env_vars(
 ) -> dict[str, str]:
     """Env var del consumer. `prefix` configurabile (vuoto -> OAUTH_*; es
     `SCHEDULER` -> SCHEDULER_OAUTH_*). `app_audience` = clientId dell'app
-    (client-audience): stesso valore in OAUTH_AUDIENCE e TOKEN_AUDIENCE
+    (client-audience): stesso valore in OAUTH_AUDIENCE e OZON_TOKEN_AUDIENCE
     (invariante audience)."""
     p = f"{prefix.rstrip('_')}_" if prefix else ""
     return {
@@ -29,9 +29,9 @@ def build_env_vars(
         f"{p}OAUTH_CLIENT_ID": m2m_client_id,
         f"{p}OAUTH_CLIENT_SECRET": m2m_secret,
         f"{p}OAUTH_AUDIENCE": app_audience,
-        # Enforcement lato app: mappare su OZON_TOKEN_AUDIENCE. Abilitare SOLO
+        # Enforcement lato app. Abilitare SOLO
         # dopo che TUTTI i client emettono l'aud (altrimenti 401 a tappeto).
-        "TOKEN_AUDIENCE": app_audience,
+        "OZON_TOKEN_AUDIENCE": app_audience,
     }
 
 

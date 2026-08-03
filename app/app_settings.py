@@ -196,6 +196,13 @@ class EnvSettings(OzonEnvCoreSettings):
         default="",
         validation_alias=AliasChoices("APP_CODE", "OZON_APP_CODE"),
     )
+    token_audience: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "OZON_TOKEN_AUDIENCE",
+            "TOKEN_AUDIENCE",
+        ),
+    )
     # Local auth uses "token" as default; ozon-env core defaults to "session"
     auth_mode: str = Field(default="token", validation_alias="AUTH_MODE")
 

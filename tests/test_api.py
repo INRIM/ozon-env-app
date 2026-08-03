@@ -300,8 +300,12 @@ def test_get_session():
     assert "sso_refresh" not in body
     assert "claims" not in body
     assert body["user_uid"] == "U-1"
+    assert body["uid"] == "U-1"
+    assert body["username"] == "U-1"
+    assert body["authenticated"] is True
     assert body["app_code"] == "test-app"
     assert body["user"]["uid"] == "U-1"
+    assert body["user"]["username"] == "U-1"
     assert body["user"]["user_data"] == {"language": "it"}
 
 
@@ -325,6 +329,9 @@ def test_get_session_with_fallback_serializer():
     assert response.status_code == 200
     body = response.json()
     assert "token" not in body
+    assert body["uid"] == "U-fallback"
+    assert body["username"] == "U-fallback"
+    assert body["authenticated"] is True
     assert body["user_uid"] == "U-fallback"
     assert body["app_code"] == "test-app"
     app.dependency_overrides.clear()
@@ -1118,6 +1125,11 @@ def test_openapi_documents_security_scheme_and_request_app_code():
         ]["schema"]
     )
     assert "app_code" in get_session_schema["properties"]
+    assert "uid" in get_session_schema["properties"]
+    assert "username" in get_session_schema["properties"]
+    assert "authenticated" in get_session_schema["properties"]
+    assert "token" not in get_session_schema["properties"]
+    assert "sso_refresh" not in get_session_schema["properties"]
     assert (
         "Resolved app code for the current request"
         in get_session_schema["properties"]["app_code"]["description"]

@@ -220,6 +220,21 @@ def test_cookie_secure_defaults_true():
     assert settings.cookie_secure is True
 
 
+def test_token_audience_uses_canonical_ozon_alias():
+    settings = EnvSettings(
+        OZON_TOKEN_AUDIENCE="nob-app",
+        TOKEN_AUDIENCE="legacy-value",
+    )
+
+    assert settings.token_audience == "nob-app"
+
+
+def test_token_audience_accepts_legacy_alias():
+    settings = EnvSettings(TOKEN_AUDIENCE="nob-app")
+
+    assert settings.token_audience == "nob-app"
+
+
 def test_session_secret_falls_back_to_stable_random_value_when_unset():
     """SESSION_SECRET non impostato non deve piu' produrre il vecchio
     default hardcoded, ma deve restare stabile tra istanze diverse dello

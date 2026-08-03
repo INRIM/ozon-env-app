@@ -12,7 +12,7 @@ Pipeline a menu (idempotente, verifica-poi-crea):
 2. **Client M2M → client APP**: crea il client M2M (client_credentials) + secret,
    crea un **client scope audience** con mapper **client-audience** verso il
    client app (`included.client.audience=<app-client-id>`) e lo assegna come
-   default al client M2M (e, opzionale, ad altri consumer).
+   default al client M2M, al client app e, opzionalmente, ad altri consumer.
 3. **Genera `kc-env.var`**: scrive le env var da incollare nell'`.env` del consumer.
 
 L'**audience** = clientId del client app (pattern resource-server): il token M2M
@@ -36,7 +36,7 @@ Prefisso configurabile (`KC_ENV_PREFIX`): vuoto → `OAUTH_*`; es `SCHEDULER` �
 ```
 {P}OAUTH_TOKEN_URL=...        {P}OAUTH_CLIENT_ID=...
 {P}OAUTH_CLIENT_SECRET=...    {P}OAUTH_AUDIENCE=<app-client-id>
-TOKEN_AUDIENCE=<app-client-id>   # -> OZON_TOKEN_AUDIENCE lato app
+OZON_TOKEN_AUDIENCE=<app-client-id>
 ```
 
 ### ⚠️ Invariante audience + enforcement

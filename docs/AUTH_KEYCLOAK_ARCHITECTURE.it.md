@@ -64,6 +64,49 @@ In altre parole:
 Questa separazione evita di accoppiare il frontend alla struttura interna
 della collection `session`.
 
+## Contratto frontend/backend
+
+### Sessione HTTP
+
+Una risposta `200` di `GET /get_session` espone sempre:
+
+- `uid`: identificatore utente autenticato;
+- `username`: username, con fallback a `uid`;
+- `authenticated`: `true` quando `uid` e' presente;
+- `app_code`.
+
+Token, refresh token e claim JWT raw non vengono esposti.
+
+### WebSocket action
+
+`/ws/actions` accetta il cookie di sessione configurato in
+`AUTH_COOKIE_NAME`. Per connessioni browser con cookie applica anche il
+controllo `Origin`. Il bearer nel primo messaggio `type=auth` resta riservato
+ai client non-browser; i token in query string non sono accettati.
+
+### Header identita trusted
+
+Il backend legge **un solo header**, quello configurato in
+`KEYCLOAK_REMOTE_USER_HEADER` (`x-remote-user` di default). Non considera
+automaticamente fidati gli altri header della famiglia oauth2-proxy:
+
+- `X-Forwarded-User`, `X-Forwarded-Email`, `X-Forwarded-Groups`,
+  `X-Forwarded-Preferred-Username`;
+- `X-Auth-Request-User`, `X-Auth-Request-Email`, `X-Auth-Request-Groups`,
+  `X-Auth-Request-Preferred-Username`;
+- `X-Remote-Email`, `X-Remote-Groups`.
+
+Il proxy pubblico deve comunque azzerare l'intera famiglia prima di
+iniettare il solo header configurato: il trust dipende anche dal boundary di
+rete, non da una firma dell'header.
+
+### Payload action
+
+`authtoken`, `authToken` e `auth_token` nel payload non sono credenziali e
+non vengono validati. Il backend li rimuove prima del runtime action.
+L'autenticazione deriva esclusivamente dal cookie o dal bearer di trasporto;
+il frontend deve quindi rimuovere questi campi, non inviarli vuoti.
+
 ## `user` vs `people`
 
 ### Opzione A. Leggere `people` a runtime

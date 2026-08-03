@@ -1629,3 +1629,188 @@ def test_groups_schema_and_seed_define_default_implications():
     assert by_name["manager"]["implied_groups"] == ["user", "operator"]
     assert by_name["manager"]["rule"] == "{}"
     assert by_name["technical_operator"]["label"] == "Technical Operator"
+
+
+def _action_stub(rec_name, groups):
+    """Record `action` minimale: ActionRuntime._set_action_scope legge solo
+    `groups` (+ `rec_name` per il log)."""
+    return SimpleNamespace(rec_name=rec_name, groups=groups)
+
+
+def _multi_group_rules():
+    """Due entry record scoped su gruppi diversi dello STESSO model."""
+    return [
+        {
+            "app_code": "demo",
+            "model": "modulo_dati_persona",
+            "rule_type": "record",
+            "group": "operator",
+            "filters": {"owner_uid": {"$eq": {"var": "user.uid"}}},
+            "read": True,
+            "create": True,
+            "update": True,
+            "delete": False,
+            "active": True,
+            "deleted": 0,
+        },
+        {
+            "app_code": "demo",
+            "model": "modulo_dati_persona",
+            "rule_type": "record",
+            "group": "manager",
+            "filters": {"rec_name": {"$eq": "d1"}},
+            "read": True,
+            "create": False,
+            "update": False,
+            "delete": False,
+            "active": True,
+            "deleted": 0,
+        },
+    ]
+
+
+def _multi_group_env(rows, uid="u1", groups=("operator", "manager")):
+    return _Env(
+        {
+            "modulo_dati_persona": _RecordModel("modulo_dati_persona", rows=rows),
+            "model_fields_rule": _ModelFieldsRuleModel(_multi_group_rules()),
+            "component": _SysFlagComponentModel({"modulo_dati_persona": False}),
+        },
+        session=_session(uid=uid, groups=list(groups)),
+    )
+
+
+def test_action_scope_replaces_session_groups_in_record_rulse():
+    """Quando un'action dichiara `groups`, lo scope delle record rule e'
+    quello dell'action, NON l'unione dei gruppi dell'utente: l'action ha
+    gia' verificato l'appartenenza (_is_action_allowed), quindi il contesto
+    e' l'action. Un utente [operator, manager] che apre una action
+    `manager` non si trascina dentro le regole `operator`."""
+    service = Service(_multi_group_env(rows=[]))
+
+    # Nessuna action scoped -> entrambe le entry (gruppi di sessione).
+    rules = asyncio.run(service._get_record_rulse("modulo_dati_persona"))
+    assert {rule["group"] for rule in rules} == {"operator", "manager"}
+
+    # Action manager -> solo la entry manager.
+    service.action_runtime._set_action_scope(
+        _action_stub("dati_persona_manager", ["manager"])
+    )
+    rules = asyncio.run(service._get_record_rulse("modulo_dati_persona"))
+    assert [rule["group"] for rule in rules] == ["manager"]
+
+    # Action operator -> solo la entry operator (la cache non deve
+    # restituire il risultato dello scope precedente).
+    service.action_runtime._set_action_scope(
+        _action_stub("dati_persona_operator", ["operator"])
+    )
+    rules = asyncio.run(service._get_record_rulse("modulo_dati_persona"))
+    assert [rule["group"] for rule in rules] == ["operator"]
+
+
+def test_action_scope_narrows_record_access_end_to_end():
+    """Effetto reale dello scope action su load_record: lo stesso utente
+    sullo stesso record passa da editable (regola operator, e' owner) a
+    negato quando agisce nel contesto di un'action `manager` (la cui unica
+    regola matcha un altro record)."""
+    rows = [{"rec_name": "d2", "owner_uid": "u1", "name": "Mine"}]
+
+    # Contesto utente (nessuna action scoped): la regola operator matcha
+    # sull'ownership -> leggibile ed editabile.
+    service = Service(_multi_group_env(rows=rows))
+    response = asyncio.run(
+        service.load_record("modulo_dati_persona", "d2")
+    )
+    assert response.content.readable is True
+    assert response.content.editable is True
+
+    # Contesto action manager: resta solo la regola manager (rec_name=d1),
+    # che non matcha d2 -> fail-closed.
+    service = Service(_multi_group_env(rows=rows))
+    service.action_runtime._set_action_scope(
+        _action_stub("dati_persona_manager", ["manager"])
+    )
+    try:
+        asyncio.run(service.load_record("modulo_dati_persona", "d2"))
+        assert False, "expected HTTPException 404"
+    except HTTPException as exc:
+        assert exc.status_code == 404
+
+
+def test_action_without_groups_keeps_session_scope():
+    """Action senza `groups` espliciti -> scope invariato (gruppi di
+    sessione): retrocompatibilita' con tutte le action non scoped."""
+    service = Service(_multi_group_env(rows=[]))
+    service.action_runtime._set_action_scope(_action_stub("generic", []))
+
+    rules = asyncio.run(service._get_record_rulse("modulo_dati_persona"))
+
+    assert {rule["group"] for rule in rules} == {"operator", "manager"}
+
+
+def _list_action_stub(rec_name, groups, model="modulo_dati_persona"):
+    """Record `action` mode=list come lo legge Service._make_menu_item."""
+    return SimpleNamespace(
+        rec_name=rec_name,
+        groups=groups,
+        model=model,
+        mode="list",
+        list_query="{}",
+        action_root_path="/action",
+        action_type="window",
+        button_icon="",
+        title=rec_name,
+    )
+
+
+def test_dashboard_card_count_follows_action_scoped_record_rulse():
+    """Il contatore della card dashboard (Service._make_menu_item) deve
+    applicare lo stesso ACL della lista, nello scope dei gruppi della SUA
+    action: un manager che non ha mai fatto richieste non deve vedere "2"
+    su una card la cui lista gli mostrerebbe 0 righe.
+
+    Prima del fix il count era un `_count_base` nudo sul `list_query`
+    dell'action: nessun record_rule_read_domain, nessuno scope."""
+    rows = [
+        {"rec_name": "d1", "owner_uid": "u9", "active": True, "deleted": 0},
+        {"rec_name": "d2", "owner_uid": "u9", "active": True, "deleted": 0},
+    ]
+
+    # Action scoped manager: solo la regola manager (rec_name=d1) -> 1.
+    service = Service(_multi_group_env(rows=rows))
+    item = asyncio.run(
+        service._make_menu_item(
+            {}, _list_action_stub("gestisci_richieste", ["manager"])
+        )
+    )
+    assert item["number"] == 1
+
+    # Action scoped operator: solo la regola operator (ownership) e l'utente
+    # non possiede nulla -> 0, non 2.
+    service = Service(_multi_group_env(rows=rows))
+    item = asyncio.run(
+        service._make_menu_item(
+            {}, _list_action_stub("test_request", ["operator"])
+        )
+    )
+    assert item["number"] == 0
+
+
+def test_dashboard_card_count_unscoped_action_uses_session_groups():
+    """Action senza `groups`: il count resta sullo scope di sessione (unione
+    delle regole dei gruppi utente), ma l'ACL viene comunque applicato — non
+    e' piu' un conteggio nudo."""
+    rows = [
+        {"rec_name": "d1", "owner_uid": "u9", "active": True, "deleted": 0},
+        {"rec_name": "d2", "owner_uid": "u1", "active": True, "deleted": 0},
+        {"rec_name": "d3", "owner_uid": "u9", "active": True, "deleted": 0},
+    ]
+    service = Service(_multi_group_env(rows=rows))
+
+    item = asyncio.run(
+        service._make_menu_item({}, _list_action_stub("generic", []))
+    )
+
+    # OR delle due regole: rec_name=d1 (manager) + owner u1 (operator) = 2.
+    # d3 resta fuori: il conteggio nudo avrebbe detto 3.
+    assert item["number"] == 2

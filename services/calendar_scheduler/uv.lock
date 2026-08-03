@@ -523,7 +523,7 @@ wheels = [
 [[package]]
 name = "ozon-env"
 version = "4.0.2"
-source = { git = "https://github.com/inrim/ozon-env.git?rev=4.0.2#36d4bfef0994c75773a81f0b220d4aa5cbe69883" }
+source = { git = "https://github.com/inrim/ozon-env.git?rev=4.0.2#afef4f8f587b9a6a52d6cc6e11ac151fd2c94025" }
 dependencies = [
     { name = "aiofiles" },
     { name = "aiopathlib" },

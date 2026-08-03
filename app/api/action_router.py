@@ -10,6 +10,7 @@ from fastapi import Response
 from fastapi.responses import JSONResponse
 
 from app.deps.app_env import get_authed_env, get_service
+from app.services.action_payload import sanitize_action_payload
 from app.services.common import ResponseObject
 from app.services.common import ResponseObjectData
 from app.services.service import Service
@@ -51,7 +52,7 @@ def _enforce_dashboard_mode(payload: ResponseObjectData) -> ResponseObjectData:
         query=payload.query,
         obfucated_fields=payload.obfucated_fields,
         editable_fields=payload.editable_fields,
-        schema=payload.schema,
+        response_schema=payload.response_schema,
         rec_name=payload.rec_name,
         fields=payload.fields,
         columns=payload.columns,
@@ -225,7 +226,7 @@ async def post_action(
         request: Request,
         service: Annotated[Service, Depends(get_service)],
 ) -> ResponseObject:
-    payload = await _read_json_payload(request)
+    payload = sanitize_action_payload(await _read_json_payload(request))
     logger.info("action post request name=%s payload_keys=%s", name, list(payload.keys()))
     response_payload = await service.service_handle_action_post(
         action_name=name,
@@ -241,7 +242,7 @@ async def post_action_rec_name(
         request: Request,
         service: Annotated[Service, Depends(get_service)],
 ) -> ResponseObject:
-    payload = await _read_json_payload(request)
+    payload = sanitize_action_payload(await _read_json_payload(request))
     logger.info(
         "action post request name=%s rec_name=%s payload_keys=%s",
         name,
@@ -263,7 +264,7 @@ async def delete_action_rec_name(
         request: Request,
         service: Annotated[Service, Depends(get_service)],
 ) -> ResponseObject:
-    payload = await _read_json_payload(request)
+    payload = sanitize_action_payload(await _read_json_payload(request))
     logger.info("action delete request name=%s rec_name=%s", name, rec_name)
     response_payload = await service.service_handle_action_delete(
         action_name=name,

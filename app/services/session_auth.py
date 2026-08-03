@@ -15,6 +15,9 @@ from fastapi import Request
 from fastapi import status
 from ozonenv.OzonEnv import OzonEnv
 from ozonenv.core.BaseModels import BasicReturn, CoreModel
+from ozonenv.core.auth import TokenExpiredError
+from ozonenv.core.auth import TokenRefreshError
+from ozonenv.core.auth import TokenVerificationError
 
 from app.app_settings import EnvSettings
 from app.app_settings import get_env_settings
@@ -35,6 +38,28 @@ AUTH_MODE_ALIASES = {
     "header": AUTH_MODE_KEYCLOAK,
     "oidc": AUTH_MODE_KEYCLOAK,
 }
+
+OAUTH2_PROXY_IDENTITY_HEADER_FAMILY = frozenset(
+    {
+        "x-remote-user",
+        "x-remote-email",
+        "x-remote-groups",
+        "x-forwarded-user",
+        "x-forwarded-email",
+        "x-forwarded-groups",
+        "x-forwarded-preferred-username",
+        "x-auth-request-user",
+        "x-auth-request-email",
+        "x-auth-request-groups",
+        "x-auth-request-preferred-username",
+    }
+)
+
+
+def trusted_identity_header_names(settings: EnvSettings) -> frozenset[str]:
+    """Unica sorgente di identità trusted per il deployment corrente."""
+    configured = str(settings.keycloak_remote_user_header or "").strip().lower()
+    return frozenset({configured}) if configured else frozenset()
 
 SSO_ACCESS_HEADERS = (
     "x-auth-request-access-token",
@@ -204,7 +229,14 @@ async def build_keycloak_session_from_tokens(
 ) -> CoreModel:
     """BFF callback path: validate Keycloak token dict via session_app()."""
     ozon_env.params["current_token"] = token
-    res: BasicReturn = await ozon_env.session_app()
+    try:
+        res: BasicReturn = await ozon_env.session_app()
+    except (TokenExpiredError, TokenRefreshError, TokenVerificationError) as exc:
+        logger.warning("keycloak callback token rejected: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc) or "Keycloak token expired or invalid",
+        ) from exc
 
     if res.fail:
         raise HTTPException(
@@ -399,7 +431,8 @@ def _coerce_datetime_utc(value: Any) -> datetime | None:
 
 
 def _extract_remote_user(request: Request, settings: EnvSettings) -> str:
-    header_name = settings.keycloak_remote_user_header
+    trusted_headers = trusted_identity_header_names(settings)
+    header_name = next(iter(trusted_headers), "")
     raw_value = request.headers.get(header_name, "")
     remote_user = raw_value.strip()
     if remote_user:

@@ -20,7 +20,8 @@ def test_build_env_vars_no_prefix():
     assert v["OAUTH_CLIENT_SECRET"] == "sek"
     # invariante audience: stesso valore nei due punti
     assert v["OAUTH_AUDIENCE"] == "nob-app"
-    assert v["TOKEN_AUDIENCE"] == "nob-app"
+    assert v["OZON_TOKEN_AUDIENCE"] == "nob-app"
+    assert "TOKEN_AUDIENCE" not in v
     assert "SCHEDULER_OAUTH_CLIENT_ID" not in v
 
 
@@ -35,8 +36,8 @@ def test_build_env_vars_with_prefix():
     )
     assert v["SCHEDULER_OAUTH_CLIENT_ID"] == "svc"
     assert v["SCHEDULER_OAUTH_AUDIENCE"] == "nob-app"
-    # TOKEN_AUDIENCE resta senza prefisso (var lato app)
-    assert v["TOKEN_AUDIENCE"] == "nob-app"
+    # OZON_TOKEN_AUDIENCE resta senza prefisso (var lato app)
+    assert v["OZON_TOKEN_AUDIENCE"] == "nob-app"
 
 
 def test_write_env_file_idempotent(tmp_path):
