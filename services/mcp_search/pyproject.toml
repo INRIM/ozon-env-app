@@ -9,6 +9,10 @@ dependencies = [
     "httpx>=0.28,<1.0",
 ]
 
+[tool.uv]  # nosemgrep: uv-missing-dependency-cooldown -- cooldown bloccherebbe la patch CVE fresh
+# CVE trivy HIGH: cryptography 49 -> 50 (CVE-2026-69247).
+override-dependencies = ["cryptography>=50"]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",

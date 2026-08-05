@@ -94,6 +94,13 @@ omit = [
     "/tests/*"
 ]
 
+[tool.uv]  # nosemgrep: uv-missing-dependency-cooldown -- cooldown bloccherebbe le patch CVE fresh (es. cryptography 50)
+# Forza versioni minime per CVE trivy HIGH/CRITICAL:
+# - datamodel-code-generator (transitiva di ozon-env): CVE-2026-54621
+#   e affini (code injection / SSRF / file read via JSON-Schema malevolo).
+#   Gli schemi sono admin-controlled, ma defense-in-depth.
+override-dependencies = ["datamodel-code-generator>=0.64.0"]
+
 [tool.uv.sources]
 ozon-env = { git = "https://github.com/inrim/ozon-env.git", rev = "4.0.2" }
 ozon-env-api = { git = "https://github.com/INRIM/ozon-env-api.git" }
@@ -109,7 +116,7 @@ dependencies = [
     # Cifratura del cookie di sessione (app/services/cookie_auth.py):
     # gia' presente come transitiva di pyjwt, resa esplicita perche' ora
     # il codice applicativo la importa direttamente.
-    "cryptography>=45",
+    "cryptography>=50",
     "fastapi>=0.116.0",
     "grpcio>=1.66,<2.0",
     "httpx>=0.28",

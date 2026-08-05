@@ -77,7 +77,9 @@ class OAuthClientCredentialsTokenProvider:
                 context.check_hostname = False
                 context.verify_mode = ssl.CERT_NONE
 
-        with urllib.request.urlopen(
+        # token_url e' l'endpoint M2M di Camunda da configurazione (non
+        # input utente); sopra si valida schema https con ssl context.
+        with urllib.request.urlopen(  # nosemgrep
             request,
             timeout=self.timeout_seconds,
             context=context,

@@ -500,7 +500,10 @@ async def get_authed_env(
     try:
         result = await ozon_env.session_app()
     except (TokenExpiredError, TokenRefreshError, TokenVerificationError) as exc:
-        logger.warning("session_app token error: %s", exc)
+        # logga l'eccezione (token invalido), non il token
+        logger.warning(  # nosemgrep
+            "session_app token error: %s", exc
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(exc) or "Token expired or invalid",

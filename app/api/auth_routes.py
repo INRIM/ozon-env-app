@@ -169,7 +169,7 @@ async def _exchange_code(settings: EnvSettings, code: str) -> dict:
         # quello con cui l'utente ha fatto login). Senza questi due
         # valori il 502 non e' diagnosticabile. Nessun segreto: il
         # client_secret non viene mai loggato.
-        logger.error(
+        logger.error(  # nosemgrep
             "keycloak token exchange failed status=%s error=%s "
             "description=%s token_endpoint=%s redirect_uri=%s client_id=%s",
             response.status_code,

@@ -21,7 +21,10 @@ RUN pip install uv
 RUN uv sync --no-dev --frozen
 
 # Job persistenti su SQLite: la dir /data va montata come volume.
+RUN adduser --system --uid 1001 --group app && \
+    mkdir -p /data && chown -R app /app /data
 VOLUME ["/data"]
+USER app
 
 HEALTHCHECK --interval=60s --timeout=10s --start-period=20s --retries=3 \
     CMD uv run python -c "from calendar_scheduler.config import SchedulerConfig; from calendar_scheduler.health import is_healthy; import sys; sys.exit(0 if is_healthy(SchedulerConfig.from_env().health_file, 180) else 1)"

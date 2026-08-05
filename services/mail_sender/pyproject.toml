@@ -9,6 +9,11 @@ dependencies = [
     "jinja2>=3.1",
 ]
 
+[tool.uv]  # nosemgrep: uv-missing-dependency-cooldown -- cooldown bloccherebbe le patch CVE fresh
+# CVE trivy HIGH: datamodel-code-generator (transitiva di ozon-env) 0.54
+# -> 0.64+ e cryptography 49 -> 50.
+override-dependencies = ["datamodel-code-generator>=0.64.0", "cryptography>=50"]
+
 [tool.uv.sources]
 ozon-env = { git = "https://github.com/inrim/ozon-env.git", rev = "4.0.2" }
 

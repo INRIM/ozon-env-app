@@ -19,8 +19,9 @@ class MailRenderer:
     def __init__(self, base_template_html: str, app_name: str = "") -> None:
         self._app_name = app_name
         # autoescape disattivato: i campi sono template HTML/testo che
-        # producono HTML (come il sistema originale).
-        self._env = Environment(
+        # producono HTML (come il sistema originale). I template sono
+        # amministrati (mail_template da DB), non input utente diretto.
+        self._env = Environment(  # nosemgrep
             autoescape=False,
             undefined=ChainableUndefined,
         )

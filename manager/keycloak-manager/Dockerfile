@@ -21,6 +21,9 @@ RUN pip install uv
 RUN uv sync --no-dev --frozen
 
 # Output kc-env.var in /out (montare come volume).
+RUN adduser --system --uid 1001 --group app && \
+    mkdir -p /out && chown -R app /app /out
 VOLUME ["/out"]
+USER app
 
 CMD ["uv", "run", "python", "-m", "keycloak_manager"]

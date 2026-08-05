@@ -29,5 +29,11 @@ RUN uv sync --frozen --no-dev
 
 EXPOSE 8000
 
+# Runtime come non-root (semgrep dockerfile.security.missing-user).
+# /data/uploads e' la UPLOAD_ROOT: chown cosi' il container ci scrive.
+RUN adduser --system --uid 1001 --group app && \
+    mkdir -p /data/uploads && chown -R app /app /data
+USER app
+
 # Lancia l'applicazione
 CMD ["uv", "run", "python", "-m", "app.main"]

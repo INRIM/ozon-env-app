@@ -8,6 +8,10 @@ dependencies = [
     "kc-provision",
 ]
 
+[tool.uv]  # nosemgrep: uv-missing-dependency-cooldown -- cooldown bloccherebbe la patch CVE fresh
+# CVE trivy HIGH: cryptography 49 -> 50 (CVE-2026-69247).
+override-dependencies = ["cryptography>=50"]
+
 [tool.uv.sources]
 kc-provision = { git = "https://github.com/INRIM/kc-provision.git", rev = "1627d61bde4863e6cd034cf7bb0d636603b7ca30" }
 

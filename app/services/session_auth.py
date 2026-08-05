@@ -232,7 +232,10 @@ async def build_keycloak_session_from_tokens(
     try:
         res: BasicReturn = await ozon_env.session_app()
     except (TokenExpiredError, TokenRefreshError, TokenVerificationError) as exc:
-        logger.warning("keycloak callback token rejected: %s", exc)
+        # logga l'eccezione, non il token
+        logger.warning(  # nosemgrep
+            "keycloak callback token rejected: %s", exc
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(exc) or "Keycloak token expired or invalid",

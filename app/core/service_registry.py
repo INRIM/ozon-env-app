@@ -124,7 +124,7 @@ def repo_rec_name(url: str) -> str:
     normalized = str(url or "").strip()
     if not normalized:
         raise ValueError("repo url required")
-    digest = hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:12]
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:12]
     tail = normalized.rstrip("/").rsplit("/", 1)[-1].replace(".git", "")
     safe_tail = "".join(
         ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in tail

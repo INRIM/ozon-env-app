@@ -20,4 +20,7 @@ RUN pip install uv
 RUN uv sync --no-dev
 
 # I modelli vengono auto-generati da ozon-env nel MODELS_FOLDER condiviso.
+RUN adduser --system --uid 1001 --group app && chown -R app /app
+USER app
+
 CMD ["uv", "run", "python", "-m", "mail_sender.main"]
