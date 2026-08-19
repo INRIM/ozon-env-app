@@ -192,7 +192,7 @@ async def logout(
         url=keycloak_logout_url, status_code=status.HTTP_302_FOUND
     )
     _clear_session_cookies(response, settings)
-    logger.info("logout: cookies cleared, refresh token revoked=%s", bool(id_token))
+    logger.info("logout: cookies cleared, sso session revoked=%s", bool(id_token))
     return response
 
 
@@ -213,11 +213,17 @@ async def _revoke_refresh_token(settings: EnvSettings, refresh_token: str) -> No
             )
         if response.status_code >= 400:
             logger.warning(
-                "keycloak refresh token revoke failed status=%s",
+                "keycloak sso session revoke failed status=%s",
                 response.status_code,
             )
     except Exception as exc:
-        logger.warning("keycloak refresh token revoke error: %s", exc)
+        # Si logga il TIPO dell'eccezione, non il suo testo: la richiesta
+        # che l'ha generata porta client_secret e refresh token nel body,
+        # e alcune eccezioni di trasporto ripetono la richiesta nel
+        # messaggio.
+        logger.warning(
+            "keycloak sso session revoke error: %s", type(exc).__name__
+        )
 
 
 @router.api_route("/auth/refresh", methods=["GET", "POST"])
