@@ -18,7 +18,7 @@ class OzonSearchGateway:
     Non tocca mai Mongo direttamente e non ha una propria identita': ogni
     chiamata porta l'Authorization header del CHIAMANTE reale (bearer
     keycloak dell'utente in App A), cosi' la stessa sessione/ACL
-    (model_groups_rule, record_rulse, field_acl_policy, query field-ACL
+    (model_groups_rule, record_rules, field_acl_policy, query field-ACL
     gate) che si applicherebbe a quell'utente su App B si applica anche
     qui -- nessun bypass, nessuna scrittura, nessuna pipeline aggregate
     (l'endpoint sotto e' find-style, vedi docs/QUERY_FIELD_ACL_GATE.en.md

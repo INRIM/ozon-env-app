@@ -315,7 +315,7 @@ def test_load_component_keeps_primary_operation_status_for_response():
         return SimpleNamespace(payload=payload)
 
     service._get_model_group_access = allow_model
-    service._get_record_rulse = no_record_rules
+    service._get_record_rules = no_record_rules
     service._get_compiled_field_acl = no_field_acl
     service.webhooks = SimpleNamespace(emit=passthrough_webhook)
 
@@ -417,7 +417,7 @@ def test_component_upsert_syncs_model_rules_by_default():
                                 {"groups": ["dpo"], "actions": {"read": True}}
                             ],
                         },
-                        "record_rulse": [
+                        "record_rules": [
                             {
                                 "filters": {
                                     "owner_uid": {"$eq": {"var": "user.uid"}}

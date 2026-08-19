@@ -229,8 +229,8 @@ class EnvSettings(OzonEnvCoreSettings):
 
     asgi_host: str = Field(default="0.0.0.0", validation_alias="ASGI_HOST")
     asgi_port: int = Field(default=8000, validation_alias="ASGI_PORT")
-    # debug abilita i logger.debug() sparsi nel motore ACL/record_rulse
-    # (app.ozon_env_acl, Service._get_record_rulse/list_records/ecc.).
+    # debug abilita i logger.debug() sparsi nel motore ACL/record_rules
+    # (app.ozon_env_acl, Service._get_record_rules/list_records/ecc.).
     log_level: str = Field(default="info", validation_alias="LOG_LEVEL")
 
     @field_validator("log_level", mode="before")

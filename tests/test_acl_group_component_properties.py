@@ -15,7 +15,7 @@ def _domain_matches(row, domain):
     """Domain vuoto ({}) = match tutto (semantica list senza filtro); un
     domain non vuoto e' un filtro mongo-shaped valutato con la stessa
     matching logic (fail-closed $and/$or/$in) usata in produzione per
-    valutare record_rulse — necessario per verificare che
+    valutare record_rules — necessario per verificare che
     record_rule_read_domain narrowi davvero i risultati, non solo che
     costruisca la clausola giusta."""
     if not domain:
@@ -131,7 +131,7 @@ class _RecordModel:
 
 class _ModelFieldsRuleModel:
     """Fake per la collection `model_fields_rule` — fonte di verita' letta
-    da Service._get_record_rulse/_load_model_fields_rule_policies (NON
+    da Service._get_record_rules/_load_model_fields_rule_policies (NON
     component.properties, che puo' non persistere la config)."""
 
     def __init__(self, rows):
@@ -158,7 +158,7 @@ class _ModelGroupsRuleModel:
     da Service._get_model_group_access (gate CRUD a livello di MODEL,
     fail-closed per i non-admin: senza una riga che copra il gruppo
     dell'attore, l'accesso e' negato PRIMA di arrivare a fields_rule/
-    record_rulse)."""
+    record_rules)."""
 
     def __init__(self, rows):
         self.rows = rows
@@ -228,7 +228,7 @@ class _Env:
     fanno esplicitamente), sintetizza righe permissive full-CRUD per i
     gruppi della sessione su ogni model registrato — rappresenta lo
     stato "sync gia' avvenuto, ACL di default configurata" di una vera
-    installazione, cosi' i test che esercitano fields_rule/record_rulse
+    installazione, cosi' i test che esercitano fields_rule/record_rules
     (un layer DIVERSO e piu' fine) non devono ripetere lo stesso
     boilerplate model-level in ognuno."""
 
@@ -699,11 +699,11 @@ def test_fields_rule_visible_with_gdpr_group():
     assert response.content.obfucated_fields == []
 
 
-def test_record_rulse_overrides_baseline_for_owned_record():
+def test_record_rules_overrides_baseline_for_owned_record():
     """Utente senza gruppo gdpr ma proprietario del record (owner_uid ==
     user.uid): f_rule_cond matcha e sblocca in lettura il campo altrimenti
-    oscurato dalla baseline f_rule. Nessun record_rulse configurato: Layer
-    2 resta senza restrizioni (record_rule_access: niente record_rulse =
+    oscurato dalla baseline f_rule. Nessun record_rules configurato: Layer
+    2 resta senza restrizioni (record_rule_access: niente record_rules =
     accesso pieno), questo test isola Layer 3."""
     field_rules, field_rule_conditions = _gdpr_field_rules()
     users = _RecordModel(
@@ -764,7 +764,7 @@ def test_field_rule_conditions_reveal_matching_field_only():
     assert response.content.obfucated_fields == ["token"]
 
 
-def test_record_rulse_keeps_baseline_when_no_match():
+def test_record_rules_keeps_baseline_when_no_match():
     """Utente senza gdpr e non proprietario: f_rule_cond non matcha, la
     baseline f_rule resta in vigore (campo oscurato)."""
     field_rules, field_rule_conditions = _gdpr_field_rules()
@@ -790,7 +790,7 @@ def test_record_rulse_keeps_baseline_when_no_match():
     assert response.content.obfucated_fields == ["codicefiscale"]
 
 
-def test_record_rulse_and_wrapped_filter_matches_owner():
+def test_record_rules_and_wrapped_filter_matches_owner():
     """filters avvolti in $and (forma Mongo comune, non la forma flat degli
     esempi base) devono comunque matchare correttamente per il proprietario."""
     field_rules, field_rule_conditions = _gdpr_field_rules(
@@ -817,7 +817,7 @@ def test_record_rulse_and_wrapped_filter_matches_owner():
     assert response.content.data["codicefiscale"] == "OWN123"
 
 
-def test_record_rulse_and_wrapped_filter_fails_closed_for_non_owner():
+def test_record_rules_and_wrapped_filter_fails_closed_for_non_owner():
     """Stesso filtro $and, ma per un record non di proprieta': deve fallire
     CLOSED (campo resta oscurato), non aprirsi a chiunque per il solo fatto
     che $and non era gestito esplicitamente (regressione verificata: prima
@@ -847,7 +847,7 @@ def test_record_rulse_and_wrapped_filter_fails_closed_for_non_owner():
     assert response.content.obfucated_fields == ["codicefiscale"]
 
 
-def test_record_rulse_varies_per_row_in_list_records():
+def test_record_rules_varies_per_row_in_list_records():
     """list_records: stesso utente (sales, no gdpr) vede il proprio record
     in chiaro e quello altrui oscurato, nella STESSA risposta (f_rule_cond
     valutata riga per riga)."""
@@ -889,7 +889,7 @@ def test_record_rulse_varies_per_row_in_list_records():
     assert by_rec_name["u2"]["codicefiscale"] is None
 
 
-def test_record_rulse_varies_per_row_in_streamed_list():
+def test_record_rules_varies_per_row_in_streamed_list():
     """Il path streaming (resp_stream=True, usato di default da
     POST /list/{model}) deve applicare f_rule_cond riga per riga tanto
     quanto il path non-stream — stesso scenario del test precedente ma
@@ -939,9 +939,9 @@ def test_record_rulse_varies_per_row_in_streamed_list():
     assert by_rec_name["u2"]["codicefiscale"] is None
 
 
-def test_record_rulse_union_multi_group_load_record():
+def test_record_rules_union_multi_group_load_record():
     """Layer 2, union: utente in due gruppi (gdpr, manager), due entry
-    record_rulse DIVERSE matchano lo stesso record (owner-match per gdpr,
+    record_rules DIVERSE matchano lo stesso record (owner-match per gdpr,
     un altro campo per manager) — le azioni finali sono l'OR delle due,
     non quelle della prima entry nell'ordine di config (comportamento
     corretto dopo la rimozione del first-match-wins)."""
@@ -993,7 +993,7 @@ def test_record_rulse_union_multi_group_load_record():
     assert response.content.editable is True
 
 
-def test_record_rulse_read_domain_unions_real_group_filters_for_list():
+def test_record_rules_read_domain_unions_real_group_filters_for_list():
     """record_rule_read_domain unisce (OR) i filtri REALI (non vuoti) di
     tutte le entry con read=True che si applicano alla sessione — un
     utente in due gruppi scoped con filtri diversi vede l'unione delle
@@ -1056,11 +1056,11 @@ def test_record_rulse_read_domain_unions_real_group_filters_for_list():
     assert rec_names == {"d1", "d2"}
 
 
-def test_record_rulse_empty_filter_group_scoped_never_matches():
+def test_record_rules_empty_filter_group_scoped_never_matches():
     """Regressione: filtro vuoto su riga group-scoped NON deve piu' fare
     match incondizionato (hack rimosso — i gruppi non sono un campo del
     record, un grant incondizionato per gruppo e' Layer 1/model_groups_
-    rule o Layer 3/f_rule, mai Layer 2/record_rulse). dpo con filters={}
+    rule o Layer 3/f_rule, mai Layer 2/record_rules). dpo con filters={}
     ottiene 404, non read-all."""
     dpo_empty_rule = {
         "app_code": "demo",
@@ -1099,7 +1099,7 @@ def test_record_rulse_empty_filter_group_scoped_never_matches():
 class _SysFlagComponentModel:
     """Fake per la collection `component` — usata SOLO da
     Service._is_sys_model per decidere se il model e' config condivisa
-    (sys=True, enforcement record_rulse saltato) o un documento applicativo
+    (sys=True, enforcement record_rules saltato) o un documento applicativo
     (sys=False, enforcement attivo). Ritorna un oggetto con attributo `.sys`
     (non un dict) — Service._is_sys_model legge `component.sys` diretto,
     coerente con un vero record ORM."""
@@ -1192,11 +1192,11 @@ def test_load_record_non_sys_owner_full_access():
     assert response.content.editable is True
 
 
-def test_record_rulse_group_scoped_restricts_only_that_group():
-    """record_rulse con `group` valorizzato (righe generate da un'entry
+def test_record_rules_group_scoped_restricts_only_that_group():
+    """record_rules con `group` valorizzato (righe generate da un'entry
     con "groups": [...] in model_rules_sync, non piu' sempre group="")
     si applica SOLO alle sessioni membre di quel gruppo — vedi
-    Service._get_record_rulse. gdpr limitato ai propri record (owner_uid
+    Service._get_record_rules. gdpr limitato ai propri record (owner_uid
     check), manager limitato a un altro criterio (rec_name) — le due entry
     non si "vedono" a vicenda: un utente gdpr non owner resta negato anche
     se esiste una entry manager che matcherebbe (non e' nel gruppo)."""
@@ -1366,10 +1366,10 @@ def test_load_record_non_sys_admin_access_when_rule_matches():
     assert response.content.editable is True
 
 
-def test_load_record_sys_model_bypasses_record_rulse():
+def test_load_record_sys_model_bypasses_record_rules():
     """Model sys (config condivisa: action/menu_group/settings/user...) non
     e' soggetto all'enforcement hide/readonly anche se ha lo stesso
-    record_rulse owner-only iniettato di default — l'ownership per-record
+    record_rules owner-only iniettato di default — l'ownership per-record
     non ha senso su config condivisa, gia' regolata da models_groups."""
     docs = _RecordModel(
         "settings", rows=[{"rec_name": "s1", "owner_uid": "u2", "name": "Cfg"}]
@@ -1460,9 +1460,9 @@ def test_list_records_non_sys_hides_non_owned_rows():
 
 
 def test_list_records_non_sys_no_rule_at_all_unrestricted():
-    """Se il model non ha ALCUN record_rulse configurato, resta senza
+    """Se il model non ha ALCUN record_rules configurato, resta senza
     restrizioni (nessuna regressione su model senza fields_rule/record_
-    rulse mai configurate)."""
+    rules mai configurate)."""
     docs = _RecordModel(
         "modulo_dati_persona",
         rows=[
@@ -1680,7 +1680,7 @@ def _multi_group_env(rows, uid="u1", groups=("operator", "manager")):
     )
 
 
-def test_action_scope_replaces_session_groups_in_record_rulse():
+def test_action_scope_replaces_session_groups_in_record_rules():
     """Quando un'action dichiara `groups`, lo scope delle record rule e'
     quello dell'action, NON l'unione dei gruppi dell'utente: l'action ha
     gia' verificato l'appartenenza (_is_action_allowed), quindi il contesto
@@ -1689,14 +1689,14 @@ def test_action_scope_replaces_session_groups_in_record_rulse():
     service = Service(_multi_group_env(rows=[]))
 
     # Nessuna action scoped -> entrambe le entry (gruppi di sessione).
-    rules = asyncio.run(service._get_record_rulse("modulo_dati_persona"))
+    rules = asyncio.run(service._get_record_rules("modulo_dati_persona"))
     assert {rule["group"] for rule in rules} == {"operator", "manager"}
 
     # Action manager -> solo la entry manager.
     service.action_runtime._set_action_scope(
         _action_stub("dati_persona_manager", ["manager"])
     )
-    rules = asyncio.run(service._get_record_rulse("modulo_dati_persona"))
+    rules = asyncio.run(service._get_record_rules("modulo_dati_persona"))
     assert [rule["group"] for rule in rules] == ["manager"]
 
     # Action operator -> solo la entry operator (la cache non deve
@@ -1704,7 +1704,7 @@ def test_action_scope_replaces_session_groups_in_record_rulse():
     service.action_runtime._set_action_scope(
         _action_stub("dati_persona_operator", ["operator"])
     )
-    rules = asyncio.run(service._get_record_rulse("modulo_dati_persona"))
+    rules = asyncio.run(service._get_record_rules("modulo_dati_persona"))
     assert [rule["group"] for rule in rules] == ["operator"]
 
 
@@ -1743,7 +1743,7 @@ def test_action_without_groups_keeps_session_scope():
     service = Service(_multi_group_env(rows=[]))
     service.action_runtime._set_action_scope(_action_stub("generic", []))
 
-    rules = asyncio.run(service._get_record_rulse("modulo_dati_persona"))
+    rules = asyncio.run(service._get_record_rules("modulo_dati_persona"))
 
     assert {rule["group"] for rule in rules} == {"operator", "manager"}
 
@@ -1763,7 +1763,7 @@ def _list_action_stub(rec_name, groups, model="modulo_dati_persona"):
     )
 
 
-def test_dashboard_card_count_follows_action_scoped_record_rulse():
+def test_dashboard_card_count_follows_action_scoped_record_rules():
     """Il contatore della card dashboard (Service._make_menu_item) deve
     applicare lo stesso ACL della lista, nello scope dei gruppi della SUA
     action: un manager che non ha mai fatto richieste non deve vedere "2"

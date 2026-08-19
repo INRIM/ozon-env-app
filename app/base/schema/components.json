@@ -158,7 +158,7 @@
         ]
       },
       "models_restricted_fields": {
-        "record_rulse": [
+        "record_rules": [
           {
             "filters": {
               "owner_uid": {
@@ -457,7 +457,7 @@
         ]
       },
       "models_restricted_fields": {
-        "record_rulse": [
+        "record_rules": [
           {
             "filters": {
               "owner_uid": {
@@ -696,7 +696,7 @@
         ]
       },
       "models_restricted_fields": {
-        "record_rulse": [
+        "record_rules": [
           {
             "filters": {
               "owner_uid": {
@@ -1286,7 +1286,7 @@
         ]
       },
       "models_restricted_fields": {
-        "record_rulse": [
+        "record_rules": [
           {
             "filters": {
               "owner_uid": {
@@ -2541,7 +2541,7 @@
         ]
       },
       "models_restricted_fields": {
-        "record_rulse": [
+        "record_rules": [
           {
             "filters": {
               "owner_uid": {
@@ -3033,7 +3033,7 @@
         ]
       },
       "models_restricted_fields": {
-        "record_rulse": [
+        "record_rules": [
           {
             "filters": {
               "owner_uid": {
@@ -3281,7 +3281,7 @@
         ]
       },
       "models_restricted_fields": {
-        "record_rulse": [
+        "record_rules": [
           {
             "filters": {
               "owner_uid": {
@@ -4202,7 +4202,7 @@
             }
           ]
         },
-        "record_rulse": [
+        "record_rules": [
           {
             "filters": {
               "$or": [
@@ -4544,7 +4544,7 @@
         ]
       },
       "models_restricted_fields": {
-        "record_rulse": [
+        "record_rules": [
           {
             "filters": {
               "owner_uid": {
@@ -4755,7 +4755,7 @@
         ]
       },
       "models_restricted_fields": {
-        "record_rulse": [
+        "record_rules": [
           {
             "filters": {
               "owner_uid": {
@@ -5084,7 +5084,7 @@
         ]
       },
       "models_restricted_fields": {
-        "record_rulse": [
+        "record_rules": [
           {
             "filters": {
               "owner_uid": {
@@ -6308,7 +6308,7 @@
         ]
       },
       "models_restricted_fields": {
-        "record_rulse": [
+        "record_rules": [
           {
             "filters": {
               "owner_uid": {
@@ -6684,7 +6684,7 @@
         ]
       },
       "models_restricted_fields": {
-        "record_rulse": [
+        "record_rules": [
           {
             "filters": {
               "owner_uid": {
@@ -7513,7 +7513,7 @@
         ]
       },
       "models_restricted_fields": {
-        "record_rulse": [
+        "record_rules": [
           {
             "filters": {
               "owner_uid": {
@@ -7623,7 +7623,7 @@
         ]
       },
       "models_restricted_fields": {
-        "record_rulse": [
+        "record_rules": [
           {
             "filters": {
               "owner_uid": {
@@ -8334,7 +8334,7 @@
         ]
       },
       "models_restricted_fields": {
-        "record_rulse": [
+        "record_rules": [
           {
             "filters": {
               "owner_uid": {
@@ -8675,7 +8675,7 @@
         ]
       },
       "models_restricted_fields": {
-        "record_rulse": [
+        "record_rules": [
           {
             "filters": {
               "owner_uid": {
@@ -9038,7 +9038,7 @@
         ]
       },
       "models_restricted_fields": {
-        "record_rulse": [
+        "record_rules": [
           {
             "filters": {
               "owner_uid": {
@@ -9312,7 +9312,7 @@
         ]
       },
       "models_restricted_fields": {
-        "record_rulse": [
+        "record_rules": [
           {
             "filters": {
               "owner_uid": {
@@ -9448,7 +9448,7 @@
         ]
       },
       "models_restricted_fields": {
-        "record_rulse": [
+        "record_rules": [
           {
             "filters": {
               "owner_uid": {
@@ -11316,7 +11316,7 @@
         ]
       },
       "models_restricted_fields": {
-        "record_rulse": [
+        "record_rules": [
           {
             "filters": {
               "owner_uid": {
@@ -11509,7 +11509,7 @@
         ]
       },
       "models_restricted_fields": {
-        "record_rulse": [
+        "record_rules": [
           {
             "filters": {
               "owner_uid": {

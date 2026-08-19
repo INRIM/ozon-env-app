@@ -242,7 +242,7 @@ record, mai dal payload in arrivo — vedi Service.upsert), oltre ai gruppi
 elencati. Deliberatamente distinto da `f_rule_cond` (condizione arbitraria,
 sblocca SOLO il read, mai il write, per evitare bypass silenzioso):
 l'ownership e' un concetto specifico e gia' fidato altrove (Layer 2/
-record_rulse usa lo stesso owner_uid per il gate a livello di record),
+record_rules usa lo stesso owner_uid per il gate a livello di record),
 non una condizione generica — vedi `$`-prefix per non collidere mai con
 un nome di gruppo reale. `$`-prefixed cosi' non richiede modifiche a
 ozon-env (resta un semplice `list[str]`, bakato verbatim a codegen-time):
@@ -263,7 +263,7 @@ class Service:
         # quando valorizzati sostituiscono i gruppi di sessione come scope
         # delle record rule. Vuoto = nessuna action scoped -> gruppi utente.
         self.action_groups: set[str] = set()
-        self._record_rulse_cache: dict[
+        self._record_rules_cache: dict[
             tuple[str, frozenset[str]], list[dict[str, Any]]
         ] = {}
         self._model_groups_rule_cache: dict[str, list[dict[str, Any]]] = {}
@@ -1166,17 +1166,17 @@ class Service:
                 "acl.list_records model=%s model_access denies read, domain forced empty",
                 model_name,
             )
-        record_rulse = await self._get_record_rulse(model_name)
+        record_rules = await self._get_record_rules(model_name)
         field_rule_conditions = self._get_field_rule_conditions(model_name)
         is_admin = bool(getattr(self.session, "is_admin", False))
         is_sys_model = await self._is_sys_model(model_name)
-        if record_rulse and not is_admin and not is_sys_model:
+        if record_rules and not is_admin and not is_sys_model:
             read_domain = record_rule_read_domain(
-                record_rulse, resolve_var=self._resolve_query_json_logic_vars
+                record_rules, resolve_var=self._resolve_query_json_logic_vars
             )
             domain = _merge_query(domain, read_domain)
             logger.info(
-                "acl.list_records model=%s record_rulse read-scope domain narrowed=%s",
+                "acl.list_records model=%s record_rules read-scope domain narrowed=%s",
                 model_name,
                 domain,
             )
@@ -1201,9 +1201,9 @@ class Service:
             domain,
         )
         logger.info(
-            "acl.list_records model=%s record_rulse_count=%s stream=%s",
+            "acl.list_records model=%s record_rules_count=%s stream=%s",
             model_name,
-            len(record_rulse),
+            len(record_rules),
             resp_stream,
         )
         if resp_stream:
@@ -1234,8 +1234,8 @@ class Service:
         # conditions, lato Python. Un `obfuscate_fields` esplicito passato
         # dal chiamante (non ACL, non soggetto a reveal) resta invece
         # sempre server-side. Model SENZA f_rule_cond restano sul path
-        # veloce $project nativo anche se hanno record_rulse configurato
-        # (record_rulse non tocca piu' i campi, solo Layer 2/accesso).
+        # veloce $project nativo anche se hanno record_rules configurato
+        # (record_rules non tocca piu' i campi, solo Layer 2/accesso).
         find_obfuscate_fields = sorted(
             set(obfuscate_fields or [])
             | (set() if field_rule_conditions else set(read_mask_fields))
@@ -1603,11 +1603,11 @@ class Service:
         operation_message = str(record_model.status.msg or "")
         original_dict = _record_to_dict(raw_record)
         model_access = await self._get_model_group_access(model)
-        record_rulse = await self._get_record_rulse(model)
+        record_rules = await self._get_record_rules(model)
         is_admin = bool(getattr(self.session, "is_admin", False))
         is_sys_model = await self._is_sys_model(model)
         record_access = record_rule_access(
-            record_rulse=record_rulse,
+            record_rules=record_rules,
             record=original_dict,
             resolve_var=self._resolve_query_json_logic_vars,
             bypass_ownership=is_sys_model,
@@ -1616,13 +1616,13 @@ class Service:
         final_update = model_access["update"] and record_access["update"]
         logger.info(
             "acl.load_record model=%s rec_name=%s is_admin=%s is_sys_model=%s "
-            "model_access=%s record_rulse_count=%s record_access=%s final_read=%s final_update=%s",
+            "model_access=%s record_rules_count=%s record_access=%s final_read=%s final_update=%s",
             model,
             rec_name,
             is_admin,
             is_sys_model,
             model_access,
-            len(record_rulse),
+            len(record_rules),
             record_access,
             final_read,
             final_update,
@@ -2110,7 +2110,7 @@ class Service:
             return FieldAclOperation.UPDATE.value, _record_to_dict(existing)
         return FieldAclOperation.INSERT.value, None
 
-    async def _get_record_rulse(
+    async def _get_record_rules(
         self,
         model_key: str,
         *,
@@ -2149,15 +2149,15 @@ class Service:
         if scope_groups is None:
             scope_groups = self._record_rule_scope_groups()
         cache_key = (model_key, frozenset(scope_groups))
-        if cache_key in self._record_rulse_cache:
+        if cache_key in self._record_rules_cache:
             logger.info(
-                "acl.record_rulse model=%s scope=%s cache_hit count=%s",
+                "acl.record_rules model=%s scope=%s cache_hit count=%s",
                 model_key,
                 sorted(scope_groups),
-                len(self._record_rulse_cache[cache_key]),
+                len(self._record_rules_cache[cache_key]),
             )
-            return self._record_rulse_cache[cache_key]
-        record_rulse: list[dict[str, Any]] = []
+            return self._record_rules_cache[cache_key]
+        record_rules: list[dict[str, Any]] = []
         app_code = str(getattr(self.session, "app_code", "") or "")
         try:
             rule_model = self.env.get("model_fields_rule")
@@ -2179,10 +2179,10 @@ class Service:
                     # = entry scoped, applicabile solo se rientra nello scope
                     # corrente — gruppi dell'action se l'action li dichiara,
                     # altrimenti gruppi di sessione (vedi
-                    # model_rules_sync.record_rulse groups per-entry).
+                    # model_rules_sync.record_rules groups per-entry).
                     if row_group and row_group not in scope_groups:
                         continue
-                    record_rulse.append(
+                    record_rules.append(
                         {
                             "group": row_group,
                             "filters": _safe_json_dict(data.get("filters")),
@@ -2194,19 +2194,19 @@ class Service:
                     )
         except Exception:
             logger.warning(
-                "record_rulse lookup failed model=%s", model_key
+                "record_rules lookup failed model=%s", model_key
             )
-            record_rulse = []
+            record_rules = []
         logger.info(
-            "acl.record_rulse model=%s app_code=%s scope=%s rows_found=%s rules=%s",
+            "acl.record_rules model=%s app_code=%s scope=%s rows_found=%s rules=%s",
             model_key,
             app_code,
             sorted(scope_groups),
-            len(record_rulse),
-            record_rulse,
+            len(record_rules),
+            record_rules,
         )
-        self._record_rulse_cache[cache_key] = record_rulse
-        return record_rulse
+        self._record_rules_cache[cache_key] = record_rules
+        return record_rules
 
     def _record_rule_scope_groups(self) -> set[str]:
         """Gruppi che definiscono lo scope delle record rule per questa
@@ -2326,7 +2326,7 @@ class Service:
     async def _get_model_group_access(self, model_key: str) -> dict[str, bool]:
         """Azioni concesse (read/create/update/delete/export) a livello di
         MODEL per l'attore corrente, secondo `model_groups_rule` — gate
-        indipendente da `record_rulse`/`fields_rule` (quelli sono per
+        indipendente da `record_rules`/`fields_rule` (quelli sono per
         campo/riga, questo e' CRUD sul model intero). Fail-closed se
         nessuna riga copre un gruppo dell'attore (admin bypassa sempre,
         vedi `app.ozon_env_acl.model_group_access`)."""
@@ -2355,7 +2355,7 @@ class Service:
         app.core.OzonEnvApp). Questi NON sono "documenti" di un singolo
         utente: l'ownership per-record non ha senso li', sono gia' regolati
         per gruppo da models_groups. L'enforcement hide/readonly di
-        record_rulse (record_rule_access) si applica solo ai model non-sys
+        record_rules (record_rule_access) si applica solo ai model non-sys
         (dati applicativi/plugin: modulo_dati_persona, ext_service, ecc.) —
         altrimenti la regola owner_uid iniettata di default da
         normalize_component_properties su OGNI component nasconderebbe
@@ -2763,10 +2763,10 @@ class Service:
         model_access = await self._get_model_group_access(model_name)
         if not model_access["read"]:
             return _merge_query(domain, {"rec_name": {"$in": []}})
-        record_rulse = await self._get_record_rulse(
+        record_rules = await self._get_record_rules(
             model_name, scope_groups=scope_groups
         )
-        if not record_rulse:
+        if not record_rules:
             return domain
         if getattr(self.session, "is_admin", False):
             return domain
@@ -2775,7 +2775,7 @@ class Service:
         return _merge_query(
             domain,
             record_rule_read_domain(
-                record_rulse,
+                record_rules,
                 resolve_var=self._resolve_query_json_logic_vars,
             ),
         )

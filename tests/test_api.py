@@ -944,7 +944,7 @@ def test_client_record_attachment_denied_when_record_not_readable(
 
     Il file esiste su disco e il path e' valido; l'unico motivo per cui
     la richiesta non deve passare e' che `load_record` (model_groups_rule
-    + record_rulse + field ACL) non restituisce il record. Prima questa
+    + record_rules + field ACL) non restituisce il record. Prima questa
     rotta non interrogava affatto l'ACL: bastava indovinare
     model/rec_name, che sono identificativi leggibili, non capability.
     """

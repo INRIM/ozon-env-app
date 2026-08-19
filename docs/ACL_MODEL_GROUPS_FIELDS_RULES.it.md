@@ -101,7 +101,7 @@ tutto ai non-admin finche' non viene ri-salvato nel formato nuovo.
       {"groups": ["dpo"],  "actions": {"read": true, "create": false, "update": false, "delete": false}}
     ]
   },
-  "record_rulse": [
+  "record_rules": [
     {
       "filters": {"owner_uid": {"$eq": {"var": "user.uid"}}},
       "actions": {"read": true, "create": true, "update": true, "delete": true},
@@ -111,12 +111,12 @@ tutto ai non-admin finche' non viene ri-salvato nel formato nuovo.
 }
 ```
 
-Nota i typo nelle chiavi (`resticted_fields`, `record_rulse`): sono il
+Nota i typo nelle chiavi (`resticted_fields`, `record_rules`): sono il
 formato reale scritto dal builder/seed, non refusi da correggere —
 tutto il codice li usa cosi as-is.
 
 Default iniettato: `fields_rule` con `gdpr` (full tranne delete) e
-`dpo` (solo read) su `resticted_fields: []`; `record_rulse` con UNA
+`dpo` (solo read) su `resticted_fields: []`; `record_rules` con UNA
 regola `owner_uid == user.uid` → full access sul proprio record.
 
 ## Le due tabelle flat: `model_groups_rule` / `model_fields_rule`
@@ -154,7 +154,7 @@ Due `rule_type` nella STESSA collection:
   `fields_rule.allowed_groups`. `restricted_fields` = lista COMPLETA
   dei campi ristretti per quel model (non filtrata per riga), `read`
   = quel gruppo li vede in chiaro.
-- `rule_type="record"`: una riga per elemento di `record_rulse`,
+- `rule_type="record"`: una riga per elemento di `record_rules`,
   `group` sempre vuoto, `filters` = query mongo VERBATIM (puo'
   contenere `{"var": "user.uid"}` non ancora risolto), scritta come
   stringa JSON (non dict tipizzato: `model_fields_rule.filters` e' un
@@ -211,7 +211,7 @@ correnti.
 ### Dove viene applicato
 
 - `Service.load_record`: gate `read`/`update` — vedi composizione con
-  `record_rulse` sotto ("Dove viene applicato" nella sezione Record
+  `record_rules` sotto ("Dove viene applicato" nella sezione Record
   rule).
 - `Service.list_records`/`stream_record`: se `read` negato, il
   `domain` mongo viene forzato a `{"rec_name": {"$in": []}}` (stesso
@@ -222,7 +222,7 @@ correnti.
   dell'operazione risolta) PRIMA di eseguire l'hook `data.before_write`
   e l'enforcement field-level — nega con `403 {"message": "Model ACL
   denied", "model", "operation"}`. Il CREATE e' gate SOLO da questo
-  motore (nessun record esiste ancora da valutare via `record_rulse`).
+  motore (nessun record esiste ancora da valutare via `record_rules`).
 - `ActionRuntime._is_action_allowed`: per le action `admin`/`sys`
   SENZA gruppo esplicito sull'action stessa, la visibilita' e' decisa
   da `model_group_access(read)` sul model target dell'action — vedi
@@ -234,23 +234,23 @@ correnti.
   `_is_action_allowed`) — il flag `export`/`delete` della riga resta
   quindi in gran parte inutilizzato salvo che dall'action-delete.
 
-### Composizione con `record_rulse` (model-level × record-level)
+### Composizione con `record_rules` (model-level × record-level)
 
 Le due enforcement sono indipendenti e si combinano in **AND**, non
 OR: `model_groups_rule` decide se il VERBO (read/create/update/delete)
-e' permesso al gruppo su quel MODEL; `record_rulse` puo' solo
+e' permesso al gruppo su quel MODEL; `record_rules` puo' solo
 RESTRINGERE ulteriormente l'insieme di RIGHE per un verbo gia'
 permesso — non concede mai un verbo che il gruppo non ha a livello di
 model (stesso schema Odoo-style `ir.model.access` + `ir.rule`: il
 primo gate e' sempre binario per model, il secondo filtra le righe).
 
 Conseguenza pratica: se un model concede al gruppo `user` solo
-`read` (non `create`), un `record_rulse` di tipo owner
+`read` (non `create`), un `record_rules` di tipo owner
 (`owner_uid == user.uid`, iniettato di default da
 `normalize_component_properties`) NON permette comunque a un utente
 `user`-only di creare record su quel model — serve che il model
 stesso conceda `create` a quel gruppo (via `model_groups_rule`),
-dopodiche' `record_rulse` puo' restringere quali righe esistenti puo'
+dopodiche' `record_rules` puo' restringere quali righe esistenti puo'
 poi leggere/modificare.
 
 ## Motore field ACL: `FieldAclPolicy` + `CompiledFieldAcl`
@@ -343,7 +343,7 @@ logga su collection `field_acl_audit` (`audit_denied_fields`) e lancia
 `403` con `{"message": "Field ACL denied", "model", "operation",
 "fields"}`.
 
-## Record rule (`record_rulse`, `rule_type="record"`)
+## Record rule (`record_rules`, `rule_type="record"`)
 
 Diverso dal field ACL: valuta filtri mongo contro UN RECORD GIA'
 CARICATO (non compilabile in `CompiledFieldAcl`, che e' actor-only,
@@ -363,7 +363,7 @@ regola configurata a mano in passato, il sync l'ha scritta comunque.
 - `evaluate_record_rule_access` / `record_rule_access` → per
   read/create/update/delete SUL RECORD stesso (non sui suoi campi):
   ritorna le azioni della PRIMA regola che matcha. **Fail-closed**: se
-  il model ha `record_rulse` configurato e nessuna regola matcha
+  il model ha `record_rules` configurato e nessuna regola matcha
   (non e' il tuo record), nega tutto — a differenza del field masking
   (dove "nessun match" = resta la baseline).
 
@@ -392,23 +392,23 @@ fallisce.
 ### Dove viene applicato
 
 - `Service.load_record`: `final_read = model_access["read"] AND
-  record_access["read"]` (vedi "Composizione con record_rulse" sopra)
+  record_access["read"]` (vedi "Composizione con record_rules" sopra)
   — false → `404` (non `403`, per non rivelare l'esistenza del
   record); `readable`/`editable` sulla response = `final_read`/
   `final_update` (`model_access["update"] AND record_access["update"]`)
   — enforcement hide/readonly lato UI.
-- `Service.list_records`: se `record_rulse` e non admin e non
+- `Service.list_records`: se `record_rules` e non admin e non
   sys-model, `record_rule_read_domain` restringe il `domain` mongo
   all'OR dei filtri (risolti) delle regole con `read=True` — fail-
   closed: nessuna regola con read → domain `{"rec_name": {"$in":
   []}}` (nessuna riga). Poi per ogni riga risultante,
   `apply_record_rule_override` puo' rivelare campi oscurati dalla
   baseline (owner del record vede i propri campi GDPR).
-- `Service.stream_record`: stessa logica, ma se `record_rulse` e'
+- `Service.stream_record`: stessa logica, ma se `record_rules` e'
   presente l'oscuramento server-side (query-level `obfuscate_fields`)
   viene SALTATO — il valore reale serve non ancora oscurato per poter
   eventualmente essere rivelato dall'override; l'oscuramento avviene
-  riga per riga in Python (`_apply_record_rulse_to_stream`).
+  riga per riga in Python (`_apply_record_rules_to_stream`).
 
 ### `resolve_var` / json-logic
 
@@ -489,8 +489,8 @@ record intero.
 |---|---|---|---|---|
 | model CRUD (`models_groups`) | `component.properties` | `model_groups_rule` | `model_group_access`, bypass admin | **fail-closed totale** (nessuna riga = nega, non solo "nessun match") |
 | campo (`fields_rule`) | `component.properties` | `model_fields_rule` (`rule_type=fields`) | `CompiledFieldAcl` OBFUSCATE, **niente bypass admin** | oscura se nessun gruppo matcha |
-| riga (`record_rulse`) — rivelamento campi | `component.properties` | `model_fields_rule` (`rule_type=record`) | `apply_record_rule_override`, bypass solo sys | nessun match → baseline invariata |
-| riga (`record_rulse`) — accesso record | idem | idem | `record_rule_access`, bypass solo sys (**niente bypass admin puro**) | nessun match → **nega tutto** |
+| riga (`record_rules`) — rivelamento campi | `component.properties` | `model_fields_rule` (`rule_type=record`) | `apply_record_rule_override`, bypass solo sys | nessun match → baseline invariata |
+| riga (`record_rules`) — accesso record | idem | idem | `record_rule_access`, bypass solo sys (**niente bypass admin puro**) | nessun match → **nega tutto** |
 | action | field `groups` esplicito, poi `model_group_access(read)` se `admin`/`sys` | `model_groups_rule` (via il model target dell'action) | `ActionRuntime._is_action_allowed` (async) | segue model_group_access |
 | menu (folder) | field `groups`/`admin` sul menu_group | — (nessun model target) | `Service._is_menu_group_allowed` (euristica propria, invariata) | passa se non configurato |
 | policy esplicite | collection `field_acl_policy` | — (e' gia' la fonte) | `CompiledFieldAcl` (stesso motore del field ACL) | dipende da `effect` |

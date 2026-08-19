@@ -395,7 +395,7 @@ def test_insert_update_component_preserves_acl_properties_on_partial_save():
                         {"groups": ["gdpr"], "actions": {"read": True}}
                     ],
                 },
-                "record_rulse": [],
+                "record_rules": [],
             },
             "rheader": "1",
         },
@@ -488,7 +488,7 @@ def test_insert_update_component_syncs_model_rules_on_save():
                         {"groups": ["dpo"], "actions": {"read": True}}
                     ],
                 },
-                "record_rulse": [
+                "record_rules": [
                     {
                         "filters": {"owner_uid": {"$eq": {"var": "user.uid"}}},
                         "actions": {"read": True, "update": True},

@@ -552,7 +552,7 @@ def test_sys_schemas_have_default_acl_properties_excluding_identity_layer():
     inietta per i nuovi record.
 
     "user" e' identity layer ma NON e' escluso come gli altri: porta
-    volutamente fields_rule/record_rulse (GDPR codicefiscale, ownership)
+    volutamente fields_rule/record_rules (GDPR codicefiscale, ownership)
     configurati per l'enforcement ACL — vedi [[acl-groups-models-groups-
     property]]. Gli altri quattro restano puramente admin-only."""
     from app.core.OzonEnvApp import IDENTITY_MODEL_NAMES

@@ -101,13 +101,13 @@ class ModelGroupsRule(BasicModel):
 
 
 class ModelFieldsRule(BasicModel):
-    """Riga flat di component.properties.models_restricted_fields.record_rulse
+    """Riga flat di component.properties.models_restricted_fields.record_rules
     (vedi app.ozon_env_acl.model_rules_sync) — SOLO Layer 2 (accesso al
     RECORD: read/create/update/delete, filtro riga-per-riga), sempre
     rule_type="record". group vuoto se l'entry sorgente non ha "groups"
     (regola universale, storico) o valorizzato se l'entry e' scoped a
     gruppi specifici (una riga per gruppo, stesso filters/actions — vedi
-    Service._get_record_rulse per il match contro session.groups). filters
+    Service._get_record_rules per il match contro session.groups). filters
     e' una query mongo verbatim (puo' contenere nodi {"var": ...} non
     ancora risolti — vedi Service._resolve_query_json_logic_vars).
 

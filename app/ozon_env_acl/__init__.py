@@ -473,7 +473,7 @@ def _obfuscate_path(payload: Any, field_path: str) -> None:
 
 def restore_path(payload: Any, field_path: str, original: Any) -> None:
     """Inverso di `_obfuscate_path`: ripristina il valore originale su un
-    campo (usato quando `record_rulse` sblocca un campo altrimenti
+    campo (usato quando `record_rules` sblocca un campo altrimenti
     oscurato dalla policy di gruppo, es. record di proprieta' dell'utente)."""
     if not _is_traversable(payload):
         return
@@ -490,7 +490,7 @@ def restore_path(payload: Any, field_path: str, original: Any) -> None:
 def obfuscate_fields_in_place(payload: dict[str, Any], fields: list[str]) -> None:
     """Applica `_obfuscate_path` per ciascun campo — usato dai path che
     saltano l'oscuramento server-side (aggregate obfuscate_fields) per
-    poter valutare `record_rulse` sui valori reali, e devono quindi
+    poter valutare `record_rules` sui valori reali, e devono quindi
     ri-applicare loro la baseline in Python (es. stream NDJSON)."""
     for field_path in fields:
         _obfuscate_path(payload, field_path)
@@ -923,10 +923,10 @@ def apply_field_rule_conditions(
     separato, statico per gruppo, mai influenzato da f_rule_cond).
 
     Sostituisce il vecchio `evaluate_record_rule_override`/
-    `apply_record_rule_override` basato su `record_rulse`: quel meccanismo
+    `apply_record_rule_override` basato su `record_rules`: quel meccanismo
     univa accesso-al-record e reveal-di-campo nella stessa riga (un filtro
     -> una LISTA di campi sbloccati); qui e' l'inverso, un campo -> UNA
-    condizione — piu' preciso, e permette a `record_rulse` di restare
+    condizione — piu' preciso, e permette a `record_rules` di restare
     puramente Layer 2 (accesso al record, non ai suoi campi).
 
     Ritorna la lista finale di campi ancora oscurati per questo item."""
@@ -968,7 +968,7 @@ def model_group_access(
 
     Fail-closed: se nessuna riga copre un gruppo dell'attore (model senza
     righe configurate INCLUSO — es. sync mai avvenuto, o model in
-    `IDENTITY_MODEL_NAMES`), nega tutto. Diverso da `record_rulse`/
+    `IDENTITY_MODEL_NAMES`), nega tutto. Diverso da `record_rules`/
     `fields_rule`: qui e' un permesso di tipo CRUD sul MODEL intero, non
     un dato personale — admin bypassa sempre (coerente con l'enforcement
     legacy di `models_groups`)."""
@@ -995,12 +995,12 @@ _NO_RECORD_ACCESS: dict[str, bool] = {key: False for key in _RECORD_ACTION_KEYS}
 
 
 def evaluate_record_rule_access(
-    record_rulse: list[dict[str, Any]],
+    record_rules: list[dict[str, Any]],
     *,
     record: dict[str, Any],
     resolve_var: Any,
 ) -> dict[str, bool] | None:
-    """Valuta `record_rulse` (rule_type="record", Layer 2 — accesso al
+    """Valuta `record_rules` (rule_type="record", Layer 2 — accesso al
     RECORD, non ai suoi campi: quello e' Layer 3/f_rule) contro UN record e
     ritorna le azioni concesse (read/create/update/delete), UNIONE (OR
     logico, stesso pattern di `model_group_access`) di TUTTE le regole che
@@ -1016,12 +1016,12 @@ def evaluate_record_rule_access(
     riga `group`-scoped. Un accesso incondizionato per un intero gruppo
     non e' un concetto per-record: va espresso a Layer 1 (model_groups_
     rule) o Layer 3 (f_rule), non qui."""
-    if not record_rulse or not isinstance(record, dict):
+    if not record_rules or not isinstance(record, dict):
         return None
     rec_name = record.get("rec_name")
     matched_any = False
     granted = dict(_NO_RECORD_ACCESS)
-    for index, rule in enumerate(record_rulse):
+    for index, rule in enumerate(record_rules):
         raw_filters = rule.get("filters") or {}
         if not raw_filters:
             continue
@@ -1049,19 +1049,19 @@ def evaluate_record_rule_access(
 
 def record_rule_access(
     *,
-    record_rulse: list[dict[str, Any]],
+    record_rules: list[dict[str, Any]],
     record: dict[str, Any],
     resolve_var: Any,
     bypass_ownership: bool,
 ) -> dict[str, bool]:
     """Azioni concesse (read/create/update/delete) su UN record gia' caricato,
-    secondo record_rulse — apertura/accesso a documenti non di proprieta'.
+    secondo record_rules — apertura/accesso a documenti non di proprieta'.
 
-    Fail-closed: se il model ha record_rulse configurato e nessuna regola
+    Fail-closed: se il model ha record_rules configurato e nessuna regola
     matcha il record (non e' il tuo record, non sei nel gruppo coperto),
     nega tutto — niente fallback alla baseline (a differenza del field-
     masking, qui "nessun match" e' proprio negazione di accesso al record).
-    Se il model non ha record_rulse, resta senza restrizioni.
+    Se il model non ha record_rules, resta senza restrizioni.
 
     `bypass_ownership` NON e' "is_admin": e' vero solo per i model sys
     (config condivisa, l'ownership per-record non ha senso li' — vedi
@@ -1070,10 +1070,10 @@ def record_rule_access(
     concede bypass admin — solo una regola che matcha davvero (es. un
     `actor_selector`/filtro che copre esplicitamente il gruppo admin)
     concede accesso."""
-    if bypass_ownership or not record_rulse:
+    if bypass_ownership or not record_rules:
         return dict(_FULL_RECORD_ACCESS)
     granted = evaluate_record_rule_access(
-        record_rulse, record=record, resolve_var=resolve_var
+        record_rules, record=record, resolve_var=resolve_var
     )
     if granted is None:
         return dict(_NO_RECORD_ACCESS)
@@ -1081,12 +1081,12 @@ def record_rule_access(
 
 
 def record_rule_read_domain(
-    record_rulse: list[dict[str, Any]],
+    record_rules: list[dict[str, Any]],
     *,
     resolve_var: Any,
 ) -> dict[str, Any]:
     """Domain mongo che restringe una query alle sole righe leggibili secondo
-    record_rulse (Layer 2), per un attore NON admin — OR dei filtri
+    record_rules (Layer 2), per un attore NON admin — OR dei filtri
     risolti (gia' scoped sull'utente corrente via resolve_var) di ogni
     regola con read=True. Se nessuna regola concede read, ritorna un
     domain che non matcha nulla (fail-closed: un OR vuoto in mongo
@@ -1096,7 +1096,7 @@ def record_rule_read_domain(
     (stessa scelta di `evaluate_record_rule_access`): un accesso senza
     restrizioni per un intero gruppo non e' un concetto per-record."""
     clauses: list[dict[str, Any]] = []
-    for rule in record_rulse:
+    for rule in record_rules:
         if not rule.get("read", False):
             continue
         raw_filters = rule.get("filters") or {}

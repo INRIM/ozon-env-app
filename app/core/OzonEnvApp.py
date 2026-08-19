@@ -34,7 +34,7 @@ _DEFAULT_MODELS_RESTRICTED_FIELDS: dict[str, Any] = {
     # dichiarata su properties.f_rule/f_rule_cond dello schema field stesso
     # (baked a codegen-time — vedi Model.get_field_rules()/
     # get_field_rules_conditions()), non piu' sincronizzata qui.
-    "record_rulse": [
+    "record_rules": [
         {
             "filters": {"owner_uid": {"$eq": {"var": "user.uid"}}},
             "actions": {

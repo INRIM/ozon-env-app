@@ -111,7 +111,7 @@ class ActionRuntime:
         `[operator, manager]` che apre una action `manager` non deve
         trascinarsi dentro le regole `operator`.
 
-        Action senza `groups` -> scope vuoto -> `_get_record_rulse` resta
+        Action senza `groups` -> scope vuoto -> `_get_record_rules` resta
         sui gruppi di sessione (comportamento storico invariato).
         """
         self.service.action_groups = action_groups(action)

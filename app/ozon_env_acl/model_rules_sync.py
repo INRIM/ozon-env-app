@@ -144,7 +144,7 @@ async def model_groups_rows(
 async def model_fields_rows(
     env: Any, app_code: str, model_name: str, properties: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    """Flatten component.properties.models_restricted_fields.record_rulse in
+    """Flatten component.properties.models_restricted_fields.record_rules in
     righe model_fields_rule (rule_type="record"), una per indice (o una per
     gruppo, se l'entry ha "groups" — vedi sotto).
 
@@ -158,26 +158,26 @@ async def model_fields_rows(
     presente in config vecchia viene semplicemente ignorata qui (nessun
     ramo la legge piu').
 
-    Chiave input con typo (record_rulse) parsata as-is: e' il formato
-    scritto da normalize_component_properties/i default seed.
+    La chiave canonica ``record_rules`` e' scritta da
+    normalize_component_properties e dai default seed.
 
     `filters` e' scritto come stringa JSON (campo testo + json editor nel
     form model_fields_rule, coerente con queryformeditable/altri campi
-    JSON-in-textarea dell'app) — chi legge la riga (Service._get_record_rulse)
+    JSON-in-textarea dell'app) — chi legge la riga (Service._get_record_rules)
     fa un json.loads difensivo, non un dict tipizzato via ORM.
     """
     raw = _parse_dict_property(
         (properties or {}).get("models_restricted_fields"),
         "models_restricted_fields",
     )
-    if raw is None or "record_rulse" not in raw:
+    if raw is None or "record_rules" not in raw:
         return []
 
     rows: list[dict[str, Any]] = []
 
-    record_rulse = raw.get("record_rulse")
-    if isinstance(record_rulse, list):
-        for index, entry in enumerate(record_rulse):
+    record_rules = raw.get("record_rules")
+    if isinstance(record_rules, list):
+        for index, entry in enumerate(record_rules):
             if not isinstance(entry, dict):
                 continue
             actions = entry.get("actions") or {}
@@ -213,7 +213,7 @@ async def model_fields_rows(
                 # entry scoped a gruppi specifici -> una riga per gruppo,
                 # stesso filters/actions/restricted_fields; valutata solo
                 # per sessioni il cui user.groups intersect questo group
-                # (vedi Service._get_record_rulse).
+                # (vedi Service._get_record_rules).
                 for group_name in group_names:
                     row = {
                         "rec_name": f"mfr.{app_code}.{model_name}.record.{index}.{group_name}",

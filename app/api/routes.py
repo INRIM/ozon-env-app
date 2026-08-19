@@ -252,7 +252,7 @@ async def get_client_record_attachment(
     # leggibili, non capability) per scaricare allegati di record non
     # leggibili via /record/{model}/{rec_name}.
     #
-    # `load_record` applica model_groups_rule + record_rulse: quando il
+    # `load_record` applica model_groups_rule + record_rules: quando il
     # read finale e' negato solleva direttamente HTTPException(404)
     # (service.py, ramo `if not final_read`), quindi il diniego ACL esce
     # di qui senza toccare il filesystem. Il `if not record` sotto copre
