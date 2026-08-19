@@ -473,7 +473,7 @@ def test_register_static_models_clears_stale_dynamic_entry_before_registering():
     env = _FakeEnv()
     env.orm = _FakeOrm(env)
 
-    asyncio.run(app_env._register_static_models(env))
+    asyncio.run(app_env.register_static_models(env))
 
     # per ogni model statico, la entry preesistente va rimossa PRIMA della
     # chiamata ad add_static_model, altrimenti il no-op guard di ozon-env
@@ -484,3 +484,156 @@ def test_register_static_models_clears_stale_dynamic_entry_before_registering():
     from app.core.models import MailTemplate
 
     assert env.models["mail_template"] is MailTemplate
+
+
+class _FakeRevocationModel:
+    def __init__(self, revoked: bool = False):
+        self.revoked = revoked
+        self.count_calls = []
+
+    async def count(self, domain=None):
+        self.count_calls.append(domain)
+        return 1 if self.revoked else 0
+
+
+class _RevocableOzonEnv(_FakeOzonEnv):
+    """`_FakeOzonEnv` + model `revoked_session` + claims sulla sessione."""
+
+    def __init__(self, revoked: bool = False, claims=None, **kwargs):
+        super().__init__(**kwargs)
+        self.revocation_model = _FakeRevocationModel(revoked)
+        self.user_session.claims = (
+            claims
+            if claims is not None
+            else {"sid": "sid-1", "sub": "sub-1", "iat": 1000}
+        )
+
+    def get(self, name: str):
+        if name == "revoked_session":
+            return self.revocation_model
+        return super().get(name)
+
+
+def test_get_authed_env_rejects_session_revoked_on_keycloak(monkeypatch):
+    """Il buco principale: distrutta la sessione su Keycloak, il JWT resta
+    valido localmente fino alla sua `exp` e l'app continuava ad accettarlo."""
+    monkeypatch.setattr(app_env, "settings", _FAKE_SETTINGS)
+
+    request = _build_request("/get_session")
+    response = Response()
+    ozon_env = _RevocableOzonEnv(revoked=True, user_app_code="mci")
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            app_env.get_authed_env("Bearer ok-token", ozon_env, request, response)
+        )
+
+    assert exc.value.status_code == 401
+    assert "terminated" in str(exc.value.detail)
+
+
+def test_get_authed_env_allows_session_not_revoked(monkeypatch):
+    monkeypatch.setattr(app_env, "settings", _FAKE_SETTINGS)
+
+    request = _build_request("/get_session")
+    response = Response()
+    ozon_env = _RevocableOzonEnv(revoked=False, user_app_code="mci")
+
+    result = asyncio.run(
+        app_env.get_authed_env("Bearer ok-token", ozon_env, request, response)
+    )
+
+    assert result is ozon_env
+    assert ozon_env.revocation_model.count_calls
+
+
+def test_get_authed_env_skips_revocation_lookup_without_claims(monkeypatch):
+    """Token senza claims (bearer statico/test): niente lookup, niente 401."""
+    monkeypatch.setattr(app_env, "settings", _FAKE_SETTINGS)
+
+    request = _build_request("/get_session")
+    response = Response()
+    ozon_env = _RevocableOzonEnv(revoked=True, claims={}, user_app_code="mci")
+
+    result = asyncio.run(
+        app_env.get_authed_env("Bearer ok-token", ozon_env, request, response)
+    )
+
+    assert result is ozon_env
+    assert ozon_env.revocation_model.count_calls == []
+
+
+def _session_cookie_headers(token, csrf: str = "csrf-value"):
+    signed = app_env.sign_token(token, _FAKE_SETTINGS.session_secret)
+    cookie = f"session={signed}; csrf={csrf}"
+    return [
+        (b"cookie", cookie.encode("utf-8")),
+        (b"x-csrf-token", csrf.encode("utf-8")),
+    ]
+
+
+def _session_set_cookies(response) -> list[str]:
+    return [
+        value.decode("utf-8")
+        for key, value in response.raw_headers
+        if key == b"set-cookie"
+    ]
+
+
+def test_get_authed_env_does_not_rewrite_cookie_without_rotation(monkeypatch):
+    """Riscrivere il cookie ad ogni risposta significa, sotto concorrenza,
+    che l'ultima risposta atterrata rimette nel browser il bundle vecchio."""
+    monkeypatch.setattr(app_env, "settings", _FAKE_SETTINGS)
+
+    token = {"access_token": "same-token", "refresh_token": "r"}
+    request = _build_request("/get_session", headers=_session_cookie_headers(token))
+    response = Response()
+    ozon_env = _RevocableOzonEnv(user_app_code="mci")
+    ozon_env.current_token_data = dict(token)
+
+    asyncio.run(app_env.get_authed_env(None, ozon_env, request, response))
+
+    assert not [c for c in _session_set_cookies(response) if c.startswith("session=")]
+
+
+def test_get_authed_env_rewrites_cookie_when_token_rotated(monkeypatch):
+    monkeypatch.setattr(app_env, "settings", _FAKE_SETTINGS)
+
+    token = {"access_token": "old-token", "refresh_token": "r"}
+    request = _build_request("/get_session", headers=_session_cookie_headers(token))
+    response = Response()
+    ozon_env = _RevocableOzonEnv(user_app_code="mci")
+    ozon_env.current_token_data = {
+        "access_token": "new-token",
+        "refresh_token": "r2",
+    }
+
+    asyncio.run(app_env.get_authed_env(None, ozon_env, request, response))
+
+    cookies = _session_set_cookies(response)
+    assert [c for c in cookies if c.startswith("session=")]
+    # CSRF rinnovato insieme alla sessione, stesso valore: rigenerarlo
+    # invaliderebbe le richieste gia' in volo.
+    csrf_cookies = [c for c in cookies if c.startswith("csrf=")]
+    assert csrf_cookies and "csrf=csrf-value" in csrf_cookies[0]
+
+
+def test_get_authed_env_reissues_missing_csrf_cookie(monkeypatch):
+    """Il cookie CSRF aveva scadenza fissa dal login mentre la sessione
+    scorreva: scaduto lui, ogni POST tornava 403 senza via d'uscita."""
+    monkeypatch.setattr(app_env, "settings", _FAKE_SETTINGS)
+
+    token = {"access_token": "same-token", "refresh_token": "r"}
+    signed = app_env.sign_token(token, _FAKE_SETTINGS.session_secret)
+    request = _build_request(
+        "/get_session",
+        headers=[(b"cookie", f"session={signed}".encode("utf-8"))],
+    )
+    response = Response()
+    ozon_env = _RevocableOzonEnv(user_app_code="mci")
+    ozon_env.current_token_data = dict(token)
+
+    asyncio.run(app_env.get_authed_env(None, ozon_env, request, response))
+
+    cookies = _session_set_cookies(response)
+    assert [c for c in cookies if c.startswith("csrf=")]

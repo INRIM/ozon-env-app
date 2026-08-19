@@ -516,6 +516,34 @@ class EnvSettings(OzonEnvCoreSettings):
         )
 
     @property
+    def logout_redirect_absolute_url(self) -> str:
+        """`LOGOUT_REDIRECT_URL` reso assoluto.
+
+        Keycloak valida `post_logout_redirect_uri` contro la lista del
+        client e rifiuta con 400 qualunque valore relativo: col default
+        "/" il redirect di logout finiva su una pagina di errore di
+        Keycloak invece che sull'app.
+        """
+        target = str(self.logout_redirect_url or "/").strip()
+        if target.startswith(("http://", "https://")):
+            return target
+        return f"{self.external_base_url.rstrip('/')}/{target.lstrip('/')}"
+
+    @property
+    def keycloak_logout_endpoint_internal(self) -> str:
+        """End-session endpoint sulla rete interna.
+
+        `keycloak_logout_endpoint` (public) e' l'URL su cui si manda il
+        BROWSER; questo e' quello che chiama il server per revocare il
+        refresh token, e deve passare per l'hostname interno come tutte
+        le altre chiamate server->Keycloak (token/userinfo/jwks).
+        """
+        return (
+            f"{self.keycloak_server_url_internal}/realms/{self.keycloak_realm}"
+            "/protocol/openid-connect/logout"
+        )
+
+    @property
     def keycloak_token_endpoint(self) -> str:
         return (
             f"{self.keycloak_server_url_internal}/realms/{self.keycloak_realm}"

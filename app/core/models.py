@@ -137,3 +137,39 @@ class ModelFieldsRule(BasicModel):
     create: bool = False
     update: bool = False
     delete: bool = False
+
+
+class RevokedSession(BasicModel):
+    """Sessione Keycloak terminata, notificata via back-channel logout.
+
+    Serve a chiudere la finestra in cui l'app accetta ancora un access
+    token la cui sessione Keycloak non esiste piu': la verifica del JWT e'
+    puramente locale (firma/exp/iss/aud via JWKS), quindi senza questa
+    tabella un token resta valido fino alla sua `exp` — fino a
+    `accessTokenLifespan` secondi dopo il logout.
+
+    Due forme di revoca, entrambe previste da OIDC Back-Channel Logout:
+      - per `sid`: termina la singola sessione SSO (il caso normale);
+      - per `sub` senza `sid`: termina TUTTE le sessioni dell'utente. In
+        questo caso `sid` resta vuoto e il confronto avviene su
+        `revoked_at` vs la claim `iat` del token presentato.
+
+    `expire_at` e' l'istante oltre il quale la riga non serve piu' (nessun
+    token emesso prima della revoca puo' essere ancora valido): la
+    cancellazione avviene in `purge_expired_revocations`.
+    """
+
+    sid: str = ""
+    sub: str = ""
+    uid: str = ""
+    revoked_at: float = 0.0
+    expire_at: float = 0.0
+
+    @classmethod
+    def table_columns(cls) -> dict:
+        return {
+            "uid": "Utente",
+            "sid": "Session id",
+            "revoked_at": "Revocata il",
+            "expire_at": "Purgabile dal",
+        }

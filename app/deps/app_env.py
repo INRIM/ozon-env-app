@@ -23,6 +23,9 @@ from app.core.OzonEnvApp import AppOzonEnv
 from app.core.OzonModelApp import OzonModelApp
 from app.core.models import FieldAclPolicy
 from app.core.models import MailTemplate, AppUser
+from app.core.models import RevokedSession
+from app.services.cookie_auth import make_csrf_token
+from app.services.cookie_auth import session_cookie_max_age
 from app.services.cookie_auth import sign_token
 from app.services.cookie_auth import verify_token
 from app.services.service import Service
@@ -35,6 +38,7 @@ api_key_header = APIKeyHeader(name=settings.token_header, auto_error=False)
 _STATIC_MODELS = [
     ("mail_template", MailTemplate),
     ("field_acl_policy", FieldAclPolicy),
+    ("revoked_session", RevokedSession),
 ]
 # model_groups_rule/model_fields_rule NON sono statici: hanno un
 # component/form reale (con field type + tableView gia' configurati),
@@ -54,7 +58,7 @@ _READ_ONLY_POST_CSRF_EXEMPT_PATHS = {
 }
 
 
-async def _register_static_models(env: AppOzonEnv) -> None:
+async def register_static_models(env: AppOzonEnv) -> None:
     for name, model_class in _STATIC_MODELS:
         # `env.init_env()` (init_models) puo' aver gia' registrato un model
         # dinamico per questo nome, rigenerato da un .py stale in
@@ -382,7 +386,7 @@ async def sync_app_settings_startup(source_settings: Any = None) -> None:
     try:
         await env.init_env(local_model={"user":AppUser})
         env_ready = True
-        await _register_static_models(env)
+        await register_static_models(env)
         # Startup-only: seed admin group_users from env if none exists yet.
         await _ensure_startup_identity_fields(env, effective_settings)
         await _sync_runtime_app_settings(env, effective_settings)
@@ -438,6 +442,82 @@ async def get_ozon_env(request: Request) -> AsyncGenerator[AppOzonEnv, None]:
         await env.close_env()
 
 
+def _access_token_of(token: Any) -> str:
+    """Access token contenuto in un bundle (dict) o token nudo (str)."""
+    if isinstance(token, dict):
+        return str(token.get("access_token") or "")
+    return str(token or "")
+
+
+def _issue_session_cookies(
+    request: Request,
+    response: Response,
+    token_data: dict[str, Any],
+) -> None:
+    """Riscrive cookie di sessione e CSRF con la stessa scadenza.
+
+    Due bug che questa funzione chiude:
+
+    1. `ozon_csrf` veniva emesso SOLO in `/auth/callback`, con scadenza
+       fissa, mentre `ozon_session` veniva riscritto ad ogni risposta e
+       quindi scorreva in avanti. Passato `AUTH_COOKIE_MAX_AGE` dal
+       login, il browser aveva ancora la sessione ma non piu' il CSRF: le
+       GET funzionavano, ogni POST/PUT/DELETE tornava 403 "CSRF
+       validation failed". I due cookie devono scadere insieme.
+
+    2. Il valore del CSRF NON va rigenerato ad ogni richiesta: il client
+       lo legge una volta e lo rimanda nell'header `X-CSRF-Token`, quindi
+       rigenerarlo invaliderebbe ogni richiesta gia' in volo. Si rinnova
+       solo la scadenza; un valore nuovo si emette solo se il cookie
+       manca del tutto (altrimenti il client resterebbe bloccato sulle
+       scritture senza modo di recuperare).
+    """
+    max_age = session_cookie_max_age(settings.auth_cookie_max_age, token_data)
+    cookie_kwargs = dict(
+        samesite=settings.auth_cookie_samesite,
+        secure=settings.cookie_secure,
+        max_age=max_age,
+        path="/",
+    )
+    response.set_cookie(
+        key=settings.auth_cookie_name,
+        value=sign_token(token_data, settings.session_secret),
+        httponly=True,
+        **cookie_kwargs,
+    )
+    csrf_value = request.cookies.get(settings.csrf_cookie_name, "")
+    response.set_cookie(
+        key=settings.csrf_cookie_name,
+        value=csrf_value or make_csrf_token(),
+        httponly=False,
+        **cookie_kwargs,
+    )
+
+
+async def _reject_revoked_session(ozon_env: AppOzonEnv) -> None:
+    """401 se la sessione Keycloak del token e' stata terminata.
+
+    La verifica del JWT e' locale (JWKS/exp/iss/aud): non sa nulla di un
+    logout avvenuto su Keycloak. Senza questo controllo il token resta
+    buono fino alla sua `exp`. Vedi app/services/session_revocation.py.
+    """
+    from app.services.session_revocation import is_session_revoked
+
+    claims = getattr(ozon_env.user_session, "claims", None)
+    if not isinstance(claims, dict) or not claims:
+        return
+    if await is_session_revoked(ozon_env, claims):
+        logger.warning(
+            "revoked session rejected uid=%s sid=%s",
+            getattr(ozon_env.user_session, "uid", ""),
+            claims.get("sid", ""),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session terminated on the identity provider",
+        )
+
+
 def _validate_csrf(request: Request) -> None:
     method = str(request.method or "").upper()
     if method not in {"POST", "PUT", "DELETE", "PATCH"}:
@@ -474,7 +554,7 @@ async def get_authed_env(
     request: Request,
     response: Response,
 ) -> AppOzonEnv:
-    await _register_static_models(ozon_env)
+    await register_static_models(ozon_env)
 
     cookie_val = request.cookies.get(settings.auth_cookie_name, "")
     if cookie_val:
@@ -489,6 +569,7 @@ async def get_authed_env(
             )
     else:
         token = _extract_bearer(token_header_value)
+    incoming_access_token = _access_token_of(token)
 
     params = dict(ozon_env.params) if isinstance(ozon_env.params, dict) else {}
     params["current_token"] = token
@@ -513,6 +594,8 @@ async def get_authed_env(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=result.msg or "Invalid session",
         )
+
+    await _reject_revoked_session(ozon_env)
 
     # ozon-env session_app() builds a plain User without app_code and with
     # is_admin frozen at whatever was persisted in the `user` collection.
@@ -574,18 +657,25 @@ async def get_authed_env(
             "failed to set allowed_users uid=%s", session_uid
         )
 
-    # BFF cookie mode: refresh cookie if ozon-env rotated tokens internally
+    # BFF cookie mode: riscrivi il cookie SOLO se ozon-env ha davvero
+    # ruotato il token. Prima si riscriveva ad ogni risposta: Fernet usa
+    # un IV casuale, quindi ogni risposta portava 2.6 KB di Set-Cookie
+    # diverso anche a bundle identico. Con richieste concorrenti vince
+    # l'ultima risposta che atterra, non la piu' recente: subito dopo un
+    # refresh, una risposta partita prima rimetteva nel browser il bundle
+    # pre-refresh — sessione persa a caso sotto carico.
     if cookie_val:
         fresh_token_data = getattr(ozon_env, "current_token_data", None)
-        if isinstance(fresh_token_data, dict) and fresh_token_data.get("access_token"):
-            response.set_cookie(
-                key=settings.auth_cookie_name,
-                value=sign_token(fresh_token_data, settings.session_secret),
-                httponly=True,
-                samesite=settings.auth_cookie_samesite,
-                secure=settings.cookie_secure,
-                max_age=settings.auth_cookie_max_age,
-                path="/",
+        rotated = (
+            isinstance(fresh_token_data, dict)
+            and fresh_token_data.get("access_token")
+            and fresh_token_data.get("access_token") != incoming_access_token
+        )
+        if rotated or not request.cookies.get(settings.csrf_cookie_name, ""):
+            _issue_session_cookies(
+                request,
+                response,
+                fresh_token_data if rotated else token,
             )
 
     response.set_cookie(
@@ -661,7 +751,7 @@ async def build_authed_env_from_token(
                 "ws app settings sync failed app_code=%s", current_app_code
             )
             _apply_runtime_app_settings(env, effective_settings)
-        await _register_static_models(env)
+        await register_static_models(env)
 
         params = dict(env.params) if isinstance(env.params, dict) else {}
         params["current_token"] = token
@@ -680,6 +770,17 @@ async def build_authed_env_from_token(
             raise WsAuthError(str(exc) or "Token expired or invalid") from exc
         if result.fail or not env.user_session:
             raise WsAuthError(result.msg or "Invalid session")
+
+        # Stessa revoca del path HTTP: una connessione WS non deve
+        # sopravvivere al logout Keycloak piu' di una richiesta REST.
+        from app.services.session_revocation import is_session_revoked
+
+        ws_claims = getattr(env.user_session, "claims", None)
+        if isinstance(ws_claims, dict) and ws_claims:
+            if await is_session_revoked(env, ws_claims):
+                raise WsAuthError(
+                    "Session terminated on the identity provider"
+                )
 
         from app.services.session_auth import session_to_app_session
         session_uid = str(getattr(env.user_session, "uid", "") or "").strip()

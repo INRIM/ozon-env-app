@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import secrets
+import time
 import zlib
 from functools import lru_cache
 from typing import Any
@@ -100,3 +101,53 @@ def verify_token(
 
 def make_csrf_token() -> str:
     return secrets.token_urlsafe(32)
+
+
+def refresh_token_max_age(token: Any) -> int:
+    """Vita residua del refresh token nel bundle, in secondi (0 se ignota).
+
+    Serve a NON far vivere il cookie di sessione piu' a lungo della
+    sessione SSO che lo sostiene. Con `AUTH_COOKIE_MAX_AGE` a 24h e un
+    realm con `ssoSessionMaxLifespan` a 10h il browser continua a
+    presentare un cookie che Keycloak ha gia' dimenticato: il refresh
+    fallisce e l'utente si becca un 401 a meta' lavoro, senza che nulla
+    nel client segnalasse la scadenza. Allineando il cookie al refresh
+    token la sessione lato browser finisce quando finisce quella vera.
+    """
+    if not isinstance(token, dict):
+        return 0
+    raw = token.get("refresh_expires_in")
+    try:
+        expires_in = int(raw)
+    except (TypeError, ValueError):
+        expires_in = 0
+    if expires_in > 0:
+        return expires_in
+    refresh_token = str(token.get("refresh_token") or "")
+    if refresh_token.count(".") != 2:
+        # Keycloak emette refresh token opachi quando la sessione e'
+        # offline: nessuna scadenza deducibile, si tiene il configurato.
+        return 0
+    try:
+        chunk = refresh_token.split(".")[1]
+        payload = json.loads(
+            base64.urlsafe_b64decode(chunk + "=" * (-len(chunk) % 4)).decode(
+                "utf-8"
+            )
+        )
+        remaining = int(payload["exp"]) - int(time.time())
+    except Exception:
+        return 0
+    return max(remaining, 0)
+
+
+def session_cookie_max_age(configured_max_age: int, token: Any) -> int:
+    """`max_age` effettivo: il minore tra configurato e vita del refresh."""
+    try:
+        configured = int(configured_max_age)
+    except (TypeError, ValueError):
+        return 0
+    bound = refresh_token_max_age(token)
+    if bound <= 0:
+        return configured
+    return min(configured, bound)

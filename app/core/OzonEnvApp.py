@@ -25,6 +25,11 @@ IDENTITY_MODEL_NAMES = frozenset(
         "model_groups_rule",
         "model_fields_rule",
         "field_acl_policy",
+        # Tabella delle sessioni revocate (back-channel logout): non e'
+        # dato applicativo, e' lo stato del gate di autenticazione. Se
+        # finisse nei models_groups di default un utente potrebbe
+        # cancellare la propria revoca e riattivarsi la sessione.
+        "revoked_session",
     }
 )
 
