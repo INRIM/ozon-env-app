@@ -829,7 +829,7 @@ def test_action_runtime_fast_actions_config_absent_when_not_configured():
 
 
 def test_date_engine_app_resolve_relative_expr():
-    from datetime import timedelta, timezone
+    from datetime import timedelta
     from app.core.OzonModelApp import DateEngineApp
 
     de = DateEngineApp()
@@ -887,3 +887,112 @@ def test_service_resolve_query_json_logic_vars():
     )
     bounds = resolved["create_datetime"]["$and"]
     assert bounds[0]["$gte"] < bounds[1]["$lt"]
+
+
+def test_ozon_model_app_set_user_data_preserves_payload_owner():
+    # `OzonModel.insert()` chiama set_user_data su OGNI insert: e' l'unico
+    # punto in cui gli owner_* vengono assegnati, quindi e' li' che il
+    # flag deve agire (non in una seconda scrittura dopo l'upsert, che
+    # riscriverebbe il record con un payload parziale).
+    from types import SimpleNamespace
+
+    from app.core.OzonModelApp import OzonModelApp
+
+    model = object.__new__(OzonModelApp)
+    user = {"uid": "importer", "full_name": "Importer"}
+
+    model.preserve_owner = True
+    model.preserve_owner_data = None
+    record = SimpleNamespace(owner_uid="original", owner_name="Original")
+    assert model.set_user_data(record, user).owner_uid == "original"
+
+    # payload senza owner_uid: niente da preservare, comportamento standard
+    model.preserve_owner = True
+    record = SimpleNamespace(owner_uid="")
+    assert model.set_user_data(record, user).owner_uid == "importer"
+
+    # flag spento: sempre comportamento standard di ozon-env
+    model.preserve_owner = False
+    record = SimpleNamespace(owner_uid="original")
+    assert model.set_user_data(record, user).owner_uid == "importer"
+
+
+def test_ozon_model_app_set_user_data_applies_resolved_owner_identity():
+    # Preservare l'owner non vuol dire lasciare il record com'e': gli
+    # owner_* diversi da owner_uid arrivano dal model `user` locale
+    # (risolti da Service._resolve_owner_identity), MAI dal payload — che
+    # porta i dati dell'istanza di origine.
+    from types import SimpleNamespace
+
+    from app.core.OzonModelApp import OzonModelApp
+
+    model = object.__new__(OzonModelApp)
+    model.preserve_owner = True
+    model.preserve_owner_data = {
+        "owner_name": "Mario Rossi",
+        "owner_mail": "mario@example.org",
+        "owner_sector": "IT",
+        "owner_sector_id": 7,
+        "owner_function": "dev",
+        "owner_personal_type": "TI",
+        "owner_job_title": "ing",
+    }
+    record = SimpleNamespace(
+        owner_uid="original",
+        owner_name="Nome Dell'Altra Istanza",
+        owner_mail="vecchia@istanza.org",
+        owner_sector="",
+        owner_sector_id=0,
+        owner_function="",
+        owner_personal_type="",
+        owner_job_title="",
+    )
+
+    result = model.set_user_data(record, {"uid": "importer"})
+
+    assert result.owner_uid == "original"
+    assert result.owner_name == "Mario Rossi"
+    assert result.owner_mail == "mario@example.org"
+    assert result.owner_sector == "IT"
+    assert result.owner_sector_id == 7
+    assert result.owner_function == "dev"
+    assert result.owner_personal_type == "TI"
+    assert result.owner_job_title == "ing"
+
+
+def test_ozon_model_app_set_user_data_blanks_owner_fields_when_uid_unknown():
+    # uid non risolvibile localmente: fail-soft, ma i campi del payload
+    # non sopravvivono — un owner_name di un'altra istanza sarebbe peggio
+    # di un campo vuoto.
+    from types import SimpleNamespace
+
+    from app.core.OzonModelApp import OzonModelApp
+
+    model = object.__new__(OzonModelApp)
+    model.preserve_owner = True
+    model.preserve_owner_data = {
+        "owner_name": "",
+        "owner_mail": "",
+        "owner_sector": "",
+        "owner_sector_id": 0,
+        "owner_function": "",
+        "owner_personal_type": "",
+        "owner_job_title": "",
+    }
+    record = SimpleNamespace(
+        owner_uid="ghost",
+        owner_name="Nome Dell'Altra Istanza",
+        owner_mail="vecchia@istanza.org",
+        owner_sector="ALTRO",
+        owner_sector_id=99,
+        owner_function="x",
+        owner_personal_type="x",
+        owner_job_title="x",
+    )
+
+    result = model.set_user_data(record, {"uid": "importer"})
+
+    assert result.owner_uid == "ghost"
+    assert result.owner_name == ""
+    assert result.owner_sector == ""
+    assert result.owner_sector_id == 0

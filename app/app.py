@@ -13,6 +13,7 @@ from app.api.filter_router import router as filter_router
 from app.api.message_queue_router import router as message_queue_router
 from app.api.routes import router
 from app.api.service_registry_router import router as service_registry_router
+from app.api.step_router import router as step_router
 from app.api.websocket_router import router as websocket_router
 from app.app_settings import build_api_settings
 from app.app_settings import get_env_settings
@@ -88,6 +89,7 @@ app.include_router(filter_router)
 app.include_router(message_queue_router)
 app.include_router(service_registry_router)
 app.include_router(camunda_router)
+app.include_router(step_router)
 app.include_router(websocket_router)
 
 

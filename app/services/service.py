@@ -2,11 +2,8 @@ import json
 import logging
 import re
 from datetime import datetime
-from types import UnionType
 from typing import Any
 from typing import Union
-from typing import get_args
-from typing import get_origin
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
@@ -17,7 +14,9 @@ from ozonenv.core.OzonModel import OzonModelBase
 from .action_runtime import ActionRuntime
 from .action_runtime import _is_enabled_flag
 from .action_runtime import action_groups
-from .common import *
+from .common import ResponseObject
+from .common import ResponseObjectData
+from .common import make_response_object
 from .formio import get_formio_select_options
 from app.app_settings import get_env_settings
 from app.core.models import FieldAclEffect
@@ -28,6 +27,9 @@ from app.core.service_registry import ServiceRegistryCore
 from app.core.OzonEnvApp import normalize_component_properties
 from app.core.webhooks import WebhookDispatcher
 from app.services.message_queue import maybe_enqueue_on_save
+from app.services.session_auth import _full_name
+from app.services.session_auth import _int_value
+from app.services.utils import check_parse_json
 from app.ozon_env_acl import CompiledFieldAcl
 from app.ozon_env_acl import QueryFieldAclDeniedError
 from app.ozon_env_acl import QueryOperatorNotAllowedError
@@ -165,65 +167,6 @@ def _normalize_boolean_payload_values(
         if normalized.get(key, None) == "":
             normalized[key] = False
     return normalized
-
-
-def _annotation_accepts_string(annotation: Any) -> bool:
-    if annotation is str:
-        return True
-    origin = get_origin(annotation)
-    if origin in {Union, UnionType}:
-        return any(
-            _annotation_accepts_string(arg) for arg in get_args(annotation)
-        )
-    return False
-
-
-def _string_payload_keys(record_model: Any) -> set[str]:
-    model = getattr(record_model, "model", None)
-    model_fields = getattr(model, "model_fields", None)
-    if isinstance(model_fields, dict):
-        return {
-            str(key)
-            for key, field in model_fields.items()
-            if _annotation_accepts_string(getattr(field, "annotation", None))
-        }
-    legacy_fields = getattr(model, "__fields__", None)
-    if isinstance(legacy_fields, dict):
-        return {
-            str(key)
-            for key, field in legacy_fields.items()
-            if _annotation_accepts_string(
-                getattr(field, "outer_type_", None)
-                or getattr(field, "type_", None)
-            )
-        }
-    return set()
-
-
-def _normalize_string_payload_values(
-    data: dict[str, Any] | None,
-    record_model: Any,
-) -> dict[str, Any] | None:
-    if not isinstance(data, dict):
-        return data
-    string_keys = _string_payload_keys(record_model)
-    if not string_keys:
-        return data
-    normalized = data.copy()
-    for key in string_keys:
-        value = normalized.get(key, None)
-        if value is not None and not isinstance(value, str):
-            if isinstance(value, (bool, int, float)):
-                normalized[key] = str(value)
-    return normalized
-
-
-def _normalize_payload_values(
-    data: dict[str, Any] | None,
-    record_model: Any,
-) -> dict[str, Any] | None:
-    data = _normalize_boolean_payload_values(data)
-    return _normalize_string_payload_values(data, record_model)
 
 
 def _payload_requests_menu_dashboard(data: dict[str, Any] | None) -> bool:
@@ -925,12 +868,6 @@ class Service:
         rec_names = payload.get("rec_names") or payload.get("rec_name") or []
         if isinstance(rec_names, str):
             rec_names = [rec_names]
-        # variabili/form comuni a tutti (senza le chiavi di batch).
-        common = {
-            k: v
-            for k, v in payload.items()
-            if k not in ("rec_names", "rec_name")
-        }
         results: list[dict[str, Any]] = []
         for rec_name in rec_names:
             rec_name = str(rec_name or "").strip()
@@ -1322,6 +1259,78 @@ class Service:
         )
         return response
 
+    async def _resolve_owner_identity(
+        self, owner_uid: str
+    ) -> dict[str, Any]:
+        """Campi `owner_*` (oltre a `owner_uid`) letti dal model `user`
+        locale per uid — usati SOLO dal path import che preserva l'owner
+        del payload.
+
+        Non si prendono dal payload: sarebbero i dati dell'istanza di
+        origine, o valori arbitrari scelti da chi importa (owner_name e
+        owner_sector finiscono in liste e report). Si rileggono dalla
+        collection `user` di QUESTA istanza, cioe' la stessa fonte da cui
+        `set_user_data` li prenderebbe per una scrittura normale.
+
+        uid non risolvibile localmente (record esportato da un'altra
+        istanza, utente non ancora sincronizzato) -> dict di vuoti,
+        fail-soft: il record entra con l'`owner_uid` originale e gli altri
+        owner_* vuoti. Vuoti espliciti, NON i valori del payload: un
+        owner_name che non corrisponde a nessun utente locale sarebbe
+        peggio di un campo vuoto.
+
+        Lettura diretta dal model (nessun gate ACL): e' un arricchimento
+        interno di metadati, non una lettura per conto dell'utente — lo
+        stesso trattamento che `set_user_data` fa con la sessione.
+        """
+        empty = {
+            "owner_name": "",
+            "owner_mail": "",
+            "owner_sector": "",
+            "owner_sector_id": 0,
+            "owner_function": "",
+            "owner_personal_type": "",
+            "owner_job_title": "",
+        }
+        user_model = self.env.get("user")
+        if user_model is None or not owner_uid:
+            return empty
+        try:
+            user_record = await user_model.load({"uid": owner_uid})
+        except Exception:
+            logger.exception(
+                "service.upsert owner identity lookup failed uid=%s",
+                owner_uid,
+            )
+            user_record = None
+        user_data = _record_to_dict(user_record) if user_record else {}
+        if not user_data.get("uid"):
+            logger.warning(
+                "service.upsert owner_uid=%s non trovato nel model user: "
+                "owner_* lasciati vuoti (import fail-soft)",
+                owner_uid,
+            )
+            return empty
+        nested = user_data.get("user")
+        if not isinstance(nested, dict):
+            nested = {}
+        return {
+            "owner_name": _full_name(user_data),
+            "owner_mail": str(user_data.get("mail") or ""),
+            "owner_sector": str(
+                user_data.get("sector")
+                or user_data.get("owner_sector")
+                or ""
+            ),
+            "owner_sector_id": _int_value(
+                user_data.get("sector_id")
+                or user_data.get("owner_sector_id")
+            ),
+            "owner_function": str(user_data.get("function") or ""),
+            "owner_personal_type": str(nested.get("tipo_personale") or ""),
+            "owner_job_title": str(nested.get("qualifica") or ""),
+        }
+
     async def upsert(
         self,
         model_name: str,
@@ -1332,15 +1341,79 @@ class Service:
         fields_parser: dict = None,
         sync_component_runtime: bool = False,
         generate_component_defaults: bool = False,
+        take_ownership: bool = True,
     ) -> Union[None, ResponseObject]:
+        """`take_ownership`: su INSERT intesta il record a CHI SCRIVE.
+
+        Default `True` = comportamento storico, valido per ogni scrittura
+        dell'app (`post_update_record`, message_queue, step_task,
+        action_runtime, camunda). Solo `/import/{model}` passa `False`
+        esplicitamente: e' l'unico path che deve poter reintrodurre record
+        altrui.
+
+        Con `False`: se il payload porta un `owner_uid`, quello vince e
+        viene scritto tale e quale (import di record esportati da un'altra
+        istanza: l'owner originale sopravvive). Con `True` si torna al
+        comportamento standard di ozon-env — `set_user_data` sovrascrive
+        gli `owner_*` con la sessione corrente.
+
+        Vale SOLO su INSERT: su UPDATE `set_user_data` non viene chiamato e
+        il diff scarta comunque gli `owner_*`
+        (`default_list_metadata_fields_update`), quindi l'owner di un
+        record esistente non e' mai riassegnabile da un payload.
+
+        Un payload senza `owner_uid` non e' toccato: si comporta come
+        sempre (owner = chi scrive), qualunque sia il flag.
+
+        Sul path che preserva, dal payload arriva SOLO `owner_uid`: gli
+        altri owner_* (name/mail/sector/sector_id/function/personal_type/
+        job_title) li risolve `_resolve_owner_identity` dal model `user`
+        locale per uid, e li applica `OzonModelApp.set_user_data` via
+        `preserve_owner_data`. uid non risolvibile localmente -> owner_*
+        vuoti, l'import non fallisce (fail-soft).
+
+        L'owner diventa chi scrive SOLO in due casi: `take_ownership=True`
+        (richiesta esplicita) o payload senza `owner_uid`. Se un import
+        con `take_ownership=False` porta un `owner_uid` che una
+        `field_acl_policy` scarta in create, non si ricade
+        silenziosamente sull'owner-e-chi-importa: 403 con
+        `reason="owner_uid_denied_by_field_acl"`. Il campo scartato
+        azzererebbe anche il gate admin qui sotto (che legge `data` dopo
+        l'ACL), quindi lo snapshot `incoming_owner_uid` e' preso prima.
+
+        Gate: prendere un `owner_uid` ALTRUI dal payload e' riservato agli
+        admin — le record_rules filtrano su `owner_uid == user.uid` e
+        `f_rule.write` ha lo sblocco `$owner` (vedi
+        `_OWNER_WRITE_SENTINEL`), quindi intestare un record a terzi
+        assegna permessi."""
         logger.info(
-            "service.upsert model=%s rec_name=%s",
+            "service.upsert model=%s rec_name=%s take_ownership=%s",
             model_name,
             rec_name,
+            take_ownership,
         )
+        if not take_ownership and isinstance(data, dict):
+            # DIAGNOSTICA TEMPORANEA (solo path import, unico chiamante
+            # con take_ownership=False): i valori booleani ARRIVATI, prima
+            # di qualunque trasformazione. Un checkbox che finisce a False
+            # nel record puo' essere (a) gia' False nel body — problema di
+            # chi importa — oppure (b) perso qui dentro. Questo log separa
+            # i due casi in una riga. Da togliere quando la causa e' nota.
+            logger.debug(
+                "service.upsert model=%s incoming booleans=%s",
+                model_name,
+                {
+                    key: value
+                    for key, value in data.items()
+                    if isinstance(value, bool)
+                },
+            )
         record_model = self._get_model(model_name)
         if model_name == "component":
-            data = _normalize_payload_values(data, record_model)
+            # Solo "" -> False sui flag booleani: la coercizione
+            # numero/booleano -> stringa guidata dalle annotazioni Pydantic
+            # e' in ozon-env (MainModel.normalize_model_fields).
+            data = _normalize_boolean_payload_values(data)
             normalize_component_properties(data)
         operation, existing_record = await self._resolve_write_operation(
             record_model, rec_name, data
@@ -1375,6 +1448,14 @@ class Service:
         )
         if isinstance(write_hook.payload, dict):
             data = write_hook.payload
+        # Snapshot PRIMA dell'ACL di scrittura (ma DOPO il webhook
+        # `data.before_write`, che puo' rimpiazzare `data` in blocco): se
+        # una `field_acl_policy` nega `owner_uid` in create, il campo
+        # sparisce da `data` e senza questo snapshot sia il gate admin sia
+        # la preservazione dell'owner diventerebbero no-op silenziosi.
+        incoming_owner_uid = ""
+        if isinstance(data, dict):
+            incoming_owner_uid = str(data.get("owner_uid", "") or "").strip()
         acl = await self._get_compiled_field_acl()
         owner_override_fields: frozenset[str] = frozenset()
         if operation == FieldAclOperation.UPDATE.value and existing_record:
@@ -1407,19 +1488,118 @@ class Service:
                 operation,
                 denied_write_fields,
             )
+        if (
+            operation == FieldAclOperation.INSERT.value
+            and not take_ownership
+            and incoming_owner_uid
+            and "owner_uid" in denied_write_fields
+        ):
+            # Import che chiede di CONSERVARE l'owner del payload, ma una
+            # `field_acl_policy` ha appena scartato `owner_uid`: senza
+            # errore il record verrebbe intestato a chi importa — cioe'
+            # una riassegnazione di ownership silenziosa, e per giunta
+            # saltando il gate admin qui sotto (che legge `data`, ormai
+            # senza il campo). L'owner diventa chi importa solo se lo si
+            # chiede (`take_ownership=true`) o se il payload non porta
+            # `owner_uid`: qui non e' ne' l'uno ne' l'altro.
+            logger.warning(
+                "acl.upsert owner_uid denied da field_acl_policy model=%s "
+                "uid=%s payload_owner_uid=%s: import con "
+                "take_ownership=false non puo' preservare l'owner",
+                model_name,
+                getattr(self.session, "uid", ""),
+                incoming_owner_uid,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "message": (
+                        "A field ACL policy denies writing owner_uid on "
+                        "create: the record owner cannot be preserved. "
+                        "Pass take_ownership=true to import it under your "
+                        "own uid, or remove the policy on owner_uid"
+                    ),
+                    "reason": "owner_uid_denied_by_field_acl",
+                    "model": model_name,
+                },
+            )
         create_menu_dashboard = (
             model_name == "component"
             and _payload_requests_menu_dashboard(data)
         )
         if isinstance(data, dict):
             data.pop("create_menu_dashboard", None)
-        record = await record_model.upsert(
-            data=data,
-            rec_name=rec_name,
-            data_value=data_value,
-            trnf_config=trnf_config,
-            fields_parser=fields_parser,
+        # Solo INSERT: su UPDATE `set_user_data` non viene chiamato e il
+        # diff scarta comunque gli owner_* — vedi
+        # `default_list_metadata_fields_update` in ozon-env.
+        payload_owner_uid = ""
+        if isinstance(data, dict):
+            payload_owner_uid = str(data.get("owner_uid", "") or "").strip()
+        preserve_owner = (
+            not take_ownership
+            and operation == FieldAclOperation.INSERT.value
+            and bool(payload_owner_uid)
         )
+        if preserve_owner and payload_owner_uid != str(
+            getattr(self.session, "uid", "") or ""
+        ):
+            # owner_uid di un ALTRO utente: assegnazione di permessi.
+            if not bool(getattr(self.session, "is_admin", False)):
+                logger.warning(
+                    "acl.upsert foreign owner_uid denied model=%s uid=%s "
+                    "payload_owner_uid=%s (non-admin)",
+                    model_name,
+                    getattr(self.session, "uid", ""),
+                    payload_owner_uid,
+                )
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "message": (
+                            "Importing a record owned by another user "
+                            "requires admin; pass take_ownership=true to "
+                            "import it under your own uid"
+                        ),
+                        "reason": "foreign_owner_requires_admin",
+                        "model": model_name,
+                    },
+                )
+        previous_preserve_owner = getattr(
+            record_model, "preserve_owner", False
+        )
+        previous_preserve_owner_data = getattr(
+            record_model, "preserve_owner_data", None
+        )
+        if preserve_owner:
+            record_model.preserve_owner = True
+            # I campi owner_* NON possono venire dal payload: sarebbero
+            # dati dell'istanza di origine (o valori arbitrari scelti da
+            # chi importa). Si rileggono dal model `user` locale per uid —
+            # la risoluzione va fatta QUI perche' `set_user_data` (unico
+            # punto in cui gli owner_* vengono assegnati su insert) e'
+            # sincrono e non puo' interrogare il DB.
+            record_model.preserve_owner_data = (
+                await self._resolve_owner_identity(payload_owner_uid)
+            )
+            logger.info(
+                "service.upsert preserving payload owner model=%s "
+                "rec_name=%s owner_uid=%s owner_data=%s",
+                model_name,
+                rec_name,
+                payload_owner_uid,
+                record_model.preserve_owner_data,
+            )
+        try:
+            record = await record_model.upsert(
+                data=data,
+                rec_name=rec_name,
+                data_value=data_value,
+                trnf_config=trnf_config,
+                fields_parser=fields_parser,
+            )
+        finally:
+            record_model.preserve_owner = previous_preserve_owner
+            record_model.preserve_owner_data = previous_preserve_owner_data
         if (
             model_name == "component"
             and record is not None

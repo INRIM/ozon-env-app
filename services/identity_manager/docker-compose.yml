@@ -13,7 +13,7 @@ services:
       # MODELS_FOLDER dedicato: evita race con l'app sulla generazione modelli.
       MODELS_FOLDER: /models_identity
     volumes:
-      - ../../models:/models
+      - ../../models:/models_identity
     restart: unless-stopped
     networks:
       - default

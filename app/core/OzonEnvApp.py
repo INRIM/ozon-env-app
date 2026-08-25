@@ -39,14 +39,28 @@ _DEFAULT_MODELS_RESTRICTED_FIELDS: dict[str, Any] = {
     # dichiarata su properties.f_rule/f_rule_cond dello schema field stesso
     # (baked a codegen-time — vedi Model.get_field_rules()/
     # get_field_rules_conditions()), non piu' sincronizzata qui.
+    # Baseline Layer 2 = "record attivo", NON "record mio". Il filtro
+    # storico `owner_uid == user.uid` rendeva ogni model un'area privata
+    # per-utente: due operatori dello stesso gruppo non vedevano i record
+    # l'uno dell'altro anche con Layer 1 (model_groups_rule) aperto. Chi
+    # deve restringere per owner lo dichiara esplicitamente sul singolo
+    # component, non lo eredita dal default.
+    #
+    # ATTENZIONE: con questo filtro un record `active: false` non matcha
+    # nessuna regola -> evaluate_record_rule_access ritorna None ->
+    # fail-closed, il non-admin perde read/update/delete su quel record
+    # (col vecchio filtro l'owner manteneva accesso ai propri record
+    # disattivati). E' il comportamento voluto: disattivare = togliere di
+    # mezzo.
     "record_rules": [
         {
-            "filters": {"owner_uid": {"$eq": {"var": "user.uid"}}},
+            "filters": {"active": True},
             "actions": {
                 "read": True,
                 "create": True,
                 "update": True,
                 "delete": True,
+                "export": True,
             },
         }
     ]
@@ -329,7 +343,7 @@ class _RuntimeModelGuardMixin:
             )
             return
         if self._is_app_static_model(model_name):
-            # I model statici (FieldAclPolicy, MailTemplate, ...) sono registrati come
+            # I model statici (FieldAclPolicy, RevokedSession, ...) sono registrati come
             # classi Pydantic dedicate in app/core/models.py. La base
             # `OzonOrm.update_model` rigenera il model dallo schema JSON del
             # component (via ModelMaker) e rimpiazza la registrazione

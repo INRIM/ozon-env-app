@@ -2,7 +2,6 @@ import json
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
-import pytest
 
 from app.services.service import Service
 from app.services.action_runtime import ActionRuntime

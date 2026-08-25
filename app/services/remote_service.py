@@ -1,10 +1,11 @@
 import logging
+from typing import Any
 
 import httpx
 from fastapi import status
 
-from app.services.common import *
-from app.services.utils import *
+from app.services.common import get_global_param
+from app.services.utils import extract_remote_data
 
 logger = logging.getLogger("uvicorn.error")
 

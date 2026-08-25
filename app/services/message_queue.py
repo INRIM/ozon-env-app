@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import logging
 import uuid
+from typing import TYPE_CHECKING
 from typing import Any
 
 from fastapi import HTTPException
 
 from app.core.models import FieldAclOperation
+
+if TYPE_CHECKING:
+    from app.services.service import Service
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -124,11 +128,27 @@ async def maybe_enqueue_on_save(
             return
 
         if operation == FieldAclOperation.INSERT.value:
-            enabled = _is_flag_on(properties.get("send_mail_create"))
+            flag_key = "send_mail_create"
         elif operation == FieldAclOperation.UPDATE.value:
-            enabled = _is_flag_on(properties.get("send_mail_update"))
+            flag_key = "send_mail_update"
         else:
-            enabled = False
+            flag_key = ""
+        enabled = bool(flag_key) and _is_flag_on(properties.get(flag_key))
+        # Senza questa riga il percorso e' muto: chi configura il flag nel
+        # form design e non vede mail in coda non ha modo di distinguere
+        # "flag non letto" da "nessun template default". Si logga solo se il
+        # model ha davvero uno dei due flag nel component, cosi' i model che
+        # non usano la mail non fanno rumore.
+        if "send_mail_create" in properties or "send_mail_update" in properties:
+            logger.info(
+                "message_queue auto-enqueue check model=%s operation=%s "
+                "flag_key=%s value=%r enabled=%s",
+                name,
+                operation,
+                flag_key or "-",
+                properties.get(flag_key) if flag_key else None,
+                enabled,
+            )
         if not enabled:
             return
 

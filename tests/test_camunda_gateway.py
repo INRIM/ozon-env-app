@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
-import httpx
 
 from app.app import app
 from app.app_settings import EnvSettings

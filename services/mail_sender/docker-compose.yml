@@ -12,7 +12,7 @@ services:
     environment:
       MODELS_FOLDER: /models_mail
     volumes:
-      - ../../models:/models
+      - ../../models:/models_mail
     restart: unless-stopped
     networks:
       - default

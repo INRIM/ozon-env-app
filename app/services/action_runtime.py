@@ -214,7 +214,6 @@ class ActionRuntime:
                 limit=0,
             )
             session = self.service.session
-            is_admin = bool(getattr(session, "is_admin", False))
             is_public = bool(getattr(session, "is_public", False))
 
             buttons: list[dict[str, Any]] = []

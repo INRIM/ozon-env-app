@@ -1,4 +1,3 @@
-import asyncio
 import time
 from types import SimpleNamespace
 from typing import Any
@@ -158,7 +157,7 @@ async def test_action_runtime_handle_post_delete_writes_timestamp():
     runtime = ActionRuntime(srv)
 
     # Trigger action delete via handle_post
-    res = await runtime.handle_post(
+    await runtime.handle_post(
         action_name="delete_customer",
         data={"rec_name": "cust-1"},
         rec_name="cust-1",

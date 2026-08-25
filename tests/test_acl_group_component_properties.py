@@ -7,7 +7,6 @@ from fastapi import HTTPException
 
 from app.ozon_env_acl import _record_matches_filters
 from app.ozon_env_acl import apply_session_groups
-from app.ozon_env_acl import enforce_write_acl
 from app.services.service import Service
 
 

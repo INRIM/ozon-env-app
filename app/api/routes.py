@@ -441,16 +441,43 @@ async def post_import_component(
     model: str,
     payload_raw: Annotated[Any, Body(...)],
     service: Annotated[Service, Depends(get_service)],
+    take_ownership: bool = False,
 ) -> ResponseObject:
+    # Default: l'`owner_uid` del payload viene mantenuto (import di record
+    # esportati altrove). `take_ownership=true` intesta invece il record a
+    # chi importa. Sta in query string, NON nel body: il body passa per
+    # `_coerce_body_dict` senza allowlist, quindi un campo nel payload
+    # sarebbe indistinguibile dai dati del record. Vedi `Service.upsert`.
     payload = _coerce_body_dict(payload_raw)
+    # L'`id`/`_id` del record esportato e' l'identita' dell'istanza di
+    # ORIGINE: qui non significa niente (l'insert ne genera uno nuovo) e
+    # tenerlo fa divergere i due layer. `Service._resolve_write_operation`
+    # decide INSERT/UPDATE guardando SOLO `rec_name`, mentre `upsert` di
+    # ozon-env, se non trova il rec_name, ripiega su `by_id(data["id"])`:
+    # con un id che matcha, l'app autorizza ed enforce un INSERT (gate ACL
+    # "create", drop dei campi negati, preserve_owner armato) mentre l'ORM
+    # esegue un UPDATE su un altro rec_name — e `update()` non chiama mai
+    # `set_user_data`, quindi la preservazione dell'owner diventa un
+    # no-op silenzioso. Togliendo l'id i due layer concordano per
+    # costruzione. Stessa conclusione gia' presa in
+    # `PluginInstaller._upsert_all` per i seed. L'idempotenza non cambia:
+    # il match resta su `rec_name`, che e' stabile.
+    payload.pop("id", None)
+    payload.pop("_id", None)
     rec_name = str(payload.get("rec_name", "") or "").strip()
-    logger.info(f"{model} import request rec_name={rec_name}")
+    logger.info(
+        "%s import request rec_name=%s take_ownership=%s",
+        model,
+        rec_name,
+        take_ownership,
+    )
     resp_data = await service.upsert(
         model,
         payload,
         rec_name=rec_name,
         sync_component_runtime=True,
         generate_component_defaults=False,
+        take_ownership=take_ownership,
     )
     logger.info("component import completed rec_name=%s", rec_name)
     return resp_data

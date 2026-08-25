@@ -5,9 +5,30 @@ import logging
 import traceback
 from typing import Any
 
+from pymongo.errors import PyMongoError
+
 from .sender import MailError
 
 logger = logging.getLogger("mail_sender")
+
+
+class TransientError(Exception):
+    """Errore infrastrutturale, non del messaggio.
+
+    Il DB non risponde (`AutoReconnect`, socket resettato): il messaggio non
+    ha niente che non va, va solo riletto piu' tardi. Marcarlo `in_errore`
+    lo parcheggerebbe per sempre — `_pending_domain` ripesca solo i
+    `da_inviare` — quindi un blip di rete perderebbe la mail in modo
+    definitivo e silenzioso.
+    """
+
+
+async def _db_read(awaitable):
+    """Esegue una lettura sul DB traducendo i guasti di rete in TransientError."""
+    try:
+        return await awaitable
+    except (PyMongoError, OSError) as exc:
+        raise TransientError(f"{type(exc).__name__}: {exc}") from exc
 
 
 def build_context(
@@ -54,6 +75,15 @@ class MailWorker:
                 continue
             try:
                 await self._process_one(message)
+            except TransientError as exc:
+                # Nessun mark_error: il record resta `da_inviare` e
+                # rientra nel prossimo poll.
+                logger.warning(
+                    "invio rinviato rec_name=%s (DB non raggiungibile): %s",
+                    rec_name,
+                    exc,
+                )
+                continue
             except Exception as exc:  # noqa: BLE001 - log + segna in_errore
                 logger.error(
                     "invio fallito rec_name=%s: %s", rec_name, exc
@@ -71,18 +101,20 @@ class MailWorker:
         if not template_name:
             raise MailError("message_queue senza mail_template")
 
-        template = await self.gateway.load_template(template_name)
+        template = await _db_read(self.gateway.load_template(template_name))
         if not template:
             raise MailError(f"mail_template '{template_name}' non trovato")
         template_data = template.get_dict()
 
         server_name = str(template_data.get("server") or "").strip()
-        server = await self.gateway.load_server(server_name)
+        server = await _db_read(self.gateway.load_server(server_name))
         if not server:
             raise MailError(f"mail_server_out '{server_name}' non trovato")
 
-        related = await self.gateway.load_record(
-            str(template_data.get("model") or "").strip(), rel_rec_name
+        related = await _db_read(
+            self.gateway.load_record(
+                str(template_data.get("model") or "").strip(), rel_rec_name
+            )
         )
         record_data = related.get_dict() if related else {}
 

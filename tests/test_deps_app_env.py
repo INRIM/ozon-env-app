@@ -438,8 +438,9 @@ def test_static_models_implement_basic_model_hooks_used_by_init_model():
     # .model_depends() sulla classe statica quando si registra un model via
     # add_static_model. Se una classe statica estende CoreModel invece di
     # BasicModel, file_fields() manca e la registrazione esplode con
-    # AttributeError (visto con MailTemplate: bug reale, mascherato per anni
-    # da un .py stale in models_folder che teneva add_static_model in no-op).
+    # AttributeError (bug reale visto in passato su mail_template, allora
+    # statico, mascherato da un .py stale in models_folder che teneva
+    # add_static_model in no-op).
     for _, model_class in app_env._STATIC_MODELS:
         assert callable(getattr(model_class, "file_fields", None)), (
             f"{model_class.__name__} must extend BasicModel (file_fields missing)"
@@ -447,6 +448,14 @@ def test_static_models_implement_basic_model_hooks_used_by_init_model():
         model_class.file_fields()
         model_class.tranform_data_value()
         model_class.model_depends()
+
+
+def test_mail_template_is_not_a_static_model():
+    # Registrarlo statico rimpiazzava il model costruito da ModelMaker sul
+    # component: si perdeva `select_fields()` (select `model`/`server` a zero
+    # opzioni) e i campi del form venivano sostituiti da quelli della classe
+    # Python, che il form non ha mai avuto -> ValidationError su ogni upsert.
+    assert "mail_template" not in dict(app_env._STATIC_MODELS)
 
 
 def test_register_static_models_clears_stale_dynamic_entry_before_registering():
@@ -467,7 +476,7 @@ def test_register_static_models_clears_stale_dynamic_entry_before_registering():
 
     class _FakeEnv:
         def __init__(self):
-            self.models = {"mail_template": _StaleModel()}
+            self.models = {"field_acl_policy": _StaleModel()}
             self.orm = None
 
     env = _FakeEnv()
@@ -481,9 +490,9 @@ def test_register_static_models_clears_stale_dynamic_entry_before_registering():
     for name, was_present_when_called in env.orm.calls:
         assert was_present_when_called is False
 
-    from app.core.models import MailTemplate
+    from app.core.models import FieldAclPolicy
 
-    assert env.models["mail_template"] is MailTemplate
+    assert env.models["field_acl_policy"] is FieldAclPolicy
 
 
 class _FakeRevocationModel:

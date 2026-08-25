@@ -10,23 +10,6 @@ from ozonenv.core.BaseModels import User
 from pydantic import Field
 
 
-class MailTemplate(BasicModel):
-    template_key: str
-    subject_template: str
-    body_template: str
-    description: str = ""
-    enabled: bool = True
-
-    @classmethod
-    def table_columns(cls) -> dict:
-        return {
-            "template_key": "Chiave",
-            "subject_template": "Oggetto",
-            "description": "Descrizione",
-            "enabled": "Attivo",
-        }
-
-
 class AttachmentScanStatus(StrEnum):
     CLEAN = "clean"
     SKIPPED = "skipped"

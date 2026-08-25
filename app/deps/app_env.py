@@ -22,7 +22,7 @@ from app.app_settings import merge_public_db_settings
 from app.core.OzonEnvApp import AppOzonEnv
 from app.core.OzonModelApp import OzonModelApp
 from app.core.models import FieldAclPolicy
-from app.core.models import MailTemplate, AppUser
+from app.core.models import AppUser
 from app.core.models import RevokedSession
 from app.services.cookie_auth import make_csrf_token
 from app.services.cookie_auth import session_cookie_max_age
@@ -36,10 +36,17 @@ settings = get_env_settings()
 api_key_header = APIKeyHeader(name=settings.token_header, auto_error=False)
 
 _STATIC_MODELS = [
-    ("mail_template", MailTemplate),
     ("field_acl_policy", FieldAclPolicy),
     ("revoked_session", RevokedSession),
 ]
+# `mail_template` NON e' statico: ha un form reale in components.json
+# (rec_name/model/server/default/subject/recipient/corpoDellaMail — gli
+# stessi campi che legge services/mail_sender/renderer.py) e nessun campo
+# tipizzato list/dict/enum da proteggere da ModelMaker. Registrarlo statico
+# faceva perdere `select_fields()` (le select `model`/`server` tornavano
+# vuote) e imponeva campi required inesistenti nel form, rompendo ogni
+# upsert. Vale il criterio sotto: static solo se i tipi del form builder
+# romperebbero il model.
 # model_groups_rule/model_fields_rule NON sono statici: hanno un
 # component/form reale (con field type + tableView gia' configurati),
 # quindi restano dynamic model normali (env.init_env/init_models li

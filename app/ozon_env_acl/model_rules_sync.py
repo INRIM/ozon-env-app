@@ -194,6 +194,12 @@ async def model_fields_rows(
                 "create": bool(actions.get("create")),
                 "update": bool(actions.get("update")),
                 "delete": bool(actions.get("delete")),
+                # `export` viaggia con la riga per non perdere pezzi di
+                # config nel flatten, ma NON e' gate di Layer 2:
+                # _RECORD_ACTION_KEYS e' (read, create, update, delete) e
+                # evaluate_record_rule_access ignora la chiave. L'export
+                # e' deciso a Layer 1 (model_groups_rule).
+                "export": bool(actions.get("export")),
             }
             groups = entry.get("groups") or []
             if not isinstance(groups, (list, tuple, set)):

@@ -161,17 +161,14 @@
         "record_rules": [
           {
             "filters": {
-              "owner_uid": {
-                "$eq": {
-                  "var": "user.uid"
-                }
-              }
+              "active": true
             },
             "actions": {
               "read": true,
               "create": true,
               "update": true,
-              "delete": true
+              "delete": true,
+              "export": true
             }
           }
         ]
@@ -460,17 +457,14 @@
         "record_rules": [
           {
             "filters": {
-              "owner_uid": {
-                "$eq": {
-                  "var": "user.uid"
-                }
-              }
+              "active": true
             },
             "actions": {
               "read": true,
               "create": true,
               "update": true,
-              "delete": true
+              "delete": true,
+              "export": true
             }
           }
         ]
@@ -699,17 +693,14 @@
         "record_rules": [
           {
             "filters": {
-              "owner_uid": {
-                "$eq": {
-                  "var": "user.uid"
-                }
-              }
+              "active": true
             },
             "actions": {
               "read": true,
               "create": true,
               "update": true,
-              "delete": true
+              "delete": true,
+              "export": true
             }
           }
         ]
@@ -1289,17 +1280,14 @@
         "record_rules": [
           {
             "filters": {
-              "owner_uid": {
-                "$eq": {
-                  "var": "user.uid"
-                }
-              }
+              "active": true
             },
             "actions": {
               "read": true,
               "create": true,
               "update": true,
-              "delete": true
+              "delete": true,
+              "export": true
             }
           }
         ]
@@ -2544,17 +2532,14 @@
         "record_rules": [
           {
             "filters": {
-              "owner_uid": {
-                "$eq": {
-                  "var": "user.uid"
-                }
-              }
+              "active": true
             },
             "actions": {
               "read": true,
               "create": true,
               "update": true,
-              "delete": true
+              "delete": true,
+              "export": true
             }
           }
         ]
@@ -3036,17 +3021,14 @@
         "record_rules": [
           {
             "filters": {
-              "owner_uid": {
-                "$eq": {
-                  "var": "user.uid"
-                }
-              }
+              "active": true
             },
             "actions": {
               "read": true,
               "create": true,
               "update": true,
-              "delete": true
+              "delete": true,
+              "export": true
             }
           }
         ]
@@ -3284,17 +3266,14 @@
         "record_rules": [
           {
             "filters": {
-              "owner_uid": {
-                "$eq": {
-                  "var": "user.uid"
-                }
-              }
+              "active": true
             },
             "actions": {
               "read": true,
               "create": true,
               "update": true,
-              "delete": true
+              "delete": true,
+              "export": true
             }
           }
         ]
@@ -4205,22 +4184,7 @@
         "record_rules": [
           {
             "filters": {
-              "$or": [
-                {
-                  "rec_name": {
-                    "$eq": {
-                      "var": "user.uid"
-                    }
-                  }
-                },
-                {
-                  "groups": {
-                    "$in": [
-                      "gdpr"
-                    ]
-                  }
-                }
-              ]
+              "active": true
             },
             "actions": {
               "read": true,
@@ -4228,10 +4192,7 @@
               "update": true,
               "delete": true,
               "export": true
-            },
-            "resticted_fields": [
-              "codicefiscale"
-            ]
+            }
           }
         ]
       }
@@ -4547,17 +4508,14 @@
         "record_rules": [
           {
             "filters": {
-              "owner_uid": {
-                "$eq": {
-                  "var": "user.uid"
-                }
-              }
+              "active": true
             },
             "actions": {
               "read": true,
               "create": true,
               "update": true,
-              "delete": true
+              "delete": true,
+              "export": true
             }
           }
         ]
@@ -4758,17 +4716,14 @@
         "record_rules": [
           {
             "filters": {
-              "owner_uid": {
-                "$eq": {
-                  "var": "user.uid"
-                }
-              }
+              "active": true
             },
             "actions": {
               "read": true,
               "create": true,
               "update": true,
-              "delete": true
+              "delete": true,
+              "export": true
             }
           }
         ]
@@ -5087,17 +5042,14 @@
         "record_rules": [
           {
             "filters": {
-              "owner_uid": {
-                "$eq": {
-                  "var": "user.uid"
-                }
-              }
+              "active": true
             },
             "actions": {
               "read": true,
               "create": true,
               "update": true,
-              "delete": true
+              "delete": true,
+              "export": true
             }
           }
         ]
@@ -6311,17 +6263,14 @@
         "record_rules": [
           {
             "filters": {
-              "owner_uid": {
-                "$eq": {
-                  "var": "user.uid"
-                }
-              }
+              "active": true
             },
             "actions": {
               "read": true,
               "create": true,
               "update": true,
-              "delete": true
+              "delete": true,
+              "export": true
             }
           }
         ]
@@ -6687,17 +6636,14 @@
         "record_rules": [
           {
             "filters": {
-              "owner_uid": {
-                "$eq": {
-                  "var": "user.uid"
-                }
-              }
+              "active": true
             },
             "actions": {
               "read": true,
               "create": true,
               "update": true,
-              "delete": true
+              "delete": true,
+              "export": true
             }
           }
         ]
@@ -7516,17 +7462,14 @@
         "record_rules": [
           {
             "filters": {
-              "owner_uid": {
-                "$eq": {
-                  "var": "user.uid"
-                }
-              }
+              "active": true
             },
             "actions": {
               "read": true,
               "create": true,
               "update": true,
-              "delete": true
+              "delete": true,
+              "export": true
             }
           }
         ]
@@ -7626,17 +7569,14 @@
         "record_rules": [
           {
             "filters": {
-              "owner_uid": {
-                "$eq": {
-                  "var": "user.uid"
-                }
-              }
+              "active": true
             },
             "actions": {
               "read": true,
               "create": true,
               "update": true,
-              "delete": true
+              "delete": true,
+              "export": true
             }
           }
         ]
@@ -8337,17 +8277,14 @@
         "record_rules": [
           {
             "filters": {
-              "owner_uid": {
-                "$eq": {
-                  "var": "user.uid"
-                }
-              }
+              "active": true
             },
             "actions": {
               "read": true,
               "create": true,
               "update": true,
-              "delete": true
+              "delete": true,
+              "export": true
             }
           }
         ]
@@ -8678,17 +8615,14 @@
         "record_rules": [
           {
             "filters": {
-              "owner_uid": {
-                "$eq": {
-                  "var": "user.uid"
-                }
-              }
+              "active": true
             },
             "actions": {
               "read": true,
               "create": true,
               "update": true,
-              "delete": true
+              "delete": true,
+              "export": true
             }
           }
         ]
@@ -9041,17 +8975,14 @@
         "record_rules": [
           {
             "filters": {
-              "owner_uid": {
-                "$eq": {
-                  "var": "user.uid"
-                }
-              }
+              "active": true
             },
             "actions": {
               "read": true,
               "create": true,
               "update": true,
-              "delete": true
+              "delete": true,
+              "export": true
             }
           }
         ]
@@ -9315,17 +9246,14 @@
         "record_rules": [
           {
             "filters": {
-              "owner_uid": {
-                "$eq": {
-                  "var": "user.uid"
-                }
-              }
+              "active": true
             },
             "actions": {
               "read": true,
               "create": true,
               "update": true,
-              "delete": true
+              "delete": true,
+              "export": true
             }
           }
         ]
@@ -9451,17 +9379,14 @@
         "record_rules": [
           {
             "filters": {
-              "owner_uid": {
-                "$eq": {
-                  "var": "user.uid"
-                }
-              }
+              "active": true
             },
             "actions": {
               "read": true,
               "create": true,
               "update": true,
-              "delete": true
+              "delete": true,
+              "export": true
             }
           }
         ]
@@ -11319,17 +11244,14 @@
         "record_rules": [
           {
             "filters": {
-              "owner_uid": {
-                "$eq": {
-                  "var": "user.uid"
-                }
-              }
+              "active": true
             },
             "actions": {
               "read": true,
               "create": true,
               "update": true,
-              "delete": true
+              "delete": true,
+              "export": true
             }
           }
         ]
@@ -11512,17 +11434,14 @@
         "record_rules": [
           {
             "filters": {
-              "owner_uid": {
-                "$eq": {
-                  "var": "user.uid"
-                }
-              }
+              "active": true
             },
             "actions": {
               "read": true,
               "create": true,
               "update": true,
-              "delete": true
+              "delete": true,
+              "export": true
             }
           }
         ]

@@ -110,3 +110,40 @@ class OzonModelApp(OzonModel):
             or getattr(app_settings, "app_code", "")
             or ""
         )
+        # Vedi `set_user_data`: attivati da Service.upsert per la durata di
+        # una singola chiamata (try/finally), mai persistenti.
+        self.preserve_owner = False
+        self.preserve_owner_data = None
+
+    def set_user_data(self, record: CoreModel, user: dict = None) -> CoreModel:
+        """Import: mantiene l'owner del record originale.
+
+        `OzonModel.insert()` chiama `set_user_data` su OGNI insert ed e'
+        l'unico punto in cui `owner_uid`/`owner_*` vengono assegnati (su
+        update non viene chiamato, e il diff scarta comunque gli owner_*
+        via `default_list_metadata_fields_update`). Quindi il flag va qui:
+        una seconda scrittura dopo l'upsert riscriverebbe il record con un
+        payload parziale, cancellando i campi non passati.
+
+        Preservare l'owner NON significa lasciare il record com'e': si
+        tiene l'`owner_uid` del payload, ma gli altri `owner_*`
+        (name/mail/sector/sector_id/function/personal_type/job_title)
+        vengono riscritti con l'identita' che `Service.upsert` ha appena
+        risolto dal model `user` locale (`preserve_owner_data`). Quelli
+        del payload sono dati dell'istanza di origine, o valori scelti da
+        chi importa. uid non risolvibile localmente ->
+        `_resolve_owner_identity` passa un dict di vuoti (fail-soft), che
+        e' comunque preferibile a un owner_name di un'altra istanza.
+
+        Il gate di autorizzazione NON e' qui ma in `Service.upsert` (un
+        `owner_uid` altrui richiede admin): questo metodo si fida del flag
+        gia' validato.
+        """
+        if self.preserve_owner and str(
+            getattr(record, "owner_uid", "") or ""
+        ).strip():
+            owner_data = getattr(self, "preserve_owner_data", None) or {}
+            for field, value in owner_data.items():
+                setattr(record, field, value)
+            return record
+        return super().set_user_data(record, user)

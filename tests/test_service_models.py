@@ -8,6 +8,7 @@ from pydantic import Field
 
 from app.core.OzonEnvApp import _DEFAULT_MODELS_GROUPS_NON_SYS
 from app.core.OzonEnvApp import _DEFAULT_MODELS_RESTRICTED_FIELDS
+from app.ozon_env_acl import compile_field_acl_policies
 from app.services.service import Service
 
 _DEFAULT_ACL_PROPERTIES = {
@@ -567,6 +568,9 @@ def test_upsert_does_not_normalize_scalar_values_for_non_component_models():
     )
 
     mail_server_model = env.get("mail_server_out")
+    # La coercizione number -> string e' fatta da ozon-env in fase di
+    # costruzione del model, non dal layer applicativo: qui il payload
+    # arriva a upsert non modificato.
     assert mail_server_model.last_upsert_data["port"] == 465
 
 
@@ -801,3 +805,358 @@ def test_make_default_actions_adds_user_and_operator_groups_for_non_sys_componen
     
     assert len(env.action_model.upserts) == 1
     assert "groups" not in env.action_model.upserts[0] or env.action_model.upserts[0]["groups"] != ["user", "operator"]
+
+
+class _OwnerTrackingModel(_UpsertModel):
+    """Registra `preserve_owner` NEL MOMENTO della upsert: il flag e' messo
+    e tolto attorno alla chiamata (try/finally), quindi leggerlo dopo non
+    direbbe niente."""
+
+    def __init__(self, data_model: str, rows=None):
+        super().__init__(data_model, rows=rows)
+        self.preserve_owner = False
+        self.preserve_owner_data = None
+        self.preserve_owner_during_upsert = None
+        self.preserve_owner_data_during_upsert = None
+
+    async def upsert(self, data=None, rec_name="", **kwargs):
+        self.preserve_owner_during_upsert = self.preserve_owner
+        self.preserve_owner_data_during_upsert = self.preserve_owner_data
+        return await super().upsert(data=data, rec_name=rec_name, **kwargs)
+
+
+class _LoadableUserModel(_ListModel):
+    """`Service._resolve_owner_identity` usa `load({"uid": ...})`, non
+    by_name: la collection `user` e' chiavata su uid."""
+
+    async def load(self, domain):
+        for row in self.rows:
+            if all(row.get(k) == v for k, v in domain.items()):
+                return row
+        return None
+
+
+class _OwnerEnv(_MissingModelEnv):
+    def __init__(
+        self,
+        rows=None,
+        is_admin: bool = True,
+        uid: str = "u1",
+        users=None,
+    ):
+        super().__init__()
+        self.user_session = SimpleNamespace(
+            app_code="demo",
+            is_admin=is_admin,
+            uid=uid,
+            user={"uid": uid},
+        )
+        self._models = {"doc": _OwnerTrackingModel("doc", rows=rows or [])}
+        if users is not None:
+            self._models["user"] = _LoadableUserModel("user", rows=users)
+
+    def get(self, model_name: str):
+        return self._models.get(model_name)
+
+
+def _owner_upsert(env, *, data, rec_name="", take_ownership=False):
+    # `Service.upsert` ha default True (comportamento storico): l'import
+    # e' l'unico chiamante che passa False, come qui.
+    service = Service(env)
+
+    async def allow_model(_model_key):
+        # model_groups_rule e' fail-closed per i non-admin: qui sotto test
+        # c'e' il gate sull'owner_uid, non l'ACL a livello di model.
+        return {
+            "read": True,
+            "create": True,
+            "update": True,
+            "delete": True,
+            "export": True,
+        }
+
+    service._get_model_group_access = allow_model
+    return asyncio.run(
+        service.upsert(
+            "doc",
+            data,
+            rec_name=rec_name,
+            take_ownership=take_ownership,
+        )
+    )
+
+
+def test_import_preserves_payload_owner_uid_on_insert():
+    # Default (take_ownership=False): l'owner del record esportato
+    # sopravvive all'import invece di essere riscritto con chi importa.
+    env = _OwnerEnv(is_admin=True, uid="importer")
+    _owner_upsert(
+        env, data={"rec_name": "doc-1", "owner_uid": "original"}
+    )
+
+    assert env.get("doc").preserve_owner_during_upsert is True
+
+
+def test_import_take_ownership_reassigns_owner_to_writer():
+    env = _OwnerEnv(is_admin=True, uid="importer")
+    _owner_upsert(
+        env,
+        data={"rec_name": "doc-1", "owner_uid": "original"},
+        take_ownership=True,
+    )
+
+    # preserve_owner resta False -> set_user_data di ozon-env sovrascrive
+    # gli owner_* con la sessione corrente.
+    assert env.get("doc").preserve_owner_during_upsert is False
+
+
+def test_payload_without_owner_uid_is_untouched():
+    # Creazione normale: nessun owner_uid nel payload, niente da preservare.
+    env = _OwnerEnv(is_admin=True, uid="importer")
+    _owner_upsert(env, data={"rec_name": "doc-1"})
+
+    assert env.get("doc").preserve_owner_during_upsert is False
+
+
+def test_foreign_owner_uid_denied_for_non_admin():
+    # Intestare un record a un ALTRO utente assegna permessi: record_rules
+    # filtra su owner_uid == user.uid e f_rule.write ha lo sblocco $owner.
+    env = _OwnerEnv(is_admin=False, uid="bob")
+
+    with pytest.raises(HTTPException) as exc:
+        _owner_upsert(
+            env, data={"rec_name": "doc-1", "owner_uid": "alice"}
+        )
+
+    assert exc.value.status_code == 403
+    # non il 403 generico di model_groups_rule: proprio il gate owner.
+    assert "admin" in exc.value.detail["message"]
+    assert env.get("doc").preserve_owner_during_upsert is None
+
+
+def test_own_owner_uid_allowed_for_non_admin():
+    # owner_uid == se stesso: nessuna assegnazione di permessi, passa.
+    env = _OwnerEnv(is_admin=False, uid="bob")
+    _owner_upsert(env, data={"rec_name": "doc-1", "owner_uid": "bob"})
+
+    assert env.get("doc").preserve_owner_during_upsert is True
+
+
+def test_service_upsert_default_does_not_preserve_payload_owner():
+    # Blocca il default: `Service.upsert` e' condiviso da post_update_record,
+    # message_queue, step_task, action_runtime e camunda. Se il default
+    # diventasse "preserva", un qualsiasi payload con owner_uid creerebbe
+    # record intestati a terzi su tutte quelle rotte.
+    env = _OwnerEnv(is_admin=True, uid="importer")
+    service = Service(env)
+
+    async def allow_model(_model_key):
+        return {
+            "read": True,
+            "create": True,
+            "update": True,
+            "delete": True,
+            "export": True,
+        }
+
+    service._get_model_group_access = allow_model
+    asyncio.run(
+        service.upsert("doc", {"rec_name": "doc-1", "owner_uid": "original"})
+    )
+
+    assert env.get("doc").preserve_owner_during_upsert is False
+
+
+def test_owner_is_never_preserved_on_update():
+    # Record gia' esistente -> UPDATE: ozon-env non chiama set_user_data e
+    # il diff scarta comunque gli owner_*, quindi l'owner di un record
+    # esistente non e' riassegnabile da un payload.
+    env = _OwnerEnv(rows=[{"rec_name": "doc-1"}], is_admin=True, uid="u1")
+    _owner_upsert(
+        env,
+        data={"rec_name": "doc-1", "owner_uid": "original"},
+        rec_name="doc-1",
+    )
+
+    assert env.get("doc").preserve_owner_during_upsert is False
+
+
+def _deny_owner_uid_on_create(session):
+    """Policy reale compilata (niente stub sull'ACL): `owner_uid` negato in
+    create per chiunque."""
+    return compile_field_acl_policies(
+        [
+            {
+                "model_key": "doc",
+                "field_path": "owner_uid",
+                "operation": "create",
+                "effect": "deny",
+                "actor_selector": "*",
+                "active": True,
+                "deleted": 0,
+            }
+        ],
+        session=session,
+    )
+
+
+def test_import_errors_when_field_acl_denies_owner_uid():
+    # Se una field_acl_policy scarta `owner_uid` in create, l'import con
+    # take_ownership=False NON puo' ricadere silenziosamente su
+    # "owner = chi importa": e' una riassegnazione di ownership mai
+    # richiesta (e salterebbe pure il gate admin, che legge il payload
+    # dopo l'ACL).
+    env = _OwnerEnv(is_admin=True, uid="importer")
+    env.user_session.compiled_field_acl = _deny_owner_uid_on_create(
+        env.user_session
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        _owner_upsert(
+            env, data={"rec_name": "doc-1", "owner_uid": "original"}
+        )
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail["reason"] == "owner_uid_denied_by_field_acl"
+    # nessun record scritto: si solleva prima della upsert sul model.
+    assert env.get("doc").preserve_owner_during_upsert is None
+    assert env.get("doc").upserted_data == []
+
+
+def test_take_ownership_still_works_when_field_acl_denies_owner_uid():
+    # take_ownership=True E' la richiesta esplicita di intestare a chi
+    # importa: la policy che nega owner_uid non deve farlo fallire.
+    env = _OwnerEnv(is_admin=True, uid="importer")
+    env.user_session.compiled_field_acl = _deny_owner_uid_on_create(
+        env.user_session
+    )
+
+    _owner_upsert(
+        env,
+        data={"rec_name": "doc-1", "owner_uid": "original"},
+        take_ownership=True,
+    )
+
+    assert env.get("doc").preserve_owner_during_upsert is False
+    assert "owner_uid" not in env.get("doc").upserted_data[0]
+
+
+def test_field_acl_denying_owner_uid_does_not_block_payload_without_owner():
+    # Nessun owner_uid nel payload: niente da preservare, la creazione
+    # normale passa (owner = chi scrive) anche con la policy attiva.
+    env = _OwnerEnv(is_admin=True, uid="importer")
+    env.user_session.compiled_field_acl = _deny_owner_uid_on_create(
+        env.user_session
+    )
+
+    _owner_upsert(env, data={"rec_name": "doc-1"})
+
+    assert env.get("doc").preserve_owner_during_upsert is False
+
+
+_USER_ROWS = [
+    {
+        "uid": "original",
+        "nome": "Mario",
+        "cognome": "Rossi",
+        "mail": "mario.rossi@example.org",
+        "sector": "Ricerca",
+        "sector_id": 7,
+        "function": "ricercatore",
+        "user": {"tipo_personale": "TI", "qualifica": "primo ricercatore"},
+    }
+]
+
+
+def test_import_resolves_owner_fields_from_user_model():
+    # Preservare l'owner non basta: owner_name/mail/sector/sector_id (e
+    # gli altri owner_*) devono arrivare dal model `user` locale per uid,
+    # non dal payload (che porta i dati dell'istanza di origine).
+    env = _OwnerEnv(is_admin=True, uid="importer", users=_USER_ROWS)
+
+    _owner_upsert(
+        env,
+        data={
+            "rec_name": "doc-1",
+            "owner_uid": "original",
+            "owner_name": "Nome Dell'Altra Istanza",
+            "owner_sector": "Settore Fantasma",
+        },
+    )
+
+    model = env.get("doc")
+    assert model.preserve_owner_during_upsert is True
+    assert model.preserve_owner_data_during_upsert == {
+        "owner_name": "Mario Rossi",
+        "owner_mail": "mario.rossi@example.org",
+        "owner_sector": "Ricerca",
+        "owner_sector_id": 7,
+        "owner_function": "ricercatore",
+        "owner_personal_type": "TI",
+        "owner_job_title": "primo ricercatore",
+    }
+
+
+def test_import_with_unknown_owner_uid_is_fail_soft():
+    # Record esportato da un'altra istanza, utente non ancora
+    # sincronizzato: l'import NON fallisce, ma gli owner_* restano vuoti
+    # invece di ereditare quelli del payload.
+    env = _OwnerEnv(is_admin=True, uid="importer", users=_USER_ROWS)
+
+    _owner_upsert(
+        env,
+        data={
+            "rec_name": "doc-1",
+            "owner_uid": "ghost",
+            "owner_name": "Nome Dell'Altra Istanza",
+        },
+    )
+
+    model = env.get("doc")
+    assert model.preserve_owner_during_upsert is True
+    assert model.preserve_owner_data_during_upsert == {
+        "owner_name": "",
+        "owner_mail": "",
+        "owner_sector": "",
+        "owner_sector_id": 0,
+        "owner_function": "",
+        "owner_personal_type": "",
+        "owner_job_title": "",
+    }
+
+
+def test_take_ownership_does_not_resolve_owner_identity():
+    # Nessuna preservazione -> nessuna lettura del model user: gli
+    # owner_* li scrive set_user_data dalla sessione, come sempre.
+    env = _OwnerEnv(is_admin=True, uid="importer", users=_USER_ROWS)
+
+    _owner_upsert(
+        env,
+        data={"rec_name": "doc-1", "owner_uid": "original"},
+        take_ownership=True,
+    )
+
+    model = env.get("doc")
+    assert model.preserve_owner_during_upsert is False
+    assert model.preserve_owner_data_during_upsert is None
+
+
+def test_owner_identity_not_resolved_on_update():
+    # UPDATE: set_user_data non viene chiamato e il diff scarta comunque
+    # gli owner_*, quindi niente da risolvere.
+    env = _OwnerEnv(
+        rows=[{"rec_name": "doc-1"}],
+        is_admin=True,
+        uid="u1",
+        users=_USER_ROWS,
+    )
+
+    _owner_upsert(
+        env,
+        data={"rec_name": "doc-1", "owner_uid": "original"},
+        rec_name="doc-1",
+    )
+
+    model = env.get("doc")
+    assert model.preserve_owner_during_upsert is False
+    assert model.preserve_owner_data_during_upsert is None

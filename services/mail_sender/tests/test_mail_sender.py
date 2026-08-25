@@ -224,6 +224,58 @@ def test_process_once_sender_error_marks_error_with_traceback():
     assert "RuntimeError" in gw.errors[0][1]
 
 
+def test_process_once_db_blip_leaves_message_pending():
+    """Un AutoReconnect durante la lettura del template non e' un problema
+    del messaggio: marcarlo in_errore lo toglierebbe per sempre dalla coda
+    (`_pending_domain` ripesca solo i `da_inviare`)."""
+    from pymongo.errors import AutoReconnect
+
+    gw = _gateway()
+
+    async def boom(_name):
+        raise AutoReconnect("ozonenv_app_db:27017: [Errno 104] Connection reset by peer")
+
+    gw.load_template = boom
+    sender = FakeSender()
+    worker = _worker(gw, sender)
+
+    sent = asyncio.run(worker.process_once())
+
+    assert sent == 0
+    assert gw.sent == []
+    assert gw.errors == []          # <- il record resta da_inviare
+    assert sender.calls == []
+
+
+def test_process_once_socket_reset_leaves_message_pending():
+    gw = _gateway()
+
+    async def boom(_model, _rec_name):
+        raise ConnectionResetError(104, "Connection reset by peer")
+
+    gw.load_record = boom
+    worker = _worker(gw)
+
+    asyncio.run(worker.process_once())
+
+    assert gw.sent == []
+    assert gw.errors == []
+
+
+def test_process_once_smtp_failure_still_marks_error():
+    """Il guasto SMTP resta in_errore: ritentare un invio gia' partito
+    rischia il doppio invio, la lettura sul DB no."""
+    gw = _gateway()
+    sender = FakeSender(raise_exc=OSError("smtp socket down"))
+    worker = _worker(gw, sender)
+
+    asyncio.run(worker.process_once())
+
+    assert gw.sent == []
+    assert gw.errors[0][0] == "mq_1"
+    assert "smtp socket down" in gw.errors[0][1]
+
+
 # ------------------------- ozon_gateway (model layer) ----------------------
 
 def test_gateway_pending_uses_model_find_app_code_scoped():

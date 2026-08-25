@@ -152,6 +152,7 @@ class FakeService:
         rec_name: str = "",
         sync_component_runtime: bool = False,
         generate_component_defaults: bool = False,
+        take_ownership: bool = False,
     ):
         if self.factory is not None:
             self.factory.last_upsert_call = {
@@ -160,6 +161,7 @@ class FakeService:
                 "rec_name": rec_name,
                 "sync_component_runtime": sync_component_runtime,
                 "generate_component_defaults": generate_component_defaults,
+                "take_ownership": take_ownership,
             }
         if rec_name == "mario":
             return None  # Simula un errore/mismatch
@@ -772,7 +774,36 @@ def test_import_component_syncs_without_generating_defaults():
         "rec_name": "demo_component",
         "sync_component_runtime": True,
         "generate_component_defaults": False,
+        "take_ownership": False,
     }
+
+
+def test_import_drops_source_id_from_payload():
+    # L'id del record esportato e' l'identita' dell'istanza di origine.
+    # Se arriva fino a ozon-env, `upsert` puo' ripiegare su by_id e fare
+    # un UPDATE mentre l'app ha autorizzato un INSERT (gate ACL "create",
+    # preserve_owner armato ma inefficace su update).
+    factory = Factory()
+    client = make_client(factory)
+    response = client.post(
+        "/import/customer",
+        headers={"Authorization": "Bearer ok-token"},
+        json={
+            "id": "6a36614968d9a98f0cb85916",
+            "_id": "6a36614968d9a98f0cb85916",
+            "rec_name": "cust-1",
+            "status": "ok",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = factory.last_upsert_call["payload"]
+    assert "id" not in payload
+    assert "_id" not in payload
+    # il resto del record passa intatto, incluso il rec_name che resta
+    # l'unica chiave di match (idempotenza dell'import)
+    assert payload == {"rec_name": "cust-1", "status": "ok"}
+    assert factory.last_upsert_call["rec_name"] == "cust-1"
 
 
 def test_update_record_rec_name_mismatch():
