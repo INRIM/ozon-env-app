@@ -592,6 +592,43 @@ class CompiledFieldAcl:
                 denied.append(field_path)
         return denied
 
+    def explicit_allow_fields(
+        self,
+        *,
+        operation: str,
+        model_key: str,
+        field_paths: set[str],
+        app_key: str = "",
+        form_key: str = "",
+        workflow_stage: str = "",
+        task_key: str = "",
+    ) -> set[str]:
+        """Sottoinsieme di `field_paths` coperto da una policy ALLOW
+        esplicita per questo attore (le policy sono gia' filtrate per
+        attore in `compile_field_acl_policies`).
+
+        Serve a distinguere "scrittura concessa esplicitamente" da
+        "nessuna policy, quindi non negata": solo la prima batte la
+        protezione blind-write di `Service.upsert` (non vedi il campo ->
+        non lo riscrivi)."""
+        policies = self.for_operation(
+            operation=operation,
+            model_key=model_key,
+            app_key=app_key,
+            form_key=form_key,
+            workflow_stage=workflow_stage,
+            task_key=task_key,
+        )
+        allowed: set[str] = set()
+        for field_path in field_paths:
+            for policy in policies:
+                if policy.effect != FieldAclEffect.ALLOW.value:
+                    continue
+                if _path_matches(policy.field_path, field_path):
+                    allowed.add(field_path)
+                    break
+        return allowed
+
     def read_masks(
         self,
         *,

@@ -338,10 +338,38 @@ campo in chiaro su tutta la lista).
 
 `Service.upsert` chiama `enforce_write_acl(acl, ...)` prima di
 scrivere: calcola `denied_fields` sui path del payload
-(`iter_payload_paths`, ricorsivo su dict annidati), se non vuoto
-logga su collection `field_acl_audit` (`audit_denied_fields`) e lancia
-`403` con `{"message": "Field ACL denied", "model", "operation",
-"fields"}`.
+(`iter_payload_paths`, ricorsivo su dict annidati), logga su collection
+`field_acl_audit` (`audit_denied_fields`) e restituisce la lista. Il
+campo negato non blocca il salvataggio: `restore_or_drop_denied_write_
+fields` ripristina il valore dello STORED record (UPDATE) o toglie la
+chiave (INSERT), il resto del payload passa.
+
+### Blind write: non si scrive cio' che non si vede
+
+Asse separato dal precedente, su UPDATE
+(`Service._blind_write_protected_fields`). Il client rimanda indietro il
+form come l'ha ricevuto, quindi:
+
+- un campo **oscurato** in lettura torna col MASCHERAMENTO — scriverlo
+  distruggerebbe il valore vero, e chi salva non se ne accorge nemmeno
+  perche' quel valore non lo vede;
+- un campo **negato** in lettura non torna affatto, e `record_model.
+  upsert` fa un replace pieno: la chiave mancante cancella il campo.
+
+In entrambi i casi il valore viene ripreso dallo stored record (stesso
+`restore_or_drop_denied_write_fields`). La lista protetta e' quella che
+`load_record` userebbe per QUESTO record: oscurati **al netto dei reveal
+di `f_rule_cond`** (l'owner che vede davvero il proprio campo GDPR deve
+poterlo anche scrivere) piu' i negati in lettura. Il wildcard `*` non
+entra: non e' un campo da ripristinare.
+
+Un permesso di scrittura **esplicito** batte la protezione: il sentinel
+`$owner` di `f_rule.write` (l'owner corregge il proprio campo anche se
+non lo vede) e le policy ALLOW su UPDATE
+(`CompiledFieldAcl.explicit_allow_fields`). L'assenza di policy invece
+NON e' un permesso — e' esattamente il caso del blind overwrite.
+
+Su INSERT non si applica: non c'e' un valore stored da proteggere.
 
 ## Record rule (`record_rules`, `rule_type="record"`)
 

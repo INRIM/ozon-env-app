@@ -29,6 +29,7 @@ from app.services.message_queue import maybe_enqueue_on_save
 from app.services.session_auth import _full_name
 from app.services.session_auth import _int_value
 from app.services.utils import check_parse_json
+from app.ozon_env_acl import WILDCARD
 from app.ozon_env_acl import CompiledFieldAcl
 from app.ozon_env_acl import QueryFieldAclDeniedError
 from app.ozon_env_acl import QueryOperatorNotAllowedError
@@ -1566,6 +1567,28 @@ class Service:
                 operation,
                 denied_write_fields,
             )
+        if operation == FieldAclOperation.UPDATE.value and isinstance(data, dict):
+            blind_fields = await self._blind_write_protected_fields(
+                model_name,
+                existing_record,
+                owner_override_fields=owner_override_fields,
+            )
+            if blind_fields:
+                # Non si scrive cio' che non si vede: il client rimanda
+                # indietro il form come l'ha ricevuto, quindi un campo
+                # oscurato torna col MASCHERAMENTO e uno negato in lettura
+                # non torna affatto — e `record_model.upsert` fa un replace
+                # pieno, quindi la chiave mancante cancella il campo. In
+                # entrambi i casi il valore vero va ripreso dallo stored.
+                restore_or_drop_denied_write_fields(
+                    data, blind_fields, existing_record
+                )
+                logger.info(
+                    "acl.upsert model=%s blind_write_protected=%s "
+                    "(ripristinati dallo stored: oscurati o non leggibili)",
+                    model_name,
+                    blind_fields,
+                )
         if (
             operation == FieldAclOperation.INSERT.value
             and not take_ownership
@@ -2408,6 +2431,69 @@ class Service:
                     "operation": operation,
                 },
             )
+
+    async def _blind_write_protected_fields(
+        self,
+        model_name: str,
+        existing_record: dict[str, Any] | None,
+        *,
+        owner_override_fields: frozenset[str] = frozenset(),
+    ) -> list[str]:
+        """Campi che l'attore NON puo' vedere su questo record e che quindi
+        non puo' nemmeno riscrivere (protezione dal blind overwrite).
+
+        Sono le due maschere di lettura di `load_record`, valutate sullo
+        STORED record:
+        - oscurati (`f_rule.read`/policy OBFUSCATE) AL NETTO dei reveal di
+          `f_rule_cond` — l'owner che vede davvero il proprio campo GDPR
+          deve poterlo anche scrivere, altrimenti il self-service si
+          rompe in silenzio;
+        - negati in lettura, che non arrivano proprio nella response.
+
+        Il wildcard `*` non entra nella lista: non e' un campo da
+        ripristinare e chi ha `*` negato riceve da `load_record` un record
+        gia' svuotato — non ha nulla da rimandare indietro.
+
+        Un permesso di scrittura ESPLICITO batte questa protezione: il
+        sentinel `$owner` di `f_rule.write` (l'owner corregge il proprio
+        campo anche se non lo vede) e le policy ALLOW su UPDATE. L'assenza
+        di policy invece NON e' un permesso: e' esattamente il caso del
+        blind overwrite.
+        """
+        if not existing_record:
+            return []
+        acl = await self._get_compiled_field_acl()
+        denied_read, obfuscated_read = acl.read_masks(
+            model_key=model_name,
+            app_key=str(getattr(self.session, "app_code", "")),
+        )
+        protected = {field for field in denied_read if field != WILDCARD}
+        if obfuscated_read:
+            field_rule_conditions = self._get_field_rule_conditions(model_name)
+            if field_rule_conditions:
+                # apply_field_rule_conditions MUTA l'argomento `obfuscated`:
+                # va una copia, mai lo stored da cui si ripristina.
+                obfuscated_copy = _record_to_dict(existing_record)
+                obfuscate_fields_in_place(obfuscated_copy, obfuscated_read)
+                final_obfuscated = apply_field_rule_conditions(
+                    original=existing_record,
+                    obfuscated=obfuscated_copy,
+                    baseline_obfuscated_fields=obfuscated_read,
+                    field_rule_conditions=field_rule_conditions,
+                    resolve_var=self._resolve_query_json_logic_vars,
+                )
+            else:
+                final_obfuscated = list(obfuscated_read)
+            protected.update(final_obfuscated)
+        protected -= set(owner_override_fields)
+        if protected:
+            protected -= acl.explicit_allow_fields(
+                operation=FieldAclOperation.UPDATE.value,
+                model_key=model_name,
+                field_paths=protected,
+                app_key=str(getattr(self.session, "app_code", "")),
+            )
+        return sorted(protected)
 
     async def response_access_flags(
         self, model_name: str, record: Any = None

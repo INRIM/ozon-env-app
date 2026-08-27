@@ -105,7 +105,12 @@ class _RecordModel:
         target = rec_name or data.get("rec_name")
         for row in self.rows:
             if row.get("rec_name") == target:
+                # replace pieno, come l'upsert di ozon-env: una chiave che
+                # non arriva nel payload CANCELLA il campo (vedi
+                # restore_or_drop_denied_write_fields).
+                row.clear()
                 row.update(data)
+                row.setdefault("rec_name", target)
                 return row.copy()
         record = dict(data)
         record.setdefault("rec_name", target)
@@ -2010,3 +2015,139 @@ def test_workflow_operator_list_shows_every_state():
     )
 
     assert {row["rec_name"] for row in listed.content.data} == {"p1", "p2"}
+
+
+# --- blind write: non si scrive cio' che non si vede -----------------------
+
+
+def test_obfuscated_field_is_not_overwritten_by_masked_value():
+    """Il form arriva col campo OSCURATO; il client lo rimanda indietro
+    com'e' (la maschera). Senza protezione la maschera sovrascriveva il
+    valore vero — il caso peggiore, perche' l'utente non lo puo' nemmeno
+    vedere per accorgersene."""
+    users = _RecordModel(
+        "user",
+        rows=[
+            {
+                "rec_name": "u1",
+                "owner_uid": "owner1",
+                "codicefiscale": "REAL123",
+                "name": "A",
+            }
+        ],
+        field_rules={"codicefiscale": {"read": ["gdpr"]}},
+    )
+    env = _Env({"user": users}, session=_session(groups=["sales"], uid="u9"))
+    service = Service(env)
+
+    # Quello che il client ha ricevuto in lettura...
+    loaded = asyncio.run(service.load_record("user", "u1"))
+    masked = loaded.content.data["codicefiscale"]
+    assert "codicefiscale" in loaded.content.obfucated_fields
+    assert masked != "REAL123"
+
+    # ...e che rimanda indietro tale e quale al salva.
+    response = asyncio.run(
+        service.upsert(
+            model_name="user",
+            data={"rec_name": "u1", "codicefiscale": masked, "name": "B"},
+            rec_name="u1",
+        )
+    )
+
+    assert response.fail is False
+    assert users.rows[0]["codicefiscale"] == "REAL123"
+    assert users.rows[0]["name"] == "B"
+
+
+def test_read_denied_field_is_not_wiped_when_absent_from_payload():
+    """Campo negato in LETTURA: non arriva proprio nella response, quindi
+    il client non lo rimanda. `record_model.upsert` fa un replace pieno —
+    senza ripristino la chiave mancante cancellava il campo."""
+    users = _RecordModel(
+        "user",
+        rows=[{"rec_name": "u1", "segreto": "TOPSECRET", "name": "A"}],
+    )
+    policies = [
+        {
+            "model_key": "user",
+            "field_path": "segreto",
+            "operation": "read",
+            "effect": "deny",
+            "active": True,
+            "deleted": 0,
+        }
+    ]
+    env = _Env(
+        {"user": users, "field_acl_policy": _RecordModel("field_acl_policy", rows=policies)},
+        session=_session(groups=["sales"], uid="u9"),
+    )
+    service = Service(env)
+
+    asyncio.run(
+        service.upsert(
+            model_name="user",
+            data={"rec_name": "u1", "name": "B"},
+            rec_name="u1",
+        )
+    )
+
+    assert users.rows[0]["segreto"] == "TOPSECRET"
+    assert users.rows[0]["name"] == "B"
+
+
+def test_blind_write_protection_does_not_apply_on_insert():
+    """Su INSERT non c'e' un valore stored da proteggere: il campo scritto
+    in creazione passa anche se in lettura sarebbe oscurato."""
+    users = _RecordModel(
+        "user",
+        rows=[],
+        field_rules={"codicefiscale": {"read": ["gdpr"]}},
+    )
+    env = _Env({"user": users}, session=_session(groups=["sales"], uid="u9"))
+    service = Service(env)
+
+    asyncio.run(
+        service.upsert(
+            model_name="user",
+            data={"rec_name": "nuovo", "codicefiscale": "MIO123"},
+            rec_name="nuovo",
+        )
+    )
+
+    assert users.rows[0]["codicefiscale"] == "MIO123"
+
+
+def test_field_revealed_by_condition_stays_writable_by_owner():
+    """f_rule_cond rivela il campo all'owner: se lo VEDE davvero, deve
+    poterlo anche scrivere. La protezione blind-write si basa sulla lista
+    oscurata FINALE (post-reveal), non sulla baseline."""
+    users = _RecordModel(
+        "user",
+        rows=[
+            {
+                "rec_name": "owner1",
+                "owner_uid": "owner1",
+                "codicefiscale": "OLD123",
+            }
+        ],
+        field_rules={"codicefiscale": {"read": ["gdpr"]}},
+        field_rule_conditions={
+            "codicefiscale": {"owner_uid": {"$eq": {"var": "user.uid"}}}
+        },
+    )
+    env = _Env({"user": users}, session=_session(groups=["sales"], uid="owner1"))
+    service = Service(env)
+
+    loaded = asyncio.run(service.load_record("user", "owner1"))
+    assert loaded.content.data["codicefiscale"] == "OLD123"  # rivelato
+
+    asyncio.run(
+        service.upsert(
+            model_name="user",
+            data={"rec_name": "owner1", "codicefiscale": "NEW456"},
+            rec_name="owner1",
+        )
+    )
+
+    assert users.rows[0]["codicefiscale"] == "NEW456"
