@@ -1,9 +1,13 @@
+# Progetto e container prefissati da STACK_NAME: due istanze di
+# ozon-env-app sullo stesso host non devono collidere.
+name: ${STACK_NAME:-ozon-env-app}-identity-manager
+
 services:
   identity_manager:
-    image: ozonapp.identity_manager:latest
+    image: ozonapp.identity_manager:${IMAGE_TAG:-latest}
     build:
       context: .
-    container_name: ozon-env-identity-manager
+    container_name: ${STACK_NAME:-ozon-env-app}-identity-manager
     env_file:
       # base generico dello stack, poi env specifico del service (override).
       - ../../.env

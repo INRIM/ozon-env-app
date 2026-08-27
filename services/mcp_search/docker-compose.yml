@@ -1,10 +1,16 @@
+# Progetto e container prefissati da STACK_NAME: due istanze di
+# ozon-env-app sullo stesso host non devono collidere.
+name: ${STACK_NAME:-ozon-env-app}-mcp-search
+
 services:
   mcp_search:
-    image: ozonapp.mcp_search:latest
+    image: ozonapp.mcp_search:${IMAGE_TAG:-latest}
     build:
       context: .
-    container_name: ozon-env-mcp-search
+    container_name: ${STACK_NAME:-ozon-env-app}-mcp-search
     env_file:
+      # base generico dello stack, poi env specifico del service (override).
+      - ../../.env
       - path: service.env
         required: false
     ports:

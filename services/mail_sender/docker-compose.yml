@@ -1,9 +1,13 @@
+# Progetto e container prefissati da STACK_NAME: due istanze di
+# ozon-env-app sullo stesso host non devono collidere.
+name: ${STACK_NAME:-ozon-env-app}-mail-sender
+
 services:
   mail_sender:
-    image: ozonapp.mail_sender:latest
+    image: ozonapp.mail_sender:${IMAGE_TAG:-latest}
     build:
       context: .
-    container_name: ozon-env-mail-sender
+    container_name: ${STACK_NAME:-ozon-env-app}-mail-sender
     env_file:
       # base generico dello stack, poi override opzionale specifico del service.
       - ../../.env

@@ -1,4 +1,4 @@
-name: ozon-env-app-camunda-e2e
+name: ${E2E_STACK_NAME:-ozon-env-app-camunda-e2e}
 
 # Stack di test ALLEGGERITO: un solo container Camunda con secondary storage
 # in-memory/H2 al posto di elasticsearch + zeebe + tasklist.

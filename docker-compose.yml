@@ -1,11 +1,15 @@
+# Nome dello stack: prefissa progetto, container e volumi. Due istanze di
+# ozon-env-app sullo stesso host devono avere STACK_NAME diversi.
+name: ${STACK_NAME:-ozon-env-app}
+
 services:
   app:
-    image: ozonapp.app:latest
-    container_name: ozon-env-app
+    image: ozonapp.app:${IMAGE_TAG:-latest}
+    container_name: ${STACK_NAME:-ozon-env-app}
     env_file:
       - .env
     ports:
-      - "7999:8000"
+      - "${APP_HOST_PORT:-7999}:8000"
     volumes:
       - ./app:/app/app
       - ./models:/models
@@ -29,7 +33,8 @@ services:
   ozonenv_app_db:
     stdin_open: true  # -i
     tty: true
-    image: ozonapp.db
+    image: ozonapp.db:${IMAGE_TAG:-latest}
+    container_name: ${STACK_NAME:-ozon-env-app}-db
     environment:
       MONGO_INITDB_ROOT_USERNAME: $MONGO_USER
       MONGO_INITDB_ROOT_PASSWORD: $MONGO_PASS
@@ -46,7 +51,7 @@ services:
     # (mongosh, Compass). Con "22222:27017" il db, che ha le credenziali
     # root, era esposto su tutte le interfacce dell'host.
     ports:
-      - "127.0.0.1:22222:27017"
+      - "127.0.0.1:${MONGO_HOST_PORT:-22222}:27017"
     ulimits:
       nofile:
         soft: 64000
@@ -58,6 +63,11 @@ services:
 
 networks:
   default:
+    # NETWORK deve essere UNICO per istanza. Sulla stessa rete ogni container
+    # prende come alias DNS il nome del service (`app`, `ozonenv_app_db`): due
+    # stack sulla stessa rete producono alias duplicati e il DNS di Docker fa
+    # round-robin — l'app di un'istanza puo' finire sul Mongo dell'altra
+    # (MONGO_URL punta all'alias, non al container).
     name: ${NETWORK}
   camunda:
     external: true
