@@ -293,6 +293,54 @@ async def _replace_rules(
         await collection.insert_many(rows)
 
 
+def _warn_mixed_record_rule_scopes(
+    model_name: str, properties: dict[str, Any]
+) -> None:
+    """Segnala la coesistenza di record rule universali e group-scoped.
+
+    Le azioni concesse sono l'UNIONE delle entry che matchano il record
+    (`evaluate_record_rule_access`): una entry senza `groups` si applica a
+    chiunque passi il gate model-level, quindi annacqua qualunque entry
+    per gruppo piu' restrittiva sullo stesso model — il caso tipico e' la
+    entry di default (`filters: {"active": true}`, tutte le azioni) lasciata
+    in `properties` mentre si aggiungono le regole per gruppo.
+
+    Solo warning: la semantica dell'union NON cambia, la config resta
+    legittima (l'universale puo' essere una baseline voluta)."""
+    try:
+        raw = _parse_dict_property(
+            (properties or {}).get("models_restricted_fields"),
+            "models_restricted_fields",
+        )
+    except MalformedAclPropertyError:
+        return
+    entries = (raw or {}).get("record_rules")
+    if not isinstance(entries, list):
+        return
+    universal: list[int] = []
+    scoped: list[int] = []
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            continue
+        groups = entry.get("groups") or []
+        if not isinstance(groups, (list, tuple, set)):
+            groups = [groups]
+        if any(_normalize_group(group) for group in groups):
+            scoped.append(index)
+        else:
+            universal.append(index)
+    if universal and scoped:
+        logger.warning(
+            "record_rules model=%s: entry universali %s (senza `groups`) "
+            "coesistono con entry per gruppo %s — le azioni sono l'UNIONE, "
+            "quindi le universali concedono anche a chi le entry per gruppo "
+            "restringono. Se e' la entry di default, va rimossa.",
+            model_name,
+            universal,
+            scoped,
+        )
+
+
 async def sync_model_rules(env: Any, schema: dict[str, Any]) -> None:
     """Cancella e riscrive le righe model_groups_rule/model_fields_rule per
     (app_code, model) a partire da schema["properties"]. Fail-soft: un
@@ -326,6 +374,7 @@ async def sync_model_rules(env: Any, schema: dict[str, Any]) -> None:
                 "(model_group_access e' fail-closed): lockout dei non-admin"
             ),
         )
+        _warn_mixed_record_rule_scopes(model_name, properties)
         await _replace_rules(
             engine.get_collection(_FIELDS_RULE_COLLECTION),
             app_code=app_code,

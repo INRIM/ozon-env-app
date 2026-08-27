@@ -59,6 +59,15 @@ def _enforce_dashboard_mode(payload: ResponseObjectData) -> ResponseObjectData:
         filter_kyes=payload.filter_kyes,
         batch_size=payload.batch_size,
         total_count=payload.total_count,
+        # Campi persi nella ricostruzione: context_actions vuoto significa
+        # "nessun pulsante calcolato" per il client, non "nessun pulsante".
+        context_actions=payload.context_actions,
+        properties=payload.properties,
+        sort=payload.sort,
+        title=payload.title,
+        next_action_url=payload.next_action_url,
+        process_id=payload.process_id,
+        process_status=payload.process_status,
     )
 
 

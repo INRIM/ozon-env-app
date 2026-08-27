@@ -352,20 +352,48 @@ collection, popolata dal sync), non `component.properties` — un
 identity model come `user` e' escluso dai default ma puo' avere una
 regola configurata a mano in passato, il sync l'ha scritta comunque.
 
-### Due viste sulla stessa riga
+### Una sola vista: accesso al record
 
-- `evaluate_record_rule_override` → per il RIVELAMENTO campi: se una
-  regola matcha, ritorna lo SCOPE (`restricted_fields`) che quella
-  regola sblocca dalla baseline `fields_rule`. `apply_record_rule_
-  override` fa la differenza insiemistica `baseline - scope` (NON
-  sostituzione): un campo oscurato dalla baseline ma fuori scope resta
-  oscurato anche a match. Scope vuoto `[]` = sblocca tutto.
+`record_rules` e' puramente Layer 2 — accesso al RECORD, mai ai suoi
+campi. Il vecchio doppio uso (`evaluate_record_rule_override` /
+`apply_record_rule_override`, un filtro → una lista di campi sbloccati)
+e' ritirato: il reveal di campo e' Layer 3, `f_rule_cond` (un campo →
+una condizione), vedi `apply_field_rule_conditions`.
+
 - `evaluate_record_rule_access` / `record_rule_access` → per
   read/create/update/delete SUL RECORD stesso (non sui suoi campi):
-  ritorna le azioni della PRIMA regola che matcha. **Fail-closed**: se
+  ritorna l'**unione** (OR) delle azioni di TUTTE le regole che
+  matchano — non la prima nell'ordine di config. Un utente in piu'
+  gruppi scoped ottiene il piu' permissivo. **Fail-closed**: se
   il model ha `record_rules` configurato e nessuna regola matcha
   (non e' il tuo record), nega tutto — a differenza del field masking
   (dove "nessun match" = resta la baseline).
+
+  **Filtro vuoto (`{}`) matcha OGNI record**: e' la forma per dire
+  "questo gruppo puo' sempre, qualunque sia il contenuto della riga",
+  senza inventare un filtro-finto tipo `{"active": true}`. Sulla
+  lettura in lista (`record_rule_read_domain`) una regola `read` senza
+  filtri apre il domain invece di aggiungere una clausola in OR.
+
+### Scope dei gruppi: sempre quelli dell'utente
+
+`Service._get_record_rules` filtra le righe scoped (`group` valorizzato)
+sui gruppi dell'**utente in sessione**, gia' espansi con
+`implied_groups`. I `groups` dichiarati su un'action decidono CHI puo'
+aprirla (`ActionRuntime._is_action_visible`), **non** con quale potere
+agisce chi l'ha aperta: un manager — che eredita `operator` — aprendo
+una action dichiarata `operator` resta valutato come manager, con
+l'unione delle proprie regole. Righe con `group=""` (universali) si
+applicano a chiunque passi il gate model-level.
+
+> **Attenzione alla entry universale.** Le azioni sono l'unione: una
+> entry senza `groups` concede anche a chi le entry per gruppo
+> restringono. Il caso tipico e' la entry di default
+> (`filters: {"active": true}`, tutte le azioni) lasciata in
+> `properties` mentre si aggiungono le regole per gruppo. Il sync logga
+> un warning quando le due forme coesistono sullo stesso model
+> (`_warn_mixed_record_rule_scopes`), ma non cambia la semantica: la
+> entry di default va rimossa a mano.
 
   Il parametro si chiama `bypass_ownership`, NON `is_admin`: **un
   admin puro NON bypassa piu' l'enforcement record-level** su un
@@ -401,14 +429,29 @@ fallisce.
   sys-model, `record_rule_read_domain` restringe il `domain` mongo
   all'OR dei filtri (risolti) delle regole con `read=True` — fail-
   closed: nessuna regola con read → domain `{"rec_name": {"$in":
-  []}}` (nessuna riga). Poi per ogni riga risultante,
-  `apply_record_rule_override` puo' rivelare campi oscurati dalla
-  baseline (owner del record vede i propri campi GDPR).
+  []}}` (nessuna riga). Il reveal per riga dei campi oscurati e'
+  Layer 3 (`apply_field_rule_conditions`), non piu' record_rules.
+- `Service.upsert`: su **UPDATE** valuta le record rule sul record
+  GIA' PERSISTITO (stessa valutazione di `load_record`) — senza,
+  un record che `load_record` non aprirebbe restava scrivibile con un
+  POST diretto `model` + `rec_name`. Vale per ogni path che passa da
+  qui: `/record`, `/step`, `/gateway/camunda` (complete,
+  complete_many), action `save`. Su **INSERT** il gate record-level non
+  si applica (nessun record da valutare, e il payload non ha ancora i
+  default dell'ORM): la creazione resta governata da Layer 1.
+- `ActionRuntime.handle_delete`: gate `delete` model-level + record
+  rule sul record da cancellare (il soft delete nativo non passa da
+  `upsert`). Idem l'action `copy` per `create` + `read` sul sorgente.
+- `Service.complete_many_camunda_gateway_tasks`: gate `read` (model +
+  record) prima di leggere il record, il cui contenuto finisce nelle
+  variabili di processo.
+- `Service.start_camunda_gateway_process`: avviare un processo richiede
+  `create` o `update` sul model configurato sul processo.
 - `Service.stream_record`: stessa logica, ma se `record_rules` e'
   presente l'oscuramento server-side (query-level `obfuscate_fields`)
   viene SALTATO — il valore reale serve non ancora oscurato per poter
-  eventualmente essere rivelato dall'override; l'oscuramento avviene
-  riga per riga in Python (`_apply_record_rules_to_stream`).
+  eventualmente essere rivelato da `f_rule_cond`; l'oscuramento
+  avviene riga per riga in Python.
 
 ### `resolve_var` / json-logic
 
@@ -417,6 +460,80 @@ fallisce.
 evitare import circolare `ozon_env_acl` ↔ `service.py`) prima del
 match contro il record.
 
+## Caso d'esempio: workflow per stato (chi edita cosa, e fino a quando)
+
+Caso comune: `operator` e `manager` possono entrambi creare ed editare;
+quando l'operatore esegue l'azione il campo `stato` passa da `YYYY` a
+`XXXX`; da quel momento **solo il manager** puo' ancora modificare il
+record. Non serve niente fuori dal motore ACL: e' esattamente Layer 2.
+
+### Layer 1 — `models_groups` (chi tocca il model)
+
+```json
+{"rules": [
+  {"groups": ["operator", "manager"],
+   "actions": {"read": true, "create": true, "update": true,
+               "delete": false, "export": true}}
+]}
+```
+
+### Layer 2 — `models_restricted_fields.record_rules` (su quali righe)
+
+```json
+{"record_rules": [
+  {"groups": ["operator"], "filters": {"active": true},
+   "actions": {"read": true}},
+
+  {"groups": ["operator"], "filters": {"stato": "YYYY"},
+   "actions": {"read": true, "update": true}},
+
+  {"groups": ["manager"], "filters": {},
+   "actions": {"read": true, "update": true, "delete": true}}
+]}
+```
+
+Le azioni sono l'unione delle entry che matchano quel record:
+
+| record | operator | manager |
+|---|---|---|
+| `stato: YYYY` | read + update | read + update + delete |
+| `stato: XXXX` | read (entry 1) | read + update + delete |
+
+Servono **due** entry per l'operator: quella senza condizioni di stato
+gli lascia la lettura di tutto (altrimenti i record in `XXXX` non
+matcherebbero nulla → fail-closed → spariscono anche dalla lista, che
+usa l'OR dei filtri delle entry con `read`). L'entry `manager` ha
+`filters: {}` = ogni record.
+
+Ricordarsi di **rimuovere la entry universale di default** (quella
+senza `groups`, `filters: {"active": true}` con tutte le azioni): resta
+in union e concederebbe update all'operator anche sui record in `XXXX`.
+Il sync logga un warning se la trova insieme alle entry per gruppo.
+
+### Cosa succede a runtime
+
+1. Operator apre il record `YYYY` → `load_record`: Layer 1 update AND
+   record rule update → `editable: true`.
+2. Esegue l'action che porta `stato` a `XXXX` → `Service.upsert` valuta
+   la record rule sul record **ancora `YYYY`** → passa. E' la
+   transizione, la fa l'operatore.
+3. La response del save calcola i flag sul record salvato
+   (`response_access_flags`) → `editable: false`: il form diventa
+   readonly subito, senza ricaricare.
+4. Riaprendolo: `editable: false`, e un POST diretto prende `403
+   Record ACL denied` (gate record-level su `upsert`).
+5. Manager: la sua entry matcha sempre → edita in qualunque stato.
+
+### Cosa NON copre
+
+Il **valore** scritto. Il gate autorizza "puoi aggiornare questo
+record", non "puoi fare questa transizione": sul record in `YYYY`
+l'operatore puo' scrivere `stato` con qualunque valore. Le record rule
+guardano lo stato di partenza, mai il payload. Se serve vincolare la
+transizione, va fatto scrivere il campo al server (il pattern di
+`complete_step_task`, che forza il valore a prescindere dal payload)
+oppure con un'action dedicata.
+
 ## Livello menu/action (gate separato, NON field ACL)
 
 `_is_menu_group_allowed` (menu) e `ActionRuntime._is_action_allowed`
@@ -424,8 +541,10 @@ match contro il record.
 `CompiledFieldAcl` — ma da quando l'action ha un model target, il
 secondo ora si appoggia a `model_group_access`:
 
-**`ActionRuntime._is_action_allowed(action)`** (async — tutti e 4 i
-call site fanno `await`):
+**`ActionRuntime._is_action_allowed(action)`** = visibilita' AND
+scrittura (async):
+
+`_is_action_visible(action)` — chi puo' vedere/aprire:
 - admin → sempre passa.
 - gruppi espliciti sull'action (`groups` field) → utente deve stare
   in almeno uno (override manuale, ha sempre precedenza).
@@ -437,6 +556,26 @@ call site fanno `await`):
   admin), niente di dedicato da mantenere qui. Se l'action non ha
   `model` (raro, action senza target), fallback all'euristica
   precedente (`"technical_operator" in user_groups`).
+
+`_has_action_write_access(action)` — chi puo' eseguirla: le operazioni
+richieste (`_action_required_operations`) devono essere concesse dal
+`model_group_access` sul model target. Basta UNA delle operazioni
+richieste; fail-closed se l'action ne richiede e non ha `model`.
+
+| sorgente | operazioni richieste |
+|---|---|
+| `write_access: true` | `create` or `update` |
+| `action_type: save` | `create` or `update` |
+| `action_type: copy` | `create` |
+| `action_type: delete` | `delete` |
+| `menu`, `window` senza `write_access` | nessuna (gate non applicato) |
+
+Effetto: i pulsanti che l'utente non puo' eseguire non compaiono
+(`_get_context_actions` usa il gate completo) e l'esecuzione diretta
+prende 403. Unica eccezione: su `handle_get` di una action `mode=form`
+il gate di scrittura NON nega l'apertura, la degrada a readonly
+(`editable=false`, `can_create=false`) — un form si apre in sola
+lettura, non con un 403.
 
 **`Service._is_menu_group_allowed(group)`** (sync, INVARIATO — non usa
 `model_group_access`): un `menu_group` e' una cartella di navigazione
@@ -489,9 +628,10 @@ record intero.
 |---|---|---|---|---|
 | model CRUD (`models_groups`) | `component.properties` | `model_groups_rule` | `model_group_access`, bypass admin | **fail-closed totale** (nessuna riga = nega, non solo "nessun match") |
 | campo (`fields_rule`) | `component.properties` | `model_fields_rule` (`rule_type=fields`) | `CompiledFieldAcl` OBFUSCATE, **niente bypass admin** | oscura se nessun gruppo matcha |
-| riga (`record_rules`) — rivelamento campi | `component.properties` | `model_fields_rule` (`rule_type=record`) | `apply_record_rule_override`, bypass solo sys | nessun match → baseline invariata |
+| campo, condizionato al record (`f_rule_cond`) | schema del campo (baked in ozon-env) | — | `apply_field_rule_conditions` (solo READ) | condizione falsa → campo resta oscurato |
 | riga (`record_rules`) — accesso record | idem | idem | `record_rule_access`, bypass solo sys (**niente bypass admin puro**) | nessun match → **nega tutto** |
-| action | field `groups` esplicito, poi `model_group_access(read)` se `admin`/`sys` | `model_groups_rule` (via il model target dell'action) | `ActionRuntime._is_action_allowed` (async) | segue model_group_access |
+| action — visibilita' | field `groups` esplicito, poi `model_group_access(read)` se `admin`/`sys` | `model_groups_rule` (via il model target dell'action) | `ActionRuntime._is_action_visible` (async) | segue model_group_access |
+| action — esecuzione | `write_access` + `action_type` dell'action | `model_groups_rule` (model target) | `ActionRuntime._has_action_write_access`; pulsante nascosto e 403 sull'esecuzione (su `mode=form` degrada a readonly) | fail-closed se richiede scrittura senza `model` |
 | menu (folder) | field `groups`/`admin` sul menu_group | — (nessun model target) | `Service._is_menu_group_allowed` (euristica propria, invariata) | passa se non configurato |
 | policy esplicite | collection `field_acl_policy` | — (e' gia' la fonte) | `CompiledFieldAcl` (stesso motore del field ACL) | dipende da `effect` |
 

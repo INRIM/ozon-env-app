@@ -85,6 +85,29 @@ def _merge_query_flat(
     return {"$and": merged_and}
 
 
+# Operazioni CRUD (model_groups_rule) richieste da un action_type. Un
+# `save` puo' essere sia insert sia update: basta una delle due, la
+# distinzione precisa la fa `Service.upsert` sul payload reale.
+_ACTION_TYPE_OPERATIONS: dict[str, tuple[str, ...]] = {
+    "save": ("create", "update"),
+    "copy": ("create",),
+    "delete": ("delete",),
+}
+
+
+def _apply_access_flags(
+        response: ResponseObjectData, flags: dict[str, bool]
+) -> None:
+    """Scrive readable/editable/can_create sulla response.
+
+    `make_response_object` li lascia a `True` di default: sulle response di
+    scrittura sono l'unica cosa che dice al client se il form appena
+    salvato e' ancora modificabile."""
+    response.readable = flags["readable"]
+    response.editable = flags["editable"]
+    response.can_create = flags["can_create"]
+
+
 def _runtime_component_visibility_query() -> dict[str, Any]:
     return {"rec_name": {"$regex": RUNTIME_MODEL_NAME_PATTERN}}
 
@@ -100,28 +123,20 @@ class ActionRuntime:
     def __init__(self, service):
         self.service = service
 
-    def _set_action_scope(self, action: CoreModel) -> None:
-        """Fissa i gruppi dell'action in esecuzione come scope ACL per la
-        richiesta corrente.
-
-        Da chiamare SOLO dopo che `_is_action_allowed` e' passato: a quel
-        punto l'appartenenza dell'utente ai gruppi dell'action e' gia'
-        verificata, quindi le record rule vanno filtrate sul gruppo
-        dell'action — non su tutti i gruppi dell'utente. Un utente
-        `[operator, manager]` che apre una action `manager` non deve
-        trascinarsi dentro le regole `operator`.
-
-        Action senza `groups` -> scope vuoto -> `_get_record_rules` resta
-        sui gruppi di sessione (comportamento storico invariato).
-        """
-        self.service.action_groups = action_groups(action)
-        logger.info(
-            "acl.action_scope action=%s groups=%s",
-            getattr(action, "rec_name", ""),
-            sorted(self.service.action_groups),
-        )
-
     async def _is_action_allowed(self, action: CoreModel) -> bool:
+        """Gate completo: visibilita' (gruppi) + CRUD (`write_access` e
+        `action_type`).
+
+        Da usare dove l'action va eseguita o mostrata come pulsante. Il GET
+        di un form usa invece i due gate separati: senza scrittura il form
+        si apre in readonly, non 403 (vedi `handle_get`).
+        """
+        if not await self._is_action_visible(action):
+            return False
+        return await self._has_action_write_access(action)
+
+    async def _is_action_visible(self, action: CoreModel) -> bool:
+        """Gate di sola visibilita': gruppi dell'action / read model-level."""
         session = getattr(self.service, "session", None)
         if not session:
             return True
@@ -141,23 +156,100 @@ class ActionRuntime:
 
         if groups:
             # If groups are explicitly set, the user must belong to at least one of them
-            return bool(user_groups & groups)
-
-        # Nessun override esplicito: per le action sys/admin, la visibilita'
-        # e' decisa dal gate CRUD model-level (model_groups_rule) sul model
-        # target dell'action, non piu' da un euristica hardcoded — un
-        # model in IDENTITY_MODEL_NAMES resta admin-only "gratis" perche'
-        # normalize_component_properties non gli inietta mai default
-        # models_groups (nessuna riga -> model_group_access fail-closed
-        # nega tutti i non-admin), senza bisogno di un check dedicato qui.
-        if getattr(action, "admin", False) or getattr(action, "sys", False):
+            allowed = bool(user_groups & groups)
+        elif getattr(action, "admin", False) or getattr(action, "sys", False):
+            # Nessun override esplicito: per le action sys/admin, la visibilita'
+            # e' decisa dal gate CRUD model-level (model_groups_rule) sul model
+            # target dell'action, non piu' da un euristica hardcoded — un
+            # model in IDENTITY_MODEL_NAMES resta admin-only "gratis" perche'
+            # normalize_component_properties non gli inietta mai default
+            # models_groups (nessuna riga -> model_group_access fail-closed
+            # nega tutti i non-admin), senza bisogno di un check dedicato qui.
             model_name = getattr(action, "model", "") or ""
             if not model_name:
-                return "technical_operator" in user_groups
-            access = await self.service._get_model_group_access(model_name)
-            return bool(access.get("read", False))
+                allowed = "technical_operator" in user_groups
+            else:
+                access = await self.service._get_model_group_access(model_name)
+                allowed = bool(access.get("read", False))
+        else:
+            allowed = True
 
-        return True
+        return allowed
+
+    @staticmethod
+    def _action_required_operations(action: CoreModel) -> tuple[str, ...]:
+        """Operazioni CRUD che l'action richiede sul model target.
+
+        Due sorgenti, in unione:
+        - `write_access: true` -> scrittura generica (create|update): il
+          flag dichiara che l'action porta a una scrittura. `write` non
+          esiste come chiave in model_groups_rule, la scrittura e'
+          `create or update`; la distinzione precisa la fa a valle
+          `Service.upsert` (insert -> create, update -> update).
+        - `action_type` -> l'operazione che l'action esegue davvero
+          (save/copy/delete). Serve perche' nei dati queste action hanno
+          `write_access: false`: senza, i pulsanti Salva/Duplica/Elimina
+          restavano visibili a chi non puo' eseguirli.
+
+        Tupla vuota = nessun permesso di scrittura richiesto (menu,
+        window di sola lettura): il gate non si applica.
+        """
+        operations: set[str] = set()
+        if _is_enabled_flag(getattr(action, "write_access", False)):
+            operations.update(("create", "update"))
+        action_type = str(getattr(action, "action_type", "") or "").strip().lower()
+        operations.update(_ACTION_TYPE_OPERATIONS.get(action_type, ()))
+        return tuple(sorted(operations))
+
+    async def _has_action_write_access(self, action: CoreModel) -> bool:
+        """Gate CRUD model-level (`model_groups_rule`) sulle operazioni
+        richieste dall'action (vedi `_action_required_operations`).
+
+        L'appartenenza al gruppo dell'action NON basta: un utente del solo
+        gruppo `user` — che nei default ha create/update/delete `false` —
+        vede le action di sola lettura del suo gruppo ma non quelle che
+        scrivono.
+
+        Basta UNA delle operazioni richieste, anche quando le sorgenti
+        sono due (create|update per una save: chi puo' solo creare vede
+        comunque il pulsante, l'update lo blocca `Service.upsert`). Quindi
+        un'action che dichiara sia `write_access` sia un `action_type` che
+        scrive e' piu' permissiva della somma dei due gate presi singoli:
+        nei dati base non esiste (il flag e' solo su action `window`), ma
+        se servisse un AND va scritto esplicitamente.
+
+        Clamp a senso unico: nessuna operazione richiesta significa
+        "questo gate non dice niente", non concede niente di suo.
+
+        Fail-closed se l'action richiede scrittura ma non ha model.
+        """
+        operations = self._action_required_operations(action)
+        if not operations:
+            return True
+        if getattr(self.service, "session", None) is None:
+            # Nessuna sessione: stessa scelta di `_is_action_visible`
+            # (chiamate interne senza attore, non richieste utente).
+            return True
+        model_name = str(getattr(action, "model", "") or "").strip()
+        if not model_name:
+            logger.info(
+                "acl.action_write_access action=%s denied: operazioni %s senza model",
+                getattr(action, "rec_name", ""),
+                operations,
+            )
+            return False
+        access = await self.service._get_model_group_access(model_name)
+        granted = any(access.get(operation, False) for operation in operations)
+        if not granted:
+            logger.info(
+                "acl.action_write_access action=%s model=%s operations=%s "
+                "denied access=%s",
+                getattr(action, "rec_name", ""),
+                model_name,
+                operations,
+                access,
+            )
+        return granted
 
     async def get_action_record(self, action_name: str) -> CoreModel | None:
         action_model = self.service.env.get("action")
@@ -271,7 +363,9 @@ class ActionRuntime:
                 })
             return buttons
         except Exception:
-            logger.warning(
+            # Lista vuota = "nessun pulsante" per il client: un errore qui
+            # non deve restare senza causa nei log.
+            logger.exception(
                 "context_actions lookup failed model=%s mode=%s",
                 action_model,
                 action_mode,
@@ -364,12 +458,22 @@ class ActionRuntime:
                 readable=False,
                 editable=False,
             )
-        if not await self._is_action_allowed(action):
+        if not await self._is_action_visible(action):
             raise HTTPException(
                 status_code=403,
                 detail=f"Action '{action_name}' is restricted",
             )
-        self._set_action_scope(action)
+        # Gate scrittura separato dalla visibilita': su un form l'assenza di
+        # permesso di scrittura NON nega l'apertura, la degrada a readonly
+        # (il pulsante che ci porta e' comunque nascosto da
+        # `_get_context_actions`, che usa il gate completo). Fuori dal form
+        # non c'e' niente da degradare -> nega.
+        write_allowed = await self._has_action_write_access(action)
+        if not write_allowed and action.mode != "form":
+            raise HTTPException(
+                status_code=403,
+                detail=f"Action '{action_name}' is restricted",
+            )
 
         action_mode = action.mode
         action_model = action.model
@@ -479,11 +583,25 @@ class ActionRuntime:
                     loaded = await self.service.load_record(target_model, rec_name)
                     res = loaded.content
                 else:
+                    # Form nuovo record: nessun record da caricare, quindi
+                    # nessun passaggio da load_record (che per i record
+                    # esistenti calcola gia' editable = model+record update).
+                    # Il permesso qui e' `create` a livello di MODEL (stessa
+                    # sorgente di Service.response_access_flags, senza record
+                    # da valutare): senza, il form si apre in sola lettura
+                    # invece che editabile per default. `readable` non viene
+                    # toccato: la visibilita' e' gia' decisa dal gate
+                    # sull'action.
+                    can_create = (
+                        await self.service.response_access_flags(target_model)
+                    )["can_create"]
                     res = ResponseObjectData(
                         mode="form",
                         model=target_model,
                         data={},
                         query=payload_query,
+                        editable=can_create,
+                        can_create=can_create,
                     )
 
         # view_name override only affects schema, not data model.
@@ -537,6 +655,12 @@ class ActionRuntime:
         )
         res.query = resolved_query
         res.sort = resolved_sort
+        if not write_allowed:
+            # Clamp a senso unico: toglie l'editabilita', non la concede mai
+            # (readable/editable calcolati a monte da load_record/list_records
+            # restano se gia' piu' restrittivi).
+            res.editable = False
+            res.can_create = False
         return res
 
     async def handle_post(
@@ -562,7 +686,6 @@ class ActionRuntime:
                 status_code=403,
                 detail=f"Action '{action_name}' is restricted",
             )
-        self._set_action_scope(action)
 
         target_model = action.model
         if not target_model:
@@ -611,6 +734,24 @@ class ActionRuntime:
                     readable=False,
                     editable=False,
                 )
+            # La copia crea un nuovo record senza passare da Service.upsert
+            # (che il gate create ce l'ha): va controllato qui. Serve anche
+            # il READ sul record sorgente — `model.copy` lo legge per
+            # rec_name senza nessun gate, e `handle_post` e' raggiungibile
+            # con un rec_name arbitrario.
+            await self.service._assert_model_operation(
+                target_model, "create", action_name
+            )
+            await self.service._assert_model_operation(
+                target_model, "read", action_name
+            )
+            source_record = await self.service.env.get(target_model).by_name(
+                source_name
+            )
+            if source_record:
+                await self.service._assert_record_operation(
+                    target_model, source_record, "read", action_name
+                )
             # duplica nativa ozon-env: clone con nuovo id + rec_name "_copy",
             # NON salvato (l'originale non viene toccato). Il record torna nel
             # form: si salva solo se l'utente fa submit -> niente record fantasma.
@@ -637,6 +778,15 @@ class ActionRuntime:
                 model_obj, mode="form", data=record
             ).content
             result.next_action_url = next_action_url
+            result.context_actions = await self._get_context_actions(
+                target_model,
+                "form",
+                component_type=getattr(action, "component_type", "") or "",
+            )
+            _apply_access_flags(
+                result,
+                await self.service.response_access_flags(target_model, record),
+            )
             return result
 
 
@@ -649,6 +799,18 @@ class ActionRuntime:
         )
         result = saved.content
         result.next_action_url = next_action_url
+        # Anche le response di scrittura portano i pulsanti: il client li
+        # ridisegna dopo il salva e una lista vuota qui significherebbe
+        # "nessun pulsante calcolato", non "nessun pulsante permesso".
+        result.context_actions = await self._get_context_actions(
+            target_model,
+            str(getattr(action, "mode", "") or "form"),
+            component_type=getattr(action, "component_type", "") or "",
+        )
+        _apply_access_flags(
+            result,
+            await self.service.response_access_flags(target_model, result.data),
+        )
         return result
 
     async def handle_delete(
@@ -673,7 +835,6 @@ class ActionRuntime:
                 status_code=403,
                 detail=f"Action '{action_name}' is restricted",
             )
-        self._set_action_scope(action)
 
         target_model = action.model
         if not target_model:
@@ -698,6 +859,8 @@ class ActionRuntime:
                 editable=False,
             )
 
+        await self.service._assert_model_operation(target_model, "delete", action_name)
+
         model_obj = self.service.env.get(target_model)
         record = await model_obj.by_name(rec_name)
         if not record:
@@ -711,13 +874,21 @@ class ActionRuntime:
                 editable=False,
             )
 
+        await self.service._assert_record_operation(
+            target_model, record, "delete", action_name
+        )
+
         # soft delete nativo ozon-env (calcola il timestamp + update).
         await model_obj.set_to_delete(record)
 
+        flags = await self.service.response_access_flags(target_model)
         return ResponseObjectData(
             mode="action",
             model=target_model,
             data={"status": "ok"},
             readable=False,
             editable=False,
+            # can_create resterebbe al default True: se il client ci disegna
+            # sopra un pulsante "Nuovo" sarebbe un fail-open.
+            can_create=flags["can_create"],
         )

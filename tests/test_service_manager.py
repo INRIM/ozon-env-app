@@ -186,6 +186,24 @@ def test_service_start_camunda_update_data_saves_form_and_process_id(
 
     service.upsert = fake_upsert
 
+    # Gate ACL sullo start (privilegi di scrittura sul model del processo):
+    # qui interessa il flusso, non i permessi -> tutto concesso.
+    async def fake_model_group_access(model_name):
+        return {
+            "read": True,
+            "create": True,
+            "update": True,
+            "delete": True,
+            "export": True,
+        }
+
+    service._get_model_group_access = fake_model_group_access
+
+    async def fake_record_rules(model_name, **kwargs):
+        return []
+
+    service._get_record_rules = fake_record_rules
+
     class FakeRecordModel:
         status = SimpleNamespace(fail=False, msg="")
         model = SimpleNamespace(schema=lambda: {"rec_name": "request"})
@@ -579,3 +597,186 @@ def test_sys_schemas_have_default_acl_properties_excluding_identity_layer():
             properties.get("models_restricted_fields")
             == _DEFAULT_MODELS_RESTRICTED_FIELDS
         ), rec_name
+
+
+# --- ACL sui path camunda -------------------------------------------------
+
+
+def _camunda_acl_service(access, *, record_rules=None, is_sys_model=True):
+    """Service reale (senza __init__) coi soli lookup ACL stubbati: i gate
+    esercitati sono quelli di produzione."""
+    service = object.__new__(Service)
+
+    async def _model_access(model_name):
+        return dict(access)
+
+    async def _record_rules(model_name, **kwargs):
+        return list(record_rules or [])
+
+    async def _is_sys(model_name):
+        return is_sys_model
+
+    service._get_model_group_access = _model_access
+    service._get_record_rules = _record_rules
+    service._is_sys_model = _is_sys
+    service._resolve_query_json_logic_vars = lambda data: data
+    return service
+
+
+_READ_ONLY_ACCESS = {
+    "read": True,
+    "create": False,
+    "update": False,
+    "delete": False,
+    "export": False,
+}
+_FULL_ACCESS = {key: True for key in _READ_ONLY_ACCESS}
+
+
+def test_start_camunda_process_denied_without_model_write():
+    """Un processo si avvia solo con privilegi di scrittura sul model su
+    cui opera — anche senza update_data (nessun record scritto dallo start,
+    ma il processo agisce comunque su quel model)."""
+    from fastapi import HTTPException
+
+    service = _camunda_acl_service(_READ_ONLY_ACCESS)
+    started = []
+
+    class FakeManager:
+        async def load_process(self, process_key):
+            return None, SimpleNamespace(rec_name=process_key, model="request")
+
+        async def start_camunda_process(self, process_key, payload, *, gateway):
+            started.append(process_key)
+            return {"process_id": "p1", "stato": {}, "variables": {}}
+
+    service.service_manager = FakeManager()
+    service._camunda_gateway = lambda: "gateway-client"
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            service.start_camunda_gateway_process(
+                "approve_request", {"rec_name": "req-1"}
+            )
+        )
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail["operation"] == "process_start"
+    assert started == []
+
+
+def test_start_camunda_process_allowed_with_model_write():
+    service = _camunda_acl_service(_FULL_ACCESS)
+    started = []
+
+    class FakeManager:
+        async def load_process(self, process_key):
+            return None, SimpleNamespace(rec_name=process_key, model="request")
+
+        async def start_camunda_process(self, process_key, payload, *, gateway):
+            started.append(process_key)
+            return {
+                "stato": {"status": "started"},
+                "variables": payload,
+                "process_id": "",
+            }
+
+    class _FakeRecordModel:
+        status = SimpleNamespace(fail=False, msg="")
+        model = SimpleNamespace(
+            schema=lambda: {"components": [], "properties": {}},
+            filter_keys=lambda: {},
+        )
+        data_model = "request"
+        table_columns = {}
+
+    service.service_manager = FakeManager()
+    service._camunda_gateway = lambda: "gateway-client"
+    service._get_model = lambda model_name: _FakeRecordModel()
+
+    asyncio.run(
+        service.start_camunda_gateway_process(
+            "approve_request", {"rec_name": "req-1"}
+        )
+    )
+
+    assert started == ["approve_request"]
+
+
+def test_complete_many_denied_without_model_read():
+    """Batch: il record viene letto grezzo e il contenuto finisce nelle
+    variabili di processo — senza permesso di lettura non si legge."""
+    no_read = {**_READ_ONLY_ACCESS, "read": False}
+    service = _camunda_acl_service(no_read)
+    reads = []
+
+    def _get_model(model_name):
+        class _M:
+            async def by_name(self, rec_name):
+                reads.append(rec_name)
+                return SimpleNamespace(process_id="p1")
+
+        return _M()
+
+    service._get_model = _get_model
+
+    response = asyncio.run(
+        service.complete_many_camunda_gateway_tasks(
+            {"model": "request", "rec_names": ["req-1", "req-2"]}
+        )
+    )
+
+    assert reads == []
+    assert response.fail is True
+    assert [row["status"] for row in response.content.data] == [
+        "error",
+        "error",
+    ]
+    assert "Model ACL denied" in response.content.data[0]["message"]
+
+
+def test_complete_many_denied_by_record_rules():
+    owner_rule = {
+        "app_code": "demo",
+        "model": "request",
+        "rule_type": "record",
+        "group": "manager",
+        "filters": {"owner_uid": {"$eq": "u1"}},
+        "read": True,
+        "create": False,
+        "update": False,
+        "delete": False,
+        "active": True,
+        "deleted": 0,
+    }
+    service = _camunda_acl_service(
+        _FULL_ACCESS, record_rules=[owner_rule], is_sys_model=False
+    )
+    completed = []
+
+    def _get_model(model_name):
+        class _M:
+            async def by_name(self, rec_name):
+                return SimpleNamespace(
+                    process_id="p1",
+                    owner_uid="altro",
+                    get_dict=lambda: {"rec_name": rec_name, "owner_uid": "altro"},
+                )
+
+        return _M()
+
+    async def _complete(process_id, payload, decision=""):
+        completed.append(process_id)
+
+    service._get_model = _get_model
+    service.complete_camunda_gateway_task = _complete
+
+    response = asyncio.run(
+        service.complete_many_camunda_gateway_tasks(
+            {"model": "request", "rec_names": ["req-1"]}
+        )
+    )
+
+    assert completed == []
+    assert response.content.data[0]["status"] == "error"
+    assert "Record ACL denied" in response.content.data[0]["message"]

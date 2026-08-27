@@ -1012,10 +1012,11 @@ def evaluate_record_rule_access(
     None (nessuna regola matcha) e' fail-closed: il chiamante
     (record_rule_access) nega tutto, non concede la baseline.
 
-    Filtro vuoto ({}) NON matcha mai, incondizionatamente — anche su una
-    riga `group`-scoped. Un accesso incondizionato per un intero gruppo
-    non e' un concetto per-record: va espresso a Layer 1 (model_groups_
-    rule) o Layer 3 (f_rule), non qui."""
+    Filtro vuoto ({}) matcha OGNI record: "questo gruppo puo' sempre,
+    qualunque sia il contenuto della riga". E' la forma naturale per una
+    entry group-scoped senza condizioni (es. il manager che edita a
+    prescindere dallo stato), e evita il filtro-finto `{"active": true}`
+    scritto solo per far matchare la regola."""
     if not record_rules or not isinstance(record, dict):
         return None
     rec_name = record.get("rec_name")
@@ -1023,12 +1024,12 @@ def evaluate_record_rule_access(
     granted = dict(_NO_RECORD_ACCESS)
     for index, rule in enumerate(record_rules):
         raw_filters = rule.get("filters") or {}
-        if not raw_filters:
+        resolved_filters = resolve_var(raw_filters) if raw_filters else {}
+        if not isinstance(resolved_filters, dict):
             continue
-        resolved_filters = resolve_var(raw_filters)
-        if not isinstance(resolved_filters, dict) or not resolved_filters:
-            continue
-        if _record_matches_filters(record, resolved_filters):
+        if not resolved_filters or _record_matches_filters(
+            record, resolved_filters
+        ):
             matched_any = True
             for key in _RECORD_ACTION_KEYS:
                 granted[key] = granted[key] or bool(rule.get(key, False))
@@ -1092,18 +1093,21 @@ def record_rule_read_domain(
     domain che non matcha nulla (fail-closed: un OR vuoto in mongo
     matcherebbe tutto, qui deve invece nascondere tutto).
 
-    Filtro vuoto ({}) non contribuisce mai una clausola, incondizionatamente
-    (stessa scelta di `evaluate_record_rule_access`): un accesso senza
-    restrizioni per un intero gruppo non e' un concetto per-record."""
+    Filtro vuoto ({}) su una regola con read=True significa "nessuna
+    restrizione per questo gruppo" (stessa scelta di
+    `evaluate_record_rule_access`, dove matcha ogni record): il domain
+    torna vuoto, cioe' non restringe niente — non una clausola in OR."""
     clauses: list[dict[str, Any]] = []
     for rule in record_rules:
         if not rule.get("read", False):
             continue
         raw_filters = rule.get("filters") or {}
         if not raw_filters:
-            continue
+            return {}
         resolved = resolve_var(raw_filters)
-        if isinstance(resolved, dict) and resolved:
+        if isinstance(resolved, dict) and not resolved:
+            return {}
+        if isinstance(resolved, dict):
             clauses.append(resolved)
     if not clauses:
         return {"rec_name": {"$in": []}}

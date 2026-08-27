@@ -13,7 +13,6 @@ from ozonenv.core.OzonModel import OzonModelBase
 
 from .action_runtime import ActionRuntime
 from .action_runtime import _is_enabled_flag
-from .action_runtime import action_groups
 from .common import ResponseObject
 from .common import ResponseObjectData
 from .common import make_response_object
@@ -205,7 +204,6 @@ class Service:
         # Gruppi dell'action in esecuzione (ActionRuntime._set_action_scope):
         # quando valorizzati sostituiscono i gruppi di sessione come scope
         # delle record rule. Vuoto = nessuna action scoped -> gruppi utente.
-        self.action_groups: set[str] = set()
         self._record_rules_cache: dict[
             tuple[str, frozenset[str]], list[dict[str, Any]]
         ] = {}
@@ -420,25 +418,49 @@ class Service:
             return _record_to_dict(saved)
 
         start_payload = payload or {}
-        model_name = ""
-        if update_data:
-            _, process = await self.service_manager.load_process(process_key)
-            configured_model = str(process.model or "").strip()
-            requested_model = str(process_model or "").strip()
-            if (
-                configured_model
-                and requested_model
-                and configured_model != requested_model
+        # Il processo si risolve SEMPRE (non solo con update_data): serve il
+        # model configurato per il gate — un processo si avvia solo se si
+        # hanno privilegi di scrittura sul model su cui opera.
+        _, process = await self.service_manager.load_process(process_key)
+        configured_model = str(process.model or "").strip()
+        requested_model = str(process_model or "").strip()
+        if (
+            configured_model
+            and requested_model
+            and configured_model != requested_model
+        ):
+            raise ValueError(
+                f"Camunda process '{process.rec_name}' is configured for model "
+                f"'{configured_model}', not '{requested_model}'"
+            )
+        model_name = requested_model or configured_model
+        if update_data and not model_name:
+            raise ValueError(
+                f"Camunda process '{process.rec_name}' has no model configured"
+            )
+        if model_name:
+            # create|update: lo start puo' creare il record (update_data su
+            # un rec_name nuovo) o aggiornarne uno esistente. Il gate fine
+            # per operazione resta su Service.upsert.
+            access = await self._get_model_group_access(model_name)
+            if not (
+                access.get("create", False) or access.get("update", False)
             ):
-                raise ValueError(
-                    f"Camunda process '{process.rec_name}' is configured for model "
-                    f"'{configured_model}', not '{requested_model}'"
+                logger.info(
+                    "acl.camunda_start process=%s model=%s denied access=%s",
+                    process.rec_name,
+                    model_name,
+                    access,
                 )
-            model_name = requested_model or configured_model
-            if not model_name:
-                raise ValueError(
-                    f"Camunda process '{process.rec_name}' has no model configured"
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "message": "Model ACL denied",
+                        "model": model_name,
+                        "operation": "process_start",
+                    },
                 )
+        if update_data:
             start_payload = await save_form_record(model_name, start_payload)
 
         result = await self.service_manager.start_camunda_process(
@@ -480,12 +502,21 @@ class Service:
         # avviato. process_id/process_status danno al client le coordinate.
         model_obj = self._get_model(model_name) if model_name else None
         status = str((result.get("stato") or {}).get("status") or "started")
+        form_data = result.get("form") or None
+        flags = (
+            await self.response_access_flags(model_name, form_data)
+            if model_name
+            else {"readable": True, "editable": True, "can_create": True}
+        )
         return make_response_object(
             model_obj,
             mode="form",
-            data=result.get("form") or None,
+            data=form_data,
             process_id=str(result.get("process_id", "") or ""),
             process_status=status,
+            readable=flags["readable"],
+            editable=flags["editable"],
+            can_create=flags["can_create"],
         )
 
     async def _camunda_after_start_response(
@@ -785,12 +816,16 @@ class Service:
         if model and rec_name:
             return await self.load_record(model, rec_name)
         if model:
+            flags = await self.response_access_flags(model)
             return make_response_object(
                 self._get_model(model),
                 mode="form",
                 data={},
                 process_id=process_id,
                 process_status="completed",
+                readable=flags["readable"],
+                editable=flags["editable"],
+                can_create=flags["can_create"],
             )
         return make_response_object(
             None,
@@ -881,7 +916,13 @@ class Service:
                 )
                 continue
             try:
+                # Il record viene letto grezzo (by_name) e il suo contenuto
+                # finisce nelle variabili di processo: senza gate, un batch
+                # con rec_name arbitrari leggeva record non accessibili.
+                await self._assert_model_operation(model, "read")
                 record = await self._get_model(model).by_name(rec_name)
+                if record:
+                    await self._assert_record_operation(model, record, "read")
                 process_id = record.process_id
                 if not process_id:
                     raise ValueError(
@@ -1437,6 +1478,43 @@ class Service:
                     "operation": operation,
                 },
             )
+        if operation == FieldAclOperation.UPDATE.value and existing_record:
+            # Gate record-level (record_rules, Layer 2) sul record GIA'
+            # PERSISTITO: stessa valutazione che `load_record` fa per
+            # decidere `editable`. Senza, chi non puo' nemmeno aprire un
+            # record poteva comunque scriverlo passando model+rec_name in
+            # POST — /record, /step, /gateway/camunda (complete,
+            # complete_many) e le action save finiscono tutte qui.
+            #
+            # Solo UPDATE: su INSERT non c'e' un record da valutare e il
+            # payload non ha ancora i default dell'ORM (una record rule di
+            # default come `{"filters": {"active": True}}` non matcherebbe
+            # un create che non passa `active` -> fail-closed su OGNI
+            # create). Il create resta gated a livello di MODEL sopra.
+            record_rules = await self._get_record_rules(model_name)
+            if record_rules:
+                record_access = record_rule_access(
+                    record_rules=record_rules,
+                    record=existing_record,
+                    resolve_var=self._resolve_query_json_logic_vars,
+                    bypass_ownership=await self._is_sys_model(model_name),
+                )
+                if not record_access.get("update", False):
+                    logger.info(
+                        "acl.upsert model=%s rec_name=%s denied by record_rules "
+                        "access=%s",
+                        model_name,
+                        rec_name or existing_record.get("rec_name", ""),
+                        record_access,
+                    )
+                    raise HTTPException(
+                        status_code=403,
+                        detail={
+                            "message": "Record ACL denied",
+                            "model": model_name,
+                            "operation": operation,
+                        },
+                    )
         write_hook = await self.webhooks.emit(
             "data.before_write",
             context=self._webhook_context(
@@ -2265,6 +2343,115 @@ class Service:
                 action_rec_name,
             )
 
+    async def _assert_model_operation(
+            self, model_name: str, operation: str, action_name: str = ""
+    ) -> dict[str, bool]:
+        """Gate CRUD model-level (`model_groups_rule`) per un'operazione.
+
+        `Service.upsert` fa gia' questo controllo per create/update, ma
+        delete e copy non ci passano (`model.set_to_delete`/`model.copy` +
+        `model.upsert` nativi): senza questo, un utente senza permesso di
+        cancellazione cancellava comunque.
+        """
+        access = await self._get_model_group_access(model_name)
+        if not access.get(operation, False):
+            logger.info(
+                "acl.action model=%s action=%s operation=%s denied access=%s",
+                model_name,
+                action_name,
+                operation,
+                access,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "message": "Model ACL denied",
+                    "model": model_name,
+                    "operation": operation,
+                },
+            )
+        return access
+
+    async def _assert_record_operation(
+            self, model_name: str, record: Any, operation: str, action_name: str = ""
+    ) -> None:
+        """Gate record-level (`record_rules`, Layer 2) su UN record gia'
+        caricato — stessa valutazione che `Service.load_record` fa per
+        read/update, qui per delete: il permesso di cancellare sul model
+        non basta se le record rule non coprono QUESTO record."""
+        record_rules = await self._get_record_rules(model_name)
+        is_sys_model = await self._is_sys_model(model_name)
+        record_dict = (
+            record.get_dict() if hasattr(record, "get_dict") else dict(record or {})
+        )
+        access = record_rule_access(
+            record_rules=record_rules,
+            record=record_dict,
+            resolve_var=self._resolve_query_json_logic_vars,
+            bypass_ownership=is_sys_model,
+        )
+        if not access.get(operation, False):
+            logger.info(
+                "acl.action model=%s action=%s rec_name=%s operation=%s "
+                "denied by record_rules access=%s",
+                model_name,
+                action_name,
+                getattr(record, "rec_name", ""),
+                operation,
+                access,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "message": "Record ACL denied",
+                    "model": model_name,
+                    "operation": operation,
+                },
+            )
+
+    async def response_access_flags(
+        self, model_name: str, record: Any = None
+    ) -> dict[str, bool]:
+        """`readable`/`editable`/`can_create` per una response gia' prodotta.
+
+        Stesso calcolo di `load_record` (model_groups_rule AND record_rules,
+        nessun bypass admin sulle record rule), estratto perche' serve anche
+        alle response che NON passano da load_record — quelle di scrittura
+        (save/copy), dove `make_response_object` lascia i default `True` e il
+        client si ritrova un form editabile appena salvato un record che non
+        potrebbe piu' modificare.
+
+        `record` assente (o model senza record_rules) -> solo Layer 1.
+        """
+        access = await self._get_model_group_access(model_name)
+        readable = bool(access.get("read", False))
+        editable = bool(access.get("update", False))
+        record_dict: dict[str, Any] = {}
+        if record is not None:
+            record_dict = (
+                record.get_dict()
+                if hasattr(record, "get_dict")
+                else dict(record)
+                if isinstance(record, dict)
+                else {}
+            )
+        if record_dict:
+            record_rules = await self._get_record_rules(model_name)
+            if record_rules:
+                record_access = record_rule_access(
+                    record_rules=record_rules,
+                    record=record_dict,
+                    resolve_var=self._resolve_query_json_logic_vars,
+                    bypass_ownership=await self._is_sys_model(model_name),
+                )
+                readable = readable and bool(record_access.get("read", False))
+                editable = editable and bool(record_access.get("update", False))
+        return {
+            "readable": readable,
+            "editable": editable,
+            "can_create": bool(access.get("create", False)),
+        }
+
     async def _resolve_write_operation(
         self,
         record_model: OzonModelBase,
@@ -2293,8 +2480,6 @@ class Service:
     async def _get_record_rules(
         self,
         model_key: str,
-        *,
-        scope_groups: set[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Righe `model_fields_rule` (rule_type="record") per `model_key`,
         scoped per app_code corrente (cache per-request): Layer 2, accesso
@@ -2313,21 +2498,14 @@ class Service:
         admin puo' comunque aver configurato la regola via builder in
         passato: il sync l'ha scritta in `model_fields_rule` a prescindere).
 
-        Scope dei gruppi: se c'e' un'action in esecuzione con `groups`
-        espliciti (`self.action_groups`, vedi
-        `ActionRuntime._set_action_scope`), il filtro usa QUELLI e non i
-        gruppi dell'utente — l'action ha gia' verificato l'appartenenza,
-        quindi il contesto e' l'action, non la somma dei ruoli di chi
-        clicca. Un utente `[operator, manager]` che apre una action
-        `manager` non deve trascinarsi dentro le regole `operator`.
-        Senza action scoped si ricade sui gruppi di sessione.
-
-        `scope_groups` esplicito serve a valutare le regole nello scope di
-        un'action che NON e' quella in esecuzione — la dashboard conta le
-        righe di piu' action in una sola richiesta, ognuna col proprio
-        scope (vedi `_make_menu_item`)."""
-        if scope_groups is None:
-            scope_groups = self._record_rule_scope_groups()
+        Scope dei gruppi: SEMPRE quelli dell'utente in sessione, mai
+        quelli dell'action. I `groups` di un'action decidono CHI puo'
+        aprirla (`ActionRuntime._is_action_visible`), non con quale potere
+        agisce chi l'ha aperta: un manager (che eredita `operator` via
+        `implied_groups`) che apre una action dichiarata `operator` resta
+        valutato come manager. Il contrario declassava l'utente al gruppo
+        dell'action e gli toglieva i permessi che ha davvero."""
+        scope_groups = self._record_rule_scope_groups()
         cache_key = (model_key, frozenset(scope_groups))
         if cache_key in self._record_rules_cache:
             logger.info(
@@ -2389,11 +2567,9 @@ class Service:
         return record_rules
 
     def _record_rule_scope_groups(self) -> set[str]:
-        """Gruppi che definiscono lo scope delle record rule per questa
-        richiesta: quelli dell'action in esecuzione se dichiarati, altrimenti
-        quelli dell'utente in sessione."""
-        if self.action_groups:
-            return set(self.action_groups)
+        """Gruppi che definiscono lo scope delle record rule: quelli
+        dell'utente in sessione (gia' espansi con `implied_groups` da
+        `apply_session_groups`)."""
         session_user = getattr(self.session, "user", None)
         actor_groups = (
             session_user.get("groups") if isinstance(session_user, dict) else []
@@ -2929,23 +3105,16 @@ class Service:
         self,
         model_name: str,
         domain: dict[str, Any],
-        *,
-        scope_groups: set[str] | None = None,
     ) -> dict[str, Any]:
         """Applica a un domain di sola lettura gli stessi due gate ACL di
         `list_records`: Layer 1 `model_group_access.read` e Layer 2
         `record_rule_read_domain`. Necessario dove si conta/legge fuori da
         `list_records` (dashboard) — altrimenti il contatore di una card
-        mostra righe che la lista poi nasconde.
-
-        `scope_groups`: scope dei gruppi per le record rule; None = scope
-        corrente (action in esecuzione o gruppi di sessione)."""
+        mostra righe che la lista poi nasconde."""
         model_access = await self._get_model_group_access(model_name)
         if not model_access["read"]:
             return _merge_query(domain, {"rec_name": {"$in": []}})
-        record_rules = await self._get_record_rules(
-            model_name, scope_groups=scope_groups
-        )
+        record_rules = await self._get_record_rules(model_name)
         if not record_rules:
             return domain
         if getattr(self.session, "is_admin", False):
@@ -2981,14 +3150,9 @@ class Service:
             )
             q = await self._default_query(cc_model, list_query)
             # Il contatore della card deve coincidere con quello che la
-            # lista mostra: stesso ACL, e nello scope dei gruppi di QUESTA
-            # action (ogni card della dashboard e' un'action diversa, non
-            # si puo' usare self.action_groups).
-            q = await self._narrow_read_domain(
-                action_model_name,
-                q,
-                scope_groups=action_groups(rec_b) or None,
-            )
+            # lista mostra: stesso ACL, stesso scope (i gruppi di chi
+            # guarda la dashboard, non quelli dichiarati sull'action).
+            q = await self._narrow_read_domain(action_model_name, q)
             number = await self._count_base(cc_model, q)
 
         return {

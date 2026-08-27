@@ -374,3 +374,54 @@ def test_valid_rules_still_replace_existing_rows():
 
     assert groups.deleted == [{"app_code": "demo", "model": "document"}]
     assert [r["group"] for r in groups.inserted] == ["manager"]
+
+
+def test_mixed_record_rule_scopes_logs_warning(caplog):
+    """Entry universale (senza `groups`) insieme a entry per gruppo: le
+    azioni sono l'unione, quindi l'universale concede anche a chi le entry
+    per gruppo restringono. Semantica invariata, ma il sync lo segnala."""
+    import logging
+
+    from app.ozon_env_acl.model_rules_sync import _warn_mixed_record_rule_scopes
+
+    properties = {
+        "models_restricted_fields": {
+            "record_rules": [
+                {"filters": {"active": True}, "actions": {"read": True, "update": True}},
+                {
+                    "groups": ["operator"],
+                    "filters": {"stato": "YYYY"},
+                    "actions": {"read": True, "update": True},
+                },
+            ]
+        }
+    }
+
+    with caplog.at_level(logging.WARNING, logger="uvicorn.error"):
+        _warn_mixed_record_rule_scopes("pratica", properties)
+
+    assert "record_rules model=pratica" in caplog.text
+    assert "entry universali [0]" in caplog.text
+
+
+def test_only_group_scoped_record_rules_no_warning(caplog):
+    import logging
+
+    from app.ozon_env_acl.model_rules_sync import _warn_mixed_record_rule_scopes
+
+    properties = {
+        "models_restricted_fields": {
+            "record_rules": [
+                {
+                    "groups": ["manager"],
+                    "filters": {},
+                    "actions": {"read": True, "update": True},
+                }
+            ]
+        }
+    }
+
+    with caplog.at_level(logging.WARNING, logger="uvicorn.error"):
+        _warn_mixed_record_rule_scopes("pratica", properties)
+
+    assert caplog.text == ""

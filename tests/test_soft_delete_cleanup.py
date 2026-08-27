@@ -104,6 +104,31 @@ class DummyService:
         self.session = SimpleNamespace(is_admin=True, is_public=False, app_code="demo")
         self.upserts = []
 
+    # --- ACL: sessione admin -> tutto concesso, nessuna record rule ---
+    # Gli assert CRUD sono quelli veri di Service (non riscritti qui):
+    # cambia solo la sorgente dei permessi, stubbata sotto.
+    _assert_model_operation = Service._assert_model_operation
+    _assert_record_operation = Service._assert_record_operation
+    response_access_flags = Service.response_access_flags
+
+    async def _get_model_group_access(self, model_name: str) -> dict:
+        return {
+            "read": True,
+            "create": True,
+            "update": True,
+            "delete": True,
+            "export": True,
+        }
+
+    async def _get_record_rules(self, model_name: str, **kwargs) -> list:
+        return []
+
+    async def _is_sys_model(self, model_name: str) -> bool:
+        return False
+
+    def _resolve_query_json_logic_vars(self, data):
+        return data
+
     async def load_record(self, model: str, rec_name: str):
         model_obj = self.env.get(model)
         if model_obj:

@@ -1055,12 +1055,11 @@ def test_record_rules_read_domain_unions_real_group_filters_for_list():
     assert rec_names == {"d1", "d2"}
 
 
-def test_record_rules_empty_filter_group_scoped_never_matches():
-    """Regressione: filtro vuoto su riga group-scoped NON deve piu' fare
-    match incondizionato (hack rimosso — i gruppi non sono un campo del
-    record, un grant incondizionato per gruppo e' Layer 1/model_groups_
-    rule o Layer 3/f_rule, mai Layer 2/record_rules). dpo con filters={}
-    ottiene 404, non read-all."""
+def test_record_rules_empty_filter_matches_every_record():
+    """Filtro vuoto = "questo gruppo puo' sempre, su ogni record": e' la
+    forma naturale per una entry group-scoped senza condizioni (il manager
+    che edita a prescindere dallo stato), al posto del filtro-finto
+    `{"active": true}` scritto solo per far matchare la regola."""
     dpo_empty_rule = {
         "app_code": "demo",
         "model": "modulo_dati_persona",
@@ -1069,7 +1068,7 @@ def test_record_rules_empty_filter_group_scoped_never_matches():
         "filters": {},
         "read": True,
         "create": False,
-        "update": False,
+        "update": True,
         "delete": False,
         "active": True,
         "deleted": 0,
@@ -1088,11 +1087,30 @@ def test_record_rules_empty_filter_group_scoped_never_matches():
     )
     service = Service(env)
 
-    try:
-        asyncio.run(service.load_record("modulo_dati_persona", "d1"))
-        assert False, "expected HTTPException 404"
-    except HTTPException as exc:
-        assert exc.status_code == 404
+    response = asyncio.run(service.load_record("modulo_dati_persona", "d1"))
+
+    assert response.content.readable is True
+    assert response.content.editable is True
+
+
+def test_record_rule_read_domain_empty_filter_does_not_narrow():
+    """Una regola read senza filtri non contribuisce una clausola in OR:
+    apre il domain (nessuna restrizione), altrimenti la lista mostrerebbe
+    meno righe di quelle che il record-level concede."""
+    from app.ozon_env_acl import record_rule_read_domain
+
+    rules = [
+        {"group": "manager", "filters": {}, "read": True},
+        {
+            "group": "operator",
+            "filters": {"owner_uid": "u1"},
+            "read": True,
+        },
+    ]
+
+    domain = record_rule_read_domain(rules, resolve_var=lambda data: data)
+
+    assert domain == {}
 
 
 class _SysFlagComponentModel:
@@ -1631,8 +1649,7 @@ def test_groups_schema_and_seed_define_default_implications():
 
 
 def _action_stub(rec_name, groups):
-    """Record `action` minimale: ActionRuntime._set_action_scope legge solo
-    `groups` (+ `rec_name` per il log)."""
+    """Record `action` minimale (solo `groups` + `rec_name`)."""
     return SimpleNamespace(rec_name=rec_name, groups=groups)
 
 
@@ -1679,72 +1696,34 @@ def _multi_group_env(rows, uid="u1", groups=("operator", "manager")):
     )
 
 
-def test_action_scope_replaces_session_groups_in_record_rules():
-    """Quando un'action dichiara `groups`, lo scope delle record rule e'
-    quello dell'action, NON l'unione dei gruppi dell'utente: l'action ha
-    gia' verificato l'appartenenza (_is_action_allowed), quindi il contesto
-    e' l'action. Un utente [operator, manager] che apre una action
-    `manager` non si trascina dentro le regole `operator`."""
+def test_record_rules_scope_is_always_session_groups():
+    """Lo scope delle record rule sono i gruppi dell'UTENTE, sempre.
+
+    I `groups` di un'action decidono chi puo' aprirla, non con quale
+    potere agisce chi l'ha aperta: un manager (che eredita `operator` via
+    implied_groups) che apre una action dichiarata `operator` resta
+    valutato come manager, con l'unione delle sue regole."""
     service = Service(_multi_group_env(rows=[]))
 
-    # Nessuna action scoped -> entrambe le entry (gruppi di sessione).
     rules = asyncio.run(service._get_record_rules("modulo_dati_persona"))
+
     assert {rule["group"] for rule in rules} == {"operator", "manager"}
 
-    # Action manager -> solo la entry manager.
-    service.action_runtime._set_action_scope(
-        _action_stub("dati_persona_manager", ["manager"])
-    )
-    rules = asyncio.run(service._get_record_rules("modulo_dati_persona"))
-    assert [rule["group"] for rule in rules] == ["manager"]
 
-    # Action operator -> solo la entry operator (la cache non deve
-    # restituire il risultato dello scope precedente).
-    service.action_runtime._set_action_scope(
-        _action_stub("dati_persona_operator", ["operator"])
-    )
-    rules = asyncio.run(service._get_record_rules("modulo_dati_persona"))
-    assert [rule["group"] for rule in rules] == ["operator"]
-
-
-def test_action_scope_narrows_record_access_end_to_end():
-    """Effetto reale dello scope action su load_record: lo stesso utente
-    sullo stesso record passa da editable (regola operator, e' owner) a
-    negato quando agisce nel contesto di un'action `manager` (la cui unica
-    regola matcha un altro record)."""
+def test_action_groups_do_not_downgrade_user_permissions():
+    """Stesso utente, stesso record, dentro il contesto di una action
+    dichiarata `manager`: la regola `operator` (ownership) continua a
+    valere perche' l'utente E' operator. Prima l'action lo declassava al
+    proprio gruppo e il record diventava inaccessibile."""
     rows = [{"rec_name": "d2", "owner_uid": "u1", "name": "Mine"}]
-
-    # Contesto utente (nessuna action scoped): la regola operator matcha
-    # sull'ownership -> leggibile ed editabile.
     service = Service(_multi_group_env(rows=rows))
-    response = asyncio.run(
-        service.load_record("modulo_dati_persona", "d2")
-    )
+    runtime = service.action_runtime
+    assert not hasattr(runtime, "_set_action_scope")
+
+    response = asyncio.run(service.load_record("modulo_dati_persona", "d2"))
+
     assert response.content.readable is True
     assert response.content.editable is True
-
-    # Contesto action manager: resta solo la regola manager (rec_name=d1),
-    # che non matcha d2 -> fail-closed.
-    service = Service(_multi_group_env(rows=rows))
-    service.action_runtime._set_action_scope(
-        _action_stub("dati_persona_manager", ["manager"])
-    )
-    try:
-        asyncio.run(service.load_record("modulo_dati_persona", "d2"))
-        assert False, "expected HTTPException 404"
-    except HTTPException as exc:
-        assert exc.status_code == 404
-
-
-def test_action_without_groups_keeps_session_scope():
-    """Action senza `groups` espliciti -> scope invariato (gruppi di
-    sessione): retrocompatibilita' con tutte le action non scoped."""
-    service = Service(_multi_group_env(rows=[]))
-    service.action_runtime._set_action_scope(_action_stub("generic", []))
-
-    rules = asyncio.run(service._get_record_rules("modulo_dati_persona"))
-
-    assert {rule["group"] for rule in rules} == {"operator", "manager"}
 
 
 def _list_action_stub(rec_name, groups, model="modulo_dati_persona"):
@@ -1762,37 +1741,32 @@ def _list_action_stub(rec_name, groups, model="modulo_dati_persona"):
     )
 
 
-def test_dashboard_card_count_follows_action_scoped_record_rules():
-    """Il contatore della card dashboard (Service._make_menu_item) deve
-    applicare lo stesso ACL della lista, nello scope dei gruppi della SUA
-    action: un manager che non ha mai fatto richieste non deve vedere "2"
-    su una card la cui lista gli mostrerebbe 0 righe.
-
-    Prima del fix il count era un `_count_base` nudo sul `list_query`
-    dell'action: nessun record_rule_read_domain, nessuno scope."""
+def test_dashboard_card_count_uses_session_groups_not_action_groups():
+    """Il contatore della card applica l'ACL dell'utente che guarda la
+    dashboard, non quello del gruppo dichiarato sull'action: due card con
+    `groups` diversi danno lo stesso numero allo stesso utente."""
     rows = [
         {"rec_name": "d1", "owner_uid": "u9", "active": True, "deleted": 0},
         {"rec_name": "d2", "owner_uid": "u9", "active": True, "deleted": 0},
     ]
 
-    # Action scoped manager: solo la regola manager (rec_name=d1) -> 1.
+    # Union delle regole utente: manager (rec_name=d1) + operator
+    # (ownership, non possiede nulla) -> 1.
     service = Service(_multi_group_env(rows=rows))
-    item = asyncio.run(
+    manager_card = asyncio.run(
         service._make_menu_item(
             {}, _list_action_stub("gestisci_richieste", ["manager"])
         )
     )
-    assert item["number"] == 1
+    assert manager_card["number"] == 1
 
-    # Action scoped operator: solo la regola operator (ownership) e l'utente
-    # non possiede nulla -> 0, non 2.
     service = Service(_multi_group_env(rows=rows))
-    item = asyncio.run(
+    operator_card = asyncio.run(
         service._make_menu_item(
             {}, _list_action_stub("test_request", ["operator"])
         )
     )
-    assert item["number"] == 0
+    assert operator_card["number"] == 1
 
 
 def test_dashboard_card_count_unscoped_action_uses_session_groups():
@@ -1813,3 +1787,226 @@ def test_dashboard_card_count_unscoped_action_uses_session_groups():
     # OR delle due regole: rec_name=d1 (manager) + owner u1 (operator) = 2.
     # d3 resta fuori: il conteggio nudo avrebbe detto 3.
     assert item["number"] == 2
+
+
+def _owner_record_rule(model, group, *, read=True, update=True):
+    """Record rule owner-scoped: copre solo i record dell'utente corrente."""
+    return {
+        "app_code": "demo",
+        "model": model,
+        "rule_type": "record",
+        "group": group,
+        "filters": {"owner_uid": {"$eq": {"var": "user.uid"}}},
+        "read": read,
+        "create": False,
+        "update": update,
+        "delete": False,
+        "active": True,
+        "deleted": 0,
+    }
+
+
+def _upsert_record_rule_env(rows):
+    docs = _RecordModel("modulo_dati_persona", rows=rows)
+    env = _Env(
+        {
+            "modulo_dati_persona": docs,
+            "model_fields_rule": _ModelFieldsRuleModel(
+                [_owner_record_rule("modulo_dati_persona", "manager")]
+            ),
+            "component": _SysFlagComponentModel({"modulo_dati_persona": False}),
+        },
+        session=_session(uid="u1", groups=["manager"]),
+    )
+    return Service(env), docs
+
+
+def test_upsert_denied_by_record_rules_on_other_owner_record():
+    """Layer 2 in SCRITTURA: un record che `load_record` non aprirebbe non
+    deve poter essere scritto da un POST diretto model+rec_name.
+
+    Il gate model-level (`model_groups_rule`) qui concede update — e' la
+    record rule owner-scoped a non coprire il record di un altro. Vale per
+    ogni path che passa da Service.upsert: /record, /step,
+    /gateway/camunda (complete, complete_many), action save.
+    """
+    service, docs = _upsert_record_rule_env(
+        [{"rec_name": "d1", "owner_uid": "altro", "name": "Loro"}]
+    )
+
+    # load_record: il record non e' apribile.
+    loaded = None
+    try:
+        loaded = asyncio.run(service.load_record("modulo_dati_persona", "d1"))
+    except HTTPException as exc:
+        assert exc.status_code == 404
+    assert loaded is None
+
+    # upsert sullo stesso record: 403, e il record resta intatto.
+    try:
+        asyncio.run(
+            service.upsert(
+                "modulo_dati_persona",
+                {"rec_name": "d1", "name": "Modificato"},
+                rec_name="d1",
+            )
+        )
+        raise AssertionError("upsert doveva essere negata")
+    except HTTPException as exc:
+        assert exc.status_code == 403
+        assert exc.detail["message"] == "Record ACL denied"
+    assert docs.rows[0]["name"] == "Loro"
+
+
+def test_upsert_allowed_on_own_record_covered_by_record_rules():
+    service, docs = _upsert_record_rule_env(
+        [{"rec_name": "d1", "owner_uid": "u1", "name": "Mio"}]
+    )
+
+    asyncio.run(
+        service.upsert(
+            "modulo_dati_persona",
+            {"rec_name": "d1", "name": "Aggiornato"},
+            rec_name="d1",
+        )
+    )
+
+    assert docs.rows[0]["name"] == "Aggiornato"
+
+
+def test_upsert_insert_not_blocked_by_record_rules():
+    """INSERT non passa dal gate record-level: il payload non ha ancora i
+    default dell'ORM, quindi una record rule non lo coprirebbe mai
+    (fail-closed su OGNI create). Il create resta gated a livello di
+    MODEL."""
+    service, docs = _upsert_record_rule_env([])
+
+    asyncio.run(
+        service.upsert(
+            "modulo_dati_persona",
+            {"rec_name": "nuovo", "name": "Nuovo"},
+            rec_name="nuovo",
+        )
+    )
+
+    assert [row["rec_name"] for row in docs.rows] == ["nuovo"]
+
+
+# --- caso d'esempio della doc: workflow per stato --------------------------
+
+
+def _workflow_rules():
+    """Le tre entry di docs/ACL_MODEL_GROUPS_FIELDS_RULES.it.md
+    ("Caso d'esempio: workflow per stato")."""
+    common = {
+        "app_code": "demo",
+        "model": "pratica",
+        "rule_type": "record",
+        "active": True,
+        "deleted": 0,
+    }
+    return [
+        {
+            **common,
+            "group": "operator",
+            "filters": {"active": True},
+            "read": True,
+            "create": False,
+            "update": False,
+            "delete": False,
+        },
+        {
+            **common,
+            "group": "operator",
+            "filters": {"stato": "YYYY"},
+            "read": True,
+            "create": False,
+            "update": True,
+            "delete": False,
+        },
+        {
+            **common,
+            "group": "manager",
+            "filters": {},
+            "read": True,
+            "create": False,
+            "update": True,
+            "delete": True,
+        },
+    ]
+
+
+def _workflow_service(groups, rows):
+    docs = _RecordModel("pratica", rows=rows)
+    env = _Env(
+        {
+            "pratica": docs,
+            "model_fields_rule": _ModelFieldsRuleModel(_workflow_rules()),
+            "component": _SysFlagComponentModel({"pratica": False}),
+        },
+        session=_session(uid="u1", groups=list(groups)),
+    )
+    return Service(env), docs
+
+
+def _workflow_rows():
+    return [
+        {"rec_name": "p1", "stato": "YYYY", "active": True, "deleted": 0},
+        {"rec_name": "p2", "stato": "XXXX", "active": True, "deleted": 0},
+    ]
+
+
+def test_workflow_operator_edits_only_before_transition():
+    """Operator: il record in YYYY e' editabile, quello gia' in XXXX resta
+    in sola lettura (entry 1) — non sparisce, si apre readonly."""
+    service, _docs = _workflow_service(["operator"], _workflow_rows())
+
+    before = asyncio.run(service.load_record("pratica", "p1"))
+    after = asyncio.run(service.load_record("pratica", "p2"))
+
+    assert (before.content.readable, before.content.editable) == (True, True)
+    assert (after.content.readable, after.content.editable) == (True, False)
+
+
+def test_workflow_transition_then_readonly():
+    """La transizione YYYY -> XXXX la fa l'operator (il gate valuta il
+    record ancora YYYY), e subito dopo lo stesso record non e' piu' suo:
+    il POST successivo prende 403."""
+    service, docs = _workflow_service(["operator"], _workflow_rows())
+
+    asyncio.run(service.upsert("pratica", {"stato": "XXXX"}, rec_name="p1"))
+    assert docs.rows[0]["stato"] == "XXXX"
+
+    try:
+        asyncio.run(
+            service.upsert("pratica", {"stato": "YYYY"}, rec_name="p1")
+        )
+        raise AssertionError("upsert doveva essere negata")
+    except HTTPException as exc:
+        assert exc.status_code == 403
+        assert exc.detail["message"] == "Record ACL denied"
+    assert docs.rows[0]["stato"] == "XXXX"
+
+
+def test_workflow_manager_edits_in_every_state():
+    """Manager: entry con `filters: {}` -> matcha ogni record, in
+    qualunque stato."""
+    service, docs = _workflow_service(["manager", "operator"], _workflow_rows())
+
+    loaded = asyncio.run(service.load_record("pratica", "p2"))
+    asyncio.run(service.upsert("pratica", {"stato": "ZZZZ"}, rec_name="p2"))
+
+    assert loaded.content.editable is True
+    assert docs.rows[1]["stato"] == "ZZZZ"
+
+
+def test_workflow_operator_list_shows_every_state():
+    """La entry di sola lettura senza condizioni di stato serve proprio a
+    non far sparire dalla lista i record gia' transitati."""
+    service, _docs = _workflow_service(["operator"], _workflow_rows())
+
+    listed = asyncio.run(
+        service.list_records("pratica", query={}, order="", skip=0, limit=0)
+    )
+
+    assert {row["rec_name"] for row in listed.content.data} == {"p1", "p2"}
