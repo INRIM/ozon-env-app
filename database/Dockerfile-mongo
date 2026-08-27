@@ -1,3 +1,11 @@
-FROM mongo:8.0.1
+# Versione MongoDB dell'immagine ozonapp.db. Override:
+#   MONGO_VERSION=8.0.1 ./build_imges.sh
+#
+# NB: le build MongoDB da 8.0.29 / 8.3.x in poi rifiutano di avviarsi su
+# kernel Linux >= 6.19 (SERVER-121912). Docker Desktop recente usa un kernel
+# linuxkit 7.x: su quelle macchine il container non parte e serve pinnare
+# MONGO_VERSION a 8.0.1 finche' MongoDB non pubblica una build corretta.
+ARG MONGO_VERSION=8.3.8
+FROM mongo:${MONGO_VERSION}
 ARG TZ
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone

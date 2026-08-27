@@ -36,6 +36,31 @@ Per fermare lo stack resta `./stop.sh` (`docker compose stop`). Il prototipo
 Ansible e' conservato solo localmente in `ansible-deploy/`, che e' ignorata da
 Git e non e' la sorgente del deploy locale.
 
+## MongoDB
+
+L'immagine `ozonapp.db` e' MongoDB piu' il fuso orario
+(`database/Dockerfile-mongo`). Versione corrente: **8.3.8**, sovrascrivibile
+al build senza toccare i file:
+
+```bash
+MONGO_VERSION=8.0.1 ./build_imges.sh
+```
+
+**Upgrade di un dataset esistente.** 8.3 e' una rapid release: da un dataset
+8.0 l'upgrade in-place va fatto in sequenza (`8.0 -> 8.1 -> 8.2 -> 8.3`),
+alzando la `featureCompatibilityVersion` a ogni passo — cambiare il tag e
+riavviare su un `mdbdata/` popolato in 8.0 non basta. Su un database nuovo
+(o ripristinato da `mongorestore`, `database/db_restore.sh`) non serve nulla.
+
+**Kernel Linux >= 6.19.** Le build MongoDB da 8.0.29 / 8.3.x in poi si
+rifiutano di partire su kernel 6.19+ ([SERVER-121912]
+(https://jira.mongodb.org/browse/SERVER-121912)); Docker Desktop recente usa
+un kernel `linuxkit` 7.x, quindi su quelle macchine il container non parte
+proprio (`MongoDB cannot start: Linux kernel versions 6.19 and newer...`).
+Verifica con `docker info --format '{{.KernelVersion}}'`: se e' >= 6.19,
+builda con `MONGO_VERSION=8.0.1` finche' MongoDB non pubblica una build
+corretta. Gli host di deploy con kernel piu' vecchi non sono toccati.
+
 ## CI (GitLab + GitHub)
 
 Due pipeline parallele, stesso scope immagini, build su branch `master`/`1.0`:

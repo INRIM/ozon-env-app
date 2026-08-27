@@ -5,7 +5,10 @@ set -euo pipefail
 # (default `latest`). Serve per tenere separate le immagini di due istanze
 # sullo stesso host.
 IMAGE_TAG="${IMAGE_TAG:-latest}"
-export IMAGE_TAG
+# MONGO_VERSION: versione del server Mongo dell'immagine ozonapp.db
+# (default in database/Dockerfile-mongo).
+MONGO_VERSION="${MONGO_VERSION:-}"
+export IMAGE_TAG MONGO_VERSION
 
 cd database
 ./build_images.sh
