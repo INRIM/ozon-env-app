@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 # Deve combaciare col default in Dockerfile-mongo.
-MONGO_VERSION="${MONGO_VERSION:-8.3.8}"
+MONGO_VERSION="${MONGO_VERSION:-8.2.12}"
 
 docker build \
   --rm \
