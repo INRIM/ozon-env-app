@@ -202,9 +202,6 @@ class Service:
         self.service_registry = ServiceRegistryCore(env)
         self.webhooks = WebhookDispatcher.from_settings(get_env_settings())
         self._compiled_field_acl: CompiledFieldAcl | None = None
-        # Gruppi dell'action in esecuzione (ActionRuntime._set_action_scope):
-        # quando valorizzati sostituiscono i gruppi di sessione come scope
-        # delle record rule. Vuoto = nessuna action scoped -> gruppi utente.
         self._record_rules_cache: dict[
             tuple[str, frozenset[str]], list[dict[str, Any]]
         ] = {}
@@ -1838,7 +1835,6 @@ class Service:
                 status_code=403,
                 detail=f"Action '{action_name}' is restricted",
             )
-        self.action_runtime._set_action_scope(action)
         action_model = action.model
         action_mode = action.mode
         if action_mode != "list":
