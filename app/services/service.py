@@ -3216,6 +3216,21 @@ class Service:
     ) -> dict[str, Any] | bool:
         action_model_name = rec_b.model
         cc_model = self.env.get(action_model_name)
+        if cc_model is None:
+            # Action che punta a un model non registrato: capita sui dati
+            # migrati, dove restano action di collection svuotate/rimosse
+            # senza piu' un `component` che ne definisca il model. Senza
+            # questo guard `_count_base` chiama .count() su None e
+            # l'AttributeError fa fallire l'INTERA dashboard, non la sola
+            # card. Il chiamante tratta il falsy come "salta il bottone"
+            # (vedi service_get_dashboard), che e' il comportamento voluto.
+            logger.warning(
+                "menu item saltato: action '%s' punta al model '%s' che non "
+                "e' registrato",
+                rec_b.rec_name,
+                action_model_name,
+            )
+            return False
 
         if rec_b.mode:
             link = (
