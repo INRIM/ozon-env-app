@@ -1,0 +1,32 @@
+[project]
+name = "api-gateway"
+version = "0.1.0"
+description = "Gateway S2S generico verso API esterne: upstream e risorse da config JSON, risposte inoltrate senza decodifica"
+readme = "README.md"
+requires-python = ">=3.12,<4.0"
+dependencies = [
+    "fastapi>=0.115,<1.0",
+    "uvicorn>=0.30,<1.0",
+    "httpx>=0.28,<1.0",
+    "pydantic>=2.7,<3.0",
+]
+
+[tool.uv]  # nosemgrep: uv-missing-dependency-cooldown -- cooldown bloccherebbe le patch CVE fresh
+# CVE trivy HIGH: cryptography 49 -> 50 (CVE-2026-69247).
+override-dependencies = ["cryptography>=50"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["api_gateway"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

@@ -1,7 +1,8 @@
+import json
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -13,55 +14,42 @@ class RemoteSelectHeader(BaseModel):
     header_value_key: str = ""
 
 
-class SelectOption(BaseModel):
-    """Singola opzione di select nel formato atteso dal client formio."""
+class RemoteSelectRequest(BaseModel):
+    """Metodo e body della richiesta remota, dalle `properties` del component.
 
-    label: str
-    value: Any
-
-
-class SelectListResult(BaseModel):
-    select_list: List[SelectOption] = Field(default_factory=list)
-
-
-class RemoteSelectResponse(BaseModel):
-    """Contratto di risposta dei service gateway per le select remote.
-
-    Un gateway che risponde con questa forma salta l'estrazione euristica
-    del payload (`extract_remote_data`). Le righe passano comunque da
-    `formio.make_resource_list` -> `_normalize_label_and_value`, che le
-    risolve sui campi `label`/`value`: il component non deve dichiarare
-    `properties.label` / `properties.id`, e se ne ha di legacy (puntati sui
-    campi della API esterna) si ricade comunque su `label`/`value`.
+    Vivono nelle properties perche' ozon-env passa all'app, per le select
+    `url`, solo url + header + properties.
     """
 
-    result: SelectListResult
+    method: str = "GET"
+    body: Any = None
 
 
-def build_select_response(options: List[Dict[str, Any]]) -> RemoteSelectResponse:
-    """Helper per i gateway: costruisce la response dal formato label/value."""
+def build_remote_select_request(props: Dict[str, Any]) -> RemoteSelectRequest:
+    """`properties.method` (GET|POST, default GET) e `properties.body`
+    (JSON come stringa o gia' oggetto). Valori non validi -> GET senza body:
+    una select mal configurata resta vuota, non esegue un POST imprevisto."""
 
-    return RemoteSelectResponse(
-        result=SelectListResult(select_list=[SelectOption(**opt) for opt in options])
-    )
-
-
-def parse_remote_select_response(payload: Any) -> List[Dict[str, Any]] | None:
-    """Riconosce il contratto gateway; None se il payload non lo rispetta.
-
-    None NON e' un errore: significa "sorgente legacy", e il chiamante
-    prosegue con `extract_remote_data` + normalizzazione euristica (serve
-    per le select remote gia' configurate su API esterne che rispondono
-    con liste di forma arbitraria).
-    """
-
-    if not isinstance(payload, dict):
-        return None
-    try:
-        parsed = RemoteSelectResponse.model_validate(payload)
-    except ValidationError:
-        return None
-    return [opt.model_dump() for opt in parsed.result.select_list]
+    if not isinstance(props, dict):
+        return RemoteSelectRequest()
+    method = str(props.get("method", "") or "GET").strip().upper()
+    if method not in {"GET", "POST"}:
+        logger.warning("remote select method non supportato method=%s", method)
+        return RemoteSelectRequest()
+    if method == "GET":
+        return RemoteSelectRequest()
+    body = props.get("body")
+    if isinstance(body, str):
+        raw = body.strip()
+        if not raw:
+            body = None
+        else:
+            try:
+                body = json.loads(raw)
+            except ValueError:
+                logger.warning("remote select body non JSON: POST annullato")
+                return RemoteSelectRequest()
+    return RemoteSelectRequest(method="POST", body=body)
 
 
 def build_remote_select_header(data: Dict[str, Any]) -> RemoteSelectHeader:

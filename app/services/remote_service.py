@@ -6,9 +6,6 @@ import httpx
 from fastapi import status
 
 from app.services.common import get_global_param
-from app.services.components.selectComponentService import (
-    parse_remote_select_response,
-)
 from app.services.utils import extract_remote_data
 
 logger = logging.getLogger("uvicorn.error")
@@ -68,8 +65,15 @@ async def _fetch_remote_data(
         header_key: str = "",
         header_value: str = "",
         url: str = "",
+        method: str = "GET",
+        body: Any = None,
 ) -> Any:
-    logger.info("remote fetch start url=%s custom_header=%s", url, header_key)
+    logger.info(
+        "remote fetch start method=%s url=%s custom_header=%s",
+        method,
+        url,
+        header_key,
+    )
     settings = _remote_select_settings()
     allowed_hosts = list(
         getattr(settings, "remote_select_allowed_hosts", []) or []
@@ -99,7 +103,10 @@ async def _fetch_remote_data(
             timeout=_REMOTE_FETCH_TIMEOUT_SECONDS,
             follow_redirects=False,
         ) as client:
-            res = await client.get(url=url, headers=req_headers)
+            if method == "POST":
+                res = await client.post(url=url, headers=req_headers, json=body)
+            else:
+                res = await client.get(url=url, headers=req_headers)
     except Exception as exc:
         logger.exception("get_remote_data error: %s", exc)
         return []
@@ -118,21 +125,7 @@ async def _fetch_remote_data(
         logger.warning("remote fetch invalid json url=%s", url)
         return []
 
-    # Fast-path: il gateway rispetta RemoteSelectResponse -> le opzioni
-    # sono gia' label/value e non serve `extract_remote_data`
-    # (`make_resource_list` le risolve poi su `label`/`value`). Altrimenti
-    # si torna al percorso legacy per le API esterne configurate prima
-    # dei gateway (es. people.ininrim.it su ipa_request.stanza).
-    gateway_options = parse_remote_select_response(datar)
-    if gateway_options is not None:
-        logger.info(
-            "remote fetch completed url=%s contract=gateway count=%s",
-            url,
-            len(gateway_options),
-        )
-        return gateway_options
-
-    logger.info("remote fetch completed url=%s contract=legacy", url)
+    logger.info("remote fetch completed url=%s", url)
     return extract_remote_data(datar)
 
 
@@ -142,6 +135,8 @@ async def remote_data_select_response(
         path_value: str,
         header_key: str,
         header_value_key: str,
+        method: str = "GET",
+        body: Any = None,
 ) -> list[Any]:
     remote_url = _append_path(url, path_value)
     logger.info("remote select response start url=%s", remote_url)
@@ -161,7 +156,9 @@ async def remote_data_select_response(
         headers={},
         header_key=header_key,
         header_value=header_val,
-        url=remote_url
+        url=remote_url,
+        method=method,
+        body=body,
     )
 
     data = remote_data if isinstance(remote_data, list) else []

@@ -4,6 +4,7 @@ from typing import Any
 
 from app.services.components.selectComponentService import (
     build_remote_select_header,
+    build_remote_select_request,
 )
 from app.services.remote_service import remote_data_select_response
 from app.services.utils import (
@@ -134,12 +135,19 @@ def _normalize_label_and_value(
     value = None
 
     if label_key:
+        # Alcune API esterne (People) mettono `false` dove ci si aspetta
+        # null: senza questo filtro la label diventerebbe "Ap001 False".
         keys = [key.strip() for key in label_key.split(",") if key.strip()]
         if len(keys) > 1:
-            parts = [str(item.get(key, "")).strip() for key in keys]
+            parts = [
+                "" if item.get(key) in (None, False) else str(item.get(key)).strip()
+                for key in keys
+            ]
             label = " ".join(part for part in parts if part) or None
         else:
             label = item.get(label_key)
+            if label is False:
+                label = None
 
     if id_key:
         value = item.get(id_key)
@@ -406,12 +414,15 @@ async def _load_remote_url_source(
     config: SelectFieldConfig,
 ) -> list[Any]:
     header = build_remote_select_header(config.field)
+    request = build_remote_select_request(config.props)
     data = await remote_data_select_response(
         service=service,
         url=header.url,
         path_value=header.path_value,
         header_key=header.header_key,
         header_value_key=header.header_value_key,
+        method=request.method,
+        body=request.body,
     )
     rows = _normalize_row_list(data)
     logger.info(

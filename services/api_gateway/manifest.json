@@ -1,0 +1,20 @@
+{
+  "code": "api_gateway",
+  "kind": "gateway",
+  "network": "${NETWORK}",
+  "shared_volumes": [],
+  "env_requires": [
+    "PEOPLE_URL",
+    "PEOPLE_KEY",
+    "API_GATEWAY_S2S_TOKEN"
+  ],
+  "endpoint": "/",
+  "image": "ozonapp.api_gateway:latest",
+  "build_context": ".",
+  "repo": "",
+  "version": "local",
+  "compose_file": "docker-compose.yml",
+  "health": {
+    "type": "docker-healthcheck"
+  }
+}

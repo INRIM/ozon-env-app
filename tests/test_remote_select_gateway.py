@@ -5,8 +5,7 @@ import pytest
 
 from app.services import remote_service
 from app.services.components.selectComponentService import (
-    build_select_response,
-    parse_remote_select_response,
+    build_remote_select_request,
 )
 
 
@@ -36,7 +35,15 @@ class FakeClient:
         return False
 
     async def get(self, url, headers):
-        FakeClient.calls.append({"url": url, "headers": dict(headers)})
+        FakeClient.calls.append(
+            {"method": "GET", "url": url, "headers": dict(headers)}
+        )
+        return FakeResponse(self._payload, FakeClient.status_code)
+
+    async def post(self, url, headers, json=None):
+        FakeClient.calls.append(
+            {"method": "POST", "url": url, "headers": dict(headers), "json": json}
+        )
         return FakeResponse(self._payload, FakeClient.status_code)
 
 
@@ -44,7 +51,7 @@ class FakeClient:
 def fake_http(monkeypatch):
     FakeClient.calls = []
     FakeClient.status_code = 200
-    FakeClient.payload = {"result": {"select_list": []}}
+    FakeClient.payload = []
     monkeypatch.setattr(remote_service.httpx, "AsyncClient", FakeClient)
     yield
 
@@ -61,29 +68,6 @@ def _patch_settings(monkeypatch, settings):
     monkeypatch.setattr(
         remote_service, "_remote_select_settings", lambda: settings
     )
-
-
-def test_gateway_contract_returns_label_value_without_heuristics(monkeypatch):
-    _patch_settings(monkeypatch, _settings(hosts=["ext_gateway"]))
-    FakeClient.payload = {
-        "result": {
-            "select_list": [
-                {"label": "Stanza 1", "value": "R1"},
-                {"label": "Stanza 2", "value": "R2"},
-            ]
-        }
-    }
-
-    out = asyncio.run(
-        remote_service._fetch_remote_data(
-            url="http://ext_gateway:8080/people/rooms"
-        )
-    )
-
-    assert out == [
-        {"label": "Stanza 1", "value": "R1"},
-        {"label": "Stanza 2", "value": "R2"},
-    ]
 
 
 def test_legacy_bare_list_still_passes_through(monkeypatch):
@@ -193,19 +177,6 @@ def test_legacy_header_credential_still_applied(monkeypatch):
     assert FakeClient.calls[0]["headers"]["x-key"] == "api-key-value"
 
 
-def test_parse_remote_select_response_rejects_non_contract():
-    assert parse_remote_select_response([{"label": "a", "value": 1}]) is None
-    assert parse_remote_select_response({"result": ["a"]}) is None
-
-
-def test_build_select_response_round_trips():
-    resp = build_select_response([{"label": "Stanza 1", "value": "R1"}])
-
-    assert parse_remote_select_response(resp.model_dump()) == [
-        {"label": "Stanza 1", "value": "R1"}
-    ]
-
-
 def test_allowlist_entry_with_port_restricts_to_that_port(monkeypatch):
     _patch_settings(monkeypatch, _settings(hosts=["ext_gateway:8080"]))
 
@@ -263,27 +234,17 @@ def test_gateway_401_yields_empty_select_not_an_error(monkeypatch):
     assert "x-ozon-s2s-token" not in FakeClient.calls[0]["headers"]
 
 
-@pytest.mark.parametrize(
-    "properties",
-    [
-        {},
-        # Component legacy ripuntato sul gateway: properties ancora sui
-        # campi della API esterna, assenti nelle righe del contratto.
-        {"label": "name", "id": "id"},
-    ],
-)
-def test_gateway_rows_resolved_by_make_resource_list(monkeypatch, properties):
-    """Percorso completo: fetch col contratto gateway -> make_resource_list
-    (formio) deve restituire esattamente label/value del gateway."""
+def test_gateway_raw_rows_decoded_by_properties(monkeypatch):
+    """Percorso completo: il gateway inoltra le righe grezze dell'API
+    esterna, label/value li decide `properties` del component."""
     from app.services.formio import make_resource_list
 
     _patch_settings(monkeypatch, _settings(hosts=["api-gateway"]))
-    FakeClient.payload = build_select_response(
-        [
-            {"label": "Ap000b (Ap0)", "value": 523},
-            {"label": "Mario Rossi", "value": "mrossi"},
-        ]
-    ).model_dump()
+    FakeClient.payload = [
+        {"id": 523, "name": "Ap000b", "parent_building_code": "Ap0"},
+        # People mette false dove ci si aspetta null.
+        {"id": 524, "name": "Ap001", "parent_building_code": False},
+    ]
 
     rows = asyncio.run(
         remote_service._fetch_remote_data(
@@ -293,11 +254,83 @@ def test_gateway_rows_resolved_by_make_resource_list(monkeypatch, properties):
     field = {
         "key": "stanza",
         "src": "url",
-        "url": "http://api-gateway:8080",
-        "properties": properties,
+        "url": "http://api-gateway:8080/people/rooms",
+        "properties": {"label": "name,parent_building_code", "id": "id"},
     }
 
     assert make_resource_list(field, rows) == [
-        {"label": "Ap000b (Ap0)", "value": 523},
-        {"label": "Mario Rossi", "value": "mrossi"},
+        {"label": "Ap000b Ap0", "value": 523},
+        {"label": "Ap001", "value": 524},
     ]
+
+
+def test_wrapped_result_rows_unwrapped(monkeypatch):
+    _patch_settings(monkeypatch, _settings(hosts=["api-gateway"]))
+    FakeClient.payload = {"result": [{"id": 1, "name": "DG"}]}
+
+    rows = asyncio.run(
+        remote_service._fetch_remote_data(
+            url="http://api-gateway:8080/people/sectors"
+        )
+    )
+
+    assert rows == [{"id": 1, "name": "DG"}]
+
+
+def test_single_label_key_false_falls_back():
+    from app.services.formio import _normalize_label_and_value
+
+    label, value = _normalize_label_and_value(
+        {"id": 1, "sign": False, "name": "DG"}, "sign", "id"
+    )
+
+    assert label == "DG"
+    assert value == 1
+
+
+def test_post_sends_body_from_properties(monkeypatch):
+    _patch_settings(monkeypatch, _settings(hosts=["api-gateway"]))
+    request = build_remote_select_request(
+        {"method": "post", "body": '{"workmodes": [1, 2]}'}
+    )
+
+    asyncio.run(
+        remote_service.remote_data_select_response(
+            service=None,
+            url="http://api-gateway:8080/people/persons_by_workmodes",
+            path_value="",
+            header_key="",
+            header_value_key="",
+            method=request.method,
+            body=request.body,
+        )
+    )
+
+    call = FakeClient.calls[0]
+    assert call["method"] == "POST"
+    assert call["json"] == {"workmodes": [1, 2]}
+    assert call["headers"]["x-ozon-s2s-token"] == "s3cret"
+
+
+@pytest.mark.parametrize(
+    "props",
+    [
+        {},
+        {"method": "GET", "body": '{"a": 1}'},
+        {"method": "DELETE"},
+        # Body non JSON: niente POST con un body diverso da quello voluto.
+        {"method": "POST", "body": "{not json"},
+        "non-dict",
+    ],
+)
+def test_request_defaults_to_get_without_body(props):
+    request = build_remote_select_request(props)
+
+    assert request.method == "GET"
+    assert request.body is None
+
+
+def test_post_body_as_object_accepted():
+    request = build_remote_select_request({"method": "POST", "body": {"a": 1}})
+
+    assert (request.method, request.body) == ("POST", {"a": 1})

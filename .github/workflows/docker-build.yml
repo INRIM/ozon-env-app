@@ -70,6 +70,10 @@ jobs:
             dockerfile: services/identity_manager/Dockerfile
             context: services/identity_manager
             suffix: /identity-manager
+          - name: api-gateway
+            dockerfile: services/api_gateway/Dockerfile
+            context: services/api_gateway
+            suffix: /api-gateway
           - name: keycloak-manager
             dockerfile: manager/keycloak-manager/Dockerfile
             context: manager/keycloak-manager

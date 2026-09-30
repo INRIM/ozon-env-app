@@ -22,6 +22,9 @@ test_token_exchange.sh
 test_nob
 database/scripts/init_db.js
 .env
+# env specifico dei companion service (credenziali): si versiona solo
+# service.env.example
+service.env
 .claude
 .ozonenv
 .ozonenvbk
@@ -29,7 +32,8 @@ database/scripts/init_db.js
 .ansible/
 attivita/
 people_sync
-api_gateway
+# config deploy di api_gateway: si versionano solo i *.json.example
+services/api_gateway/config/*.json
 dist
 workers
 uploads

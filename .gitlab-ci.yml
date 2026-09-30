@@ -61,6 +61,13 @@ build-identity-manager:
     BUILD_CONTEXT: services/identity_manager
     IMG_REF: "${CI_REGISTRY_IMAGE}/identity-manager"
 
+build-api-gateway:
+  extends: .build-image
+  variables:
+    DOCKERFILE: services/api_gateway/Dockerfile
+    BUILD_CONTEXT: services/api_gateway
+    IMG_REF: "${CI_REGISTRY_IMAGE}/api-gateway"
+
 build-keycloak-manager:
   extends: .build-image
   variables:

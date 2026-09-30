@@ -1,0 +1,36 @@
+# Progetto e container prefissati da STACK_NAME: due istanze di
+# ozon-env-app sullo stesso host non devono collidere.
+name: ${STACK_NAME:-ozon-env-app}-api-gateway
+
+services:
+  api_gateway:
+    image: ozonapp.api_gateway:${IMAGE_TAG:-latest}
+    build:
+      context: .
+    container_name: ${STACK_NAME:-ozon-env-app}-api-gateway
+    env_file:
+      # base generico dello stack, poi env specifico del service (override).
+      - ../../.env
+      - path: service.env
+        required: false
+    # Nessun `ports:`: il gateway e' raggiungibile SOLO dalla rete docker
+    # interna. L'alias `api-gateway` tiene l'hostname stabile qualunque sia
+    # STACK_NAME, cosi' l'url sul component non cambia fra stack.
+    # Config upstream/risorse montato: aggiungere una risorsa non richiede
+    # rebuild, solo restart del container.
+    volumes:
+      - ./config:/app/config:ro
+    restart: unless-stopped
+    networks:
+      default:
+        aliases:
+          - api-gateway
+    logging:
+      options:
+        max-size: 10m
+        max-file: "2"
+
+networks:
+  default:
+    external: true
+    name: ${NETWORK}
