@@ -1,6 +1,7 @@
 import logging
-from typing import Any, Dict
-from pydantic import BaseModel
+from typing import Any, Dict, List
+
+from pydantic import BaseModel, Field, ValidationError
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -10,7 +11,57 @@ class RemoteSelectHeader(BaseModel):
     path_value: str = ""
     header_key: str = ""
     header_value_key: str = ""
-    tocken: str = ""
+
+
+class SelectOption(BaseModel):
+    """Singola opzione di select nel formato atteso dal client formio."""
+
+    label: str
+    value: Any
+
+
+class SelectListResult(BaseModel):
+    select_list: List[SelectOption] = Field(default_factory=list)
+
+
+class RemoteSelectResponse(BaseModel):
+    """Contratto di risposta dei service gateway per le select remote.
+
+    Un gateway che risponde con questa forma salta l'estrazione euristica
+    del payload (`extract_remote_data`). Le righe passano comunque da
+    `formio.make_resource_list` -> `_normalize_label_and_value`, che le
+    risolve sui campi `label`/`value`: il component non deve dichiarare
+    `properties.label` / `properties.id`, e se ne ha di legacy (puntati sui
+    campi della API esterna) si ricade comunque su `label`/`value`.
+    """
+
+    result: SelectListResult
+
+
+def build_select_response(options: List[Dict[str, Any]]) -> RemoteSelectResponse:
+    """Helper per i gateway: costruisce la response dal formato label/value."""
+
+    return RemoteSelectResponse(
+        result=SelectListResult(select_list=[SelectOption(**opt) for opt in options])
+    )
+
+
+def parse_remote_select_response(payload: Any) -> List[Dict[str, Any]] | None:
+    """Riconosce il contratto gateway; None se il payload non lo rispetta.
+
+    None NON e' un errore: significa "sorgente legacy", e il chiamante
+    prosegue con `extract_remote_data` + normalizzazione euristica (serve
+    per le select remote gia' configurate su API esterne che rispondono
+    con liste di forma arbitraria).
+    """
+
+    if not isinstance(payload, dict):
+        return None
+    try:
+        parsed = RemoteSelectResponse.model_validate(payload)
+    except ValidationError:
+        return None
+    return [opt.model_dump() for opt in parsed.result.select_list]
 
 
 def build_remote_select_header(data: Dict[str, Any]) -> RemoteSelectHeader:

@@ -29,6 +29,7 @@ database/scripts/init_db.js
 .ansible/
 attivita/
 people_sync
+api_gateway
 dist
 workers
 uploads

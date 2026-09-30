@@ -237,24 +237,6 @@ def test_logout_redirect_is_made_absolute():
     assert absolute.logout_redirect_absolute_url == "https://portal.test/bye"
 
 
-def test_internal_logout_endpoint_uses_internal_hostname():
-    """La revoca del refresh token e' server->Keycloak: deve passare per
-    l'hostname interno come token/jwks, non per quello del browser."""
-    from app.app_settings import EnvSettings
-
-    configured = EnvSettings(
-        KEYCLOAK_SERVER_URL_INTERNAL="http://keycloak:8080",
-        KEYCLOAK_SERVER_URL_PUBLIC="http://localhost:8081",
-        KEYCLOAK_REALM="backend",
-    )
-    assert configured.keycloak_logout_endpoint_internal.startswith(
-        "http://keycloak:8080/"
-    )
-    assert configured.keycloak_logout_endpoint.startswith(
-        "http://localhost:8081/"
-    )
-
-
 class _RouteEnv(_FakeEnv):
     """Env come lo vede l'endpoint: `revoked_session` NON e' registrato
     finche' non lo registra `register_static_models`."""

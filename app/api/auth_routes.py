@@ -204,7 +204,7 @@ async def _revoke_refresh_token(settings: EnvSettings, refresh_token: str) -> No
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
-                settings.keycloak_logout_endpoint_internal,
+                settings.keycloak_logout_endpoint,
                 data={
                     "client_id": settings.keycloak_client_id,
                     "client_secret": settings.keycloak_client_secret,

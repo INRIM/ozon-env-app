@@ -31,7 +31,11 @@ class SharedVolume(BaseModel):
 
 class ServiceManifest(BaseModel):
     code: str
-    kind: Literal["worker", "scheduler", "gateway"]
+    # "mcp-server" era usato da services/mcp_search/manifest.json ma
+    # mancava qui: register_manifest fa model_validate, quindi registrare
+    # quel service alzava ValidationError (non e' mai emerso perche'
+    # mcp_search si avvia dal suo run.sh, non dal registry).
+    kind: Literal["worker", "scheduler", "gateway", "mcp-server"]
     network: str = "ozn-network"
     shared_volumes: list[SharedVolume] = Field(default_factory=list)
     env_requires: list[str] = Field(default_factory=list)

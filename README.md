@@ -77,9 +77,10 @@ Due pipeline parallele, stesso scope immagini, build su branch `master`/`1.0`:
 | identity-manager | `services/identity_manager/Dockerfile` | `${CI_REGISTRY_IMAGE}/identity-manager` | `.../identity-manager` |
 | keycloak-manager | `manager/keycloak-manager/Dockerfile` | `${CI_REGISTRY_IMAGE}/keycloak-manager` | `.../keycloak-manager` |
 
-`workers/ozon_camunda_worker` e `services/people_sync` **non** sono in
-nessuna delle due pipeline: hanno repo e CI propri (`services/people_sync`
-ha gia' il suo `.gitlab-ci.yml`, single-image, nel suo repo). Quando anche
+`workers/ozon_camunda_worker`, `services/people_sync` e `services/api_gateway`
+**non** sono in nessuna delle due pipeline: hanno repo e CI propri
+(`services/people_sync` e `services/api_gateway` hanno il loro
+`.gitlab-ci.yml`, single-image, nel loro repo). Quando anche
 `mail_sender`/`calendar_scheduler`/`identity_manager` verranno splittati in
 repo dedicati, i job corrispondenti vanno tolti da entrambi i file qui.
 

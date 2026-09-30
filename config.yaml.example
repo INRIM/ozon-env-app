@@ -63,8 +63,7 @@ keycloak_algorithms: RS256
 keycloak_realm: ${KEYCLOAK_REALM}
 keycloak_client_id: ${KEYCLOAK_CLIENT_ID}
 keycloak_client_secret: ${KEYCLOAK_CLIENT_SECRET}
-keycloak_server_url_public: ${KEYCLOAK_SERVER_URL_PUBLIC}
-keycloak_server_url_internal: ${KEYCLOAK_SERVER_URL_INTERNAL}
+keycloak_server_url: ${KEYCLOAK_SERVER_URL}
 keycloak_worker_client_id: ${KEYCLOAK_WORKER_CLIENT_ID}
 keycloak_worker_client_secret: ${KEYCLOAK_WORKER_CLIENT_SECRET}
 keycloak_token_url: ${KEYCLOAK_TOKEN_URL}

@@ -145,15 +145,14 @@ def test_env_settings_extends_ozon_settings_and_exposes_urls():
     settings = EnvSettings(
         app_code="demo",
         external_base_url="https://api.example.org",
-        keycloak_server_url_public="https://kc-public",
-        keycloak_server_url_internal="https://kc-internal",
+        keycloak_server_url="https://kc",
         CAMUNDA_TASKLIST_URL="https://camunda-tasklist",
     )
 
     assert isinstance(settings, OzonSettings)
     assert settings.redirect_uri == "https://api.example.org/auth/callback"
     assert settings.keycloak_token_endpoint == (
-        "https://kc-internal/realms/backend/protocol/openid-connect/token"
+        "https://kc/realms/backend/protocol/openid-connect/token"
     )
     assert settings.camunda_tasklist_url == "https://camunda-tasklist"
     assert settings.camunda_auth_enabled is True

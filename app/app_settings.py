@@ -253,6 +253,34 @@ class EnvSettings(OzonEnvCoreSettings):
         validation_alias="EXTERNAL_BASE_URL",
     )
 
+    # --- Select remote (src=url con host assoluto) ---------------------
+    # Allowlist degli host contattabili dalle select remote. CSV o lista
+    # JSON. Vuota = nessun controllo (coerente con ws_allowed_origins),
+    # ma il token S2S viene inviato SOLO a host esplicitamente in lista:
+    # una credenziale condivisa non deve poter finire su un host che
+    # nessuno ha autorizzato, e gli URL delle select vivono nel component
+    # (scritti da admin) non nel payload del client.
+    remote_select_allowed_hosts: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("REMOTE_SELECT_ALLOWED_HOSTS"),
+    )
+
+    @field_validator("remote_select_allowed_hosts", mode="before")
+    @classmethod
+    def _parse_remote_select_hosts(cls, v: Any) -> list[str]:
+        return [item.lower() for item in _parse_admins_value(v)]
+
+    # Token S2S verso i service gateway sulla rete Docker interna: la
+    # credenziale della API esterna resta dentro il gateway, l'app porta
+    # solo questo.
+    remote_select_s2s_token: str = Field(
+        default="", validation_alias="REMOTE_SELECT_S2S_TOKEN"
+    )
+    remote_select_s2s_header: str = Field(
+        default="x-ozon-s2s-token",
+        validation_alias="REMOTE_SELECT_S2S_HEADER",
+    )
+
     # Se SESSION_SECRET non e' impostato, i cookie firmati restano
     # comunque non forgeable da chi conosce solo il codice sorgente (vedi
     # _FALLBACK_SESSION_SECRET sopra), al prezzo di invalidare le sessioni
@@ -309,13 +337,9 @@ class EnvSettings(OzonEnvCoreSettings):
         default="dev-client-secret-change-me",
         validation_alias="KEYCLOAK_CLIENT_SECRET",
     )
-    keycloak_server_url_public: str = Field(
+    keycloak_server_url: str = Field(
         default="https://keycloak.example.internal",
-        validation_alias="KEYCLOAK_SERVER_URL_PUBLIC",
-    )
-    keycloak_server_url_internal: str = Field(
-        default="https://keycloak.example.internal",
-        validation_alias="KEYCLOAK_SERVER_URL_INTERNAL",
+        validation_alias="KEYCLOAK_SERVER_URL",
     )
 
     camunda_web_url: str = Field(
@@ -504,14 +528,14 @@ class EnvSettings(OzonEnvCoreSettings):
     @property
     def keycloak_authorization_endpoint(self) -> str:
         return (
-            f"{self.keycloak_server_url_public}/realms/{self.keycloak_realm}"
+            f"{self.keycloak_server_url}/realms/{self.keycloak_realm}"
             "/protocol/openid-connect/auth"
         )
 
     @property
     def keycloak_logout_endpoint(self) -> str:
         return (
-            f"{self.keycloak_server_url_public}/realms/{self.keycloak_realm}"
+            f"{self.keycloak_server_url}/realms/{self.keycloak_realm}"
             "/protocol/openid-connect/logout"
         )
 
@@ -530,44 +554,30 @@ class EnvSettings(OzonEnvCoreSettings):
         return f"{self.external_base_url.rstrip('/')}/{target.lstrip('/')}"
 
     @property
-    def keycloak_logout_endpoint_internal(self) -> str:
-        """End-session endpoint sulla rete interna.
-
-        `keycloak_logout_endpoint` (public) e' l'URL su cui si manda il
-        BROWSER; questo e' quello che chiama il server per revocare il
-        refresh token, e deve passare per l'hostname interno come tutte
-        le altre chiamate server->Keycloak (token/userinfo/jwks).
-        """
-        return (
-            f"{self.keycloak_server_url_internal}/realms/{self.keycloak_realm}"
-            "/protocol/openid-connect/logout"
-        )
-
-    @property
     def keycloak_token_endpoint(self) -> str:
         return (
-            f"{self.keycloak_server_url_internal}/realms/{self.keycloak_realm}"
+            f"{self.keycloak_server_url}/realms/{self.keycloak_realm}"
             "/protocol/openid-connect/token"
         )
 
     @property
     def keycloak_userinfo_endpoint(self) -> str:
         return (
-            f"{self.keycloak_server_url_internal}/realms/{self.keycloak_realm}"
+            f"{self.keycloak_server_url}/realms/{self.keycloak_realm}"
             "/protocol/openid-connect/userinfo"
         )
 
     @property
     def keycloak_jwks_url(self) -> str:
         return (
-            f"{self.keycloak_server_url_internal}/realms/{self.keycloak_realm}"
+            f"{self.keycloak_server_url}/realms/{self.keycloak_realm}"
             "/protocol/openid-connect/certs"
         )
 
     @property
     def keycloak_issuer(self) -> str:
         return (
-            f"{self.keycloak_server_url_public}/realms/{self.keycloak_realm}"
+            f"{self.keycloak_server_url}/realms/{self.keycloak_realm}"
         )
 
     @property
