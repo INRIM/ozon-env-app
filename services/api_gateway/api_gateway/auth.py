@@ -65,7 +65,11 @@ class M2MTokenProvider:
         self._token = token
         expires_in = float(body.get("expires_in", 60) or 60)
         self._expires_at = time.time() + expires_in
-        logger.info("m2m token rinnovato (expires_in=%ss)", expires_in)
+        # Logga solo la durata, mai il token: "token" nel testo e' cio' che
+        # fa scattare la regola semgrep logger-credential-disclosure.
+        logger.info(  # nosemgrep
+            "m2m token rinnovato (expires_in=%ss)", expires_in
+        )
 
     async def token(self) -> str:
         if not self._is_valid():
