@@ -4,6 +4,23 @@ import os
 from dataclasses import dataclass
 
 
+def _env_first(*names: str) -> str:
+    """Primo valore non vuoto fra `names`: override specifico, poi generico."""
+    for name in names:
+        value = os.getenv(name, "")
+        if value:
+            return value
+    return ""
+
+
+def _keycloak_token_url() -> str:
+    server = os.getenv("KEYCLOAK_SERVER_URL", "").rstrip("/")
+    realm = os.getenv("KEYCLOAK_REALM", "")
+    if not (server and realm):
+        return ""
+    return f"{server}/realms/{realm}/protocol/openid-connect/token"
+
+
 @dataclass(frozen=True)
 class SchedulerConfig:
     """Config del worker. Agnostico sull'app_code: i dati calendar di tutti gli
@@ -33,12 +50,29 @@ class SchedulerConfig:
     @classmethod
     def from_env(cls) -> "SchedulerConfig":
         # Nessun segreto versionato: client_secret da secret runtime/env.
+        #
+        # Auth M2M: di default il client generico dello stack, condiviso dai
+        # service che chiamano il backend (OZON_M2M_CLIENT_ID/_SECRET), con
+        # token URL ricavato da KEYCLOAK_SERVER_URL + KEYCLOAK_REALM e aud =
+        # l'audience che il backend verifica (OZON_TOKEN_AUDIENCE, con lo
+        # stesso alias TOKEN_AUDIENCE accettato da app_settings). Le
+        # SCHEDULER_OAUTH_* restano come override per un client dedicato.
         return cls(
             run_base_url=os.getenv("SCHEDULER_RUN_BASE_URL", "").rstrip("/"),
-            oauth_token_url=os.getenv("SCHEDULER_OAUTH_TOKEN_URL", ""),
-            oauth_client_id=os.getenv("SCHEDULER_OAUTH_CLIENT_ID", ""),
-            oauth_client_secret=os.getenv("SCHEDULER_OAUTH_CLIENT_SECRET", ""),
-            oauth_audience=os.getenv("SCHEDULER_OAUTH_AUDIENCE", ""),
+            oauth_token_url=(
+                _env_first("SCHEDULER_OAUTH_TOKEN_URL") or _keycloak_token_url()
+            ),
+            oauth_client_id=_env_first(
+                "SCHEDULER_OAUTH_CLIENT_ID", "OZON_M2M_CLIENT_ID"
+            ),
+            oauth_client_secret=_env_first(
+                "SCHEDULER_OAUTH_CLIENT_SECRET", "OZON_M2M_CLIENT_SECRET"
+            ),
+            oauth_audience=_env_first(
+                "SCHEDULER_OAUTH_AUDIENCE",
+                "OZON_TOKEN_AUDIENCE",
+                "TOKEN_AUDIENCE",
+            ),
             oauth_scope=os.getenv("SCHEDULER_OAUTH_SCOPE", ""),
             poll_interval=float(os.getenv("SCHEDULER_POLL_INTERVAL", "45")),
             lock_ttl_seconds=int(os.getenv("SCHEDULER_LOCK_TTL", "1800")),
@@ -62,9 +96,18 @@ class SchedulerConfig:
         missing = [
             name
             for name, value in (
-                ("SCHEDULER_OAUTH_TOKEN_URL", self.oauth_token_url),
-                ("SCHEDULER_OAUTH_CLIENT_ID", self.oauth_client_id),
-                ("SCHEDULER_OAUTH_CLIENT_SECRET", self.oauth_client_secret),
+                (
+                    "SCHEDULER_OAUTH_TOKEN_URL (o KEYCLOAK_SERVER_URL + KEYCLOAK_REALM)",
+                    self.oauth_token_url,
+                ),
+                (
+                    "SCHEDULER_OAUTH_CLIENT_ID (o OZON_M2M_CLIENT_ID)",
+                    self.oauth_client_id,
+                ),
+                (
+                    "SCHEDULER_OAUTH_CLIENT_SECRET (o OZON_M2M_CLIENT_SECRET)",
+                    self.oauth_client_secret,
+                ),
             )
             if not value
         ]

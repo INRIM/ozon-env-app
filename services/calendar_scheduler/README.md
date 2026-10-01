@@ -41,7 +41,18 @@ Requisiti keycloak/app:
 
 ## Setup keycloak (service client + audience)
 
-Lo scheduler **consuma** `SCHEDULER_OAUTH_*` a runtime, ma NON configura keycloak.
+Di default lo scheduler usa il **client M2M condiviso** dello stack
+(`OZON_M2M_CLIENT_ID` / `OZON_M2M_CLIENT_SECRET`): token URL e audience si
+ricavano da `KEYCLOAK_SERVER_URL` + `KEYCLOAK_REALM` e `OZON_TOKEN_AUDIENCE`,
+cioe' quello che il backend verifica. Le `SCHEDULER_OAUTH_*` sono override per
+un client dedicato (una variabile vuota conta come assente).
+
+Il token URL ricavato usa `KEYCLOAK_SERVER_URL` cosi' com'e': deve essere
+raggiungibile anche dal container dello scheduler. Dove non lo e' (es. demo
+locale con `keycloak.localhost`), si imposta `SCHEDULER_OAUTH_TOKEN_URL`
+sull'hostname interno: l'`iss` non cambia se Keycloak ha `KC_HOSTNAME` fisso.
+
+Lo scheduler **consuma** queste variabili a runtime, ma NON configura keycloak.
 La configurazione (creare il client M2M + audience verso il client app) si fa col
 servizio interattivo dedicato **`manager/keycloak-manager`**: genera un
 `kc-env.var` (con prefisso `SCHEDULER`) da incollare in questo `.env`.
@@ -64,10 +75,12 @@ Mongo/modelli: gestiti da ozon-env (`MONGO_*`, `MODELS_FOLDER` — vedi
 | Variabile | Default | Note |
 | --- | --- | --- |
 | `SCHEDULER_RUN_BASE_URL` | — | richiesto, base url app per l'endpoint run |
-| `SCHEDULER_OAUTH_TOKEN_URL` | — | richiesto, token endpoint keycloak (client_credentials) |
-| `SCHEDULER_OAUTH_CLIENT_ID` | — | richiesto, client keycloak con service account |
-| `SCHEDULER_OAUTH_CLIENT_SECRET` | — | richiesto, **unico segreto** (secret runtime) |
-| `SCHEDULER_OAUTH_AUDIENCE` | `""` | `aud` del token; deve combaciare con `OZON_TOKEN_AUDIENCE` dell'app |
+| `OZON_M2M_CLIENT_ID` | — | client M2M **condiviso** dello stack (service account); default del client id |
+| `OZON_M2M_CLIENT_SECRET` | — | secret del client condiviso, **unico segreto** (secret runtime) |
+| `SCHEDULER_OAUTH_TOKEN_URL` | `KEYCLOAK_SERVER_URL` + `KEYCLOAK_REALM` | override del token endpoint (client_credentials) |
+| `SCHEDULER_OAUTH_CLIENT_ID` | `OZON_M2M_CLIENT_ID` | override: client dedicato allo scheduler |
+| `SCHEDULER_OAUTH_CLIENT_SECRET` | `OZON_M2M_CLIENT_SECRET` | override: secret del client dedicato |
+| `SCHEDULER_OAUTH_AUDIENCE` | `OZON_TOKEN_AUDIENCE` (o `TOKEN_AUDIENCE`) | override dell'`aud` richiesto; deve combaciare con quello verificato dall'app |
 | `SCHEDULER_OAUTH_SCOPE` | `""` | scope opzionale |
 | `SCHEDULER_POLL_INTERVAL` | `45` | secondi tra i sync |
 | `SCHEDULER_LOCK_TTL` | `1800` | TTL lock in secondi |

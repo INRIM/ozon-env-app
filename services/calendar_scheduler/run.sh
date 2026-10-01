@@ -4,7 +4,9 @@
 # Env layering: ../../.env (base) + ./service.env (specifico SCHEDULER_*).
 #
 # Lo scheduler chiama l'endpoint run dell'app, che verifica un JWT keycloak:
-# l'auth e' SOLO M2M keycloak (niente token statico). Se manca, run.sh lancia
+# l'auth e' SOLO M2M keycloak (niente token statico). Di default il client M2M
+# generico dello stack (OZON_M2M_* + KEYCLOAK_SERVER_URL/REALM nel .env base);
+# SCHEDULER_OAUTH_* sono override. Se manca tutto, run.sh lancia
 # manager/keycloak-manager/run.sh e importa i SCHEDULER_OAUTH_* in service.env.
 set -euo pipefail
 
@@ -43,9 +45,22 @@ if ! have "$RUN_URL"; then
 fi
 
 # --- 3. auth M2M keycloak (obbligatoria) ------------------------------------
-OA_URL="$(svc_or_base SCHEDULER_OAUTH_TOKEN_URL)"
-OA_ID="$(svc_or_base SCHEDULER_OAUTH_CLIENT_ID)"
-OA_SEC="$(svc_or_base SCHEDULER_OAUTH_CLIENT_SECRET)"
+# Stessa precedenza di SchedulerConfig.from_env: override SCHEDULER_OAUTH_*,
+# poi client generico OZON_M2M_* con token URL da KEYCLOAK_SERVER_URL + REALM.
+first_of() {
+  local k v
+  for k in "$@"; do
+    v="$(svc_or_base "$k")"
+    if have "$v"; then printf '%s' "$v"; return 0; fi
+  done
+  return 0  # nessun valore: stringa vuota, non errore (set -e)
+}
+OA_URL="$(first_of SCHEDULER_OAUTH_TOKEN_URL)"
+if ! have "$OA_URL" && have "$(svc_or_base KEYCLOAK_SERVER_URL)" && have "$(svc_or_base KEYCLOAK_REALM)"; then
+  OA_URL="derivato"
+fi
+OA_ID="$(first_of SCHEDULER_OAUTH_CLIENT_ID OZON_M2M_CLIENT_ID)"
+OA_SEC="$(first_of SCHEDULER_OAUTH_CLIENT_SECRET OZON_M2M_CLIENT_SECRET)"
 if ! { have "$OA_URL" && have "$OA_ID" && have "$OA_SEC"; }; then
   echo ""
   echo "Config M2M keycloak mancante (l'endpoint run verifica il JWT keycloak)."
